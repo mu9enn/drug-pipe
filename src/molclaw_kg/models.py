@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+from pydantic import BaseModel, Field
+
+
+class Slot(BaseModel):
+    name: str
+    raw_type: str = "unknown"
+    semantic_type: str = "unknown"
+    format: str = "unknown"
+    unit: str | None = None
+    cardinality: Literal["single", "list", "map", "unknown"] = "unknown"
+    parameter_kind: Literal["data", "config", "control", "unknown"] = "unknown"
+    requirement_status: Literal["required", "optional", "conditional"] = "optional"
+    required: bool = False
+    description: str = ""
+    source: Literal["input_schema", "output_schema", "description", "inferred", "doc"] = "inferred"
+    confidence: float = 0.5
+
+
+class ToolCard(BaseModel):
+    # Lean production tool-card fields used by candidate/adjudication/sampling.
+    tool_id: str
+    title: str
+    description_summary: str
+    primary_stage: str = "simulation_prediction"
+    secondary_stages: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    inputs: list[Slot] = Field(default_factory=list)
+    outputs: list[Slot] = Field(default_factory=list)
+    connectable_inputs: list[Slot] = Field(default_factory=list)
+    connectable_outputs: list[Slot] = Field(default_factory=list)
+    input_requirement_sets: list[dict[str, Any]] = Field(default_factory=list)
+    preconditions: list[Slot] = Field(default_factory=list)
+    side_effects: list[Slot] = Field(default_factory=list)
+    needs_review: bool = False
+
+
+class DocChunk(BaseModel):
+    doc_id: str
+    path: str
+    skill_level: str
+    section_id: str
+    heading_path: list[str]
+    block_type: Literal["paragraph", "list", "code", "mixed"] = "paragraph"
+    chunk_id: str
+    char_start: int
+    char_end: int
+    text: str
+
+
+class EvidenceUnit(BaseModel):
+    evidence_id: str
+    doc_id: str
+    chunk_id: str
+    claim_type: Literal[
+        "explicit_sequence",
+        "explicit_io",
+        "implicit_io",
+        "conditional_sequence",
+        "negative_constraint",
+        "validation_requirement",
+        "reporting",
+        "alternative_relation",
+        "weak_context",
+    ]
+    candidate_edge_type: str | None = None
+    mentioned_tools: list[str] = Field(default_factory=list)
+    source_tool: str | None = None
+    target_tool: str | None = None
+    source_output_mention: str | None = None
+    target_input_mention: str | None = None
+    negation: bool = False
+    condition_text: str | None = None
+    text_span: str
+    confidence: float = 0.5
+
+
+class CandidatePair(BaseModel):
+    pair_id: str
+    source_tool: str
+    target_tool: str
+    source_stage: str
+    target_stage: str
+    source: list[str] = Field(default_factory=list)
+    schema_score: float = 0.0
+    suggested_edge_types: list[str] = Field(default_factory=list)
+    negative_reason: str | None = None
+
+
+class EdgeTypeDecision(BaseModel):
+    type: str
+    source_slot: str | None = None
+    target_slot_or_precondition: str | None = None
+    confidence: float = 0.5
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class SatisfiedMapping(BaseModel):
+    source_output_slot: str = ""
+    target_input_slot: str = ""
+    semantic_match: Literal["exact", "compatible", "convertible", "incompatible", "unknown"] = "unknown"
+    format_match: Literal["exact", "compatible", "convertible", "incompatible", "unknown"] = "unknown"
+    evidence_refs: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
+class UnsatisfiedRequiredInput(BaseModel):
+    target_input_slot: str = ""
+    reason: str = ""
+    can_be_user_provided: bool = True
+    can_be_satisfied_by_other_upstream_tool: bool = True
+
+
+class AdjudicationRecord(BaseModel):
+    pair_id: str
+    relation_status: Literal["valid", "negative", "uncertain", "alternative"]
+    direct_transition: bool
+    edge_types: list[EdgeTypeDecision] = Field(default_factory=list)
+    negative_reason: str | None = None
+    satisfied_mappings: list[SatisfiedMapping] = Field(default_factory=list)
+    unsatisfied_required_inputs: list[UnsatisfiedRequiredInput] = Field(default_factory=list)
+    context: str = ""
+    evidence_refs: list[str] = Field(default_factory=list)
+    rationale: str = ""
+    agent_model: str = "claude-cc-v1"
+    agent_confidence: float = 0.5
+    raw_payload_hash: str | None = None
+
+
+class FinalEdge(BaseModel):
+    edge_id: str
+    pair_id: str
+    source_tool: str
+    target_tool: str
+    edge_type: str
+    direct_transition: bool
+    source_slot: str | None = None
+    target_slot: str | None = None
+    stage_src: str
+    stage_tgt: str
+    relation_status: Literal["valid", "negative", "uncertain", "alternative"]
+    confidence_raw: float
+    confidence_calibrated: float
+    view: Literal["core", "expanded", "uncertain", "negative"]
+    evidence_ids: list[str] = Field(default_factory=list)
+    negative_reason: str | None = None
+    created_at: str
+    run_id: str
+
+
+class ValidationResult(BaseModel):
+    # Kept only for backward import compatibility; validate stage is removed from main pipeline.
+    edge_id: str
+    pair_id: str
+    validator_name: str
+    status: Literal["pass", "weak", "fail"]
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)

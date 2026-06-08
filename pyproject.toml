@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molclaw-kg"
+version = "0.1.0"
+description = "Evidence-grounded pairwise construction of a tool-only directed typed graph for MolClaw MCP tools"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "MolClaw KG Team"}]
+dependencies = [
+  "PyYAML>=6.0",
+  "jsonschema>=4.0",
+  "pydantic>=2.0",
+  "mcp>=1.0",
+  "tqdm>=4.66",
+]
+
+[project.scripts]
+molclaw-kg = "molclaw_kg.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

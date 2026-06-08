@@ -1,0 +1,36 @@
+version: edge_type_v1
+canonical_edge_types:
+  - name: generates_full_input_for
+    direct_transition: true
+    chain_default: true
+  - name: generates_partial_input_for
+    direct_transition: true
+    chain_default: true
+  - name: preprocesses_for
+    direct_transition: true
+    chain_default: true
+  - name: converts_format_for
+    direct_transition: true
+    chain_default: true
+  - name: parameterizes_for
+    direct_transition: true
+    chain_default: true
+  - name: filters_candidates_for
+    direct_transition: true
+    chain_default: true
+  - name: ranks_or_scores_for
+    direct_transition: true
+    chain_default: true
+    aliases: [ranks_after]
+  - name: validates_output_of
+    direct_transition: true
+    chain_default: true
+  - name: refines_output_of
+    direct_transition: true
+    chain_default: true
+  - name: reports_or_summarizes
+    direct_transition: true
+    chain_default: true
+  - name: alternative_to
+    direct_transition: false
+    chain_default: false

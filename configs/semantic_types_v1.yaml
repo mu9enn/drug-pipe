@@ -1,0 +1,53 @@
+version: semantic_type_v1
+semantic_types:
+  - unknown
+  - protein_sequence
+  - protein_structure_pdb
+  - repaired_pdb
+  - pdb_chain_subset
+  - ligand_smiles
+  - ligand_smiles_list
+  - ligand_3d_conformer
+  - pocket_box
+  - docking_pose
+  - docking_score
+  - affinity_score
+  - admet_profile
+  - candidate_set
+  - ranking_table
+  - report_markdown
+  - image_plot
+  - mmpbsa_workdir
+  - mmpbsa_result
+  - trajectory
+  - config_param
+
+compatibility:
+  exact: 1.0
+  subtype: 0.85
+  convertible: 0.55
+  incompatible: 0.0
+
+subtype_pairs:
+  - [repaired_pdb, protein_structure_pdb]
+  - [pdb_chain_subset, protein_structure_pdb]
+  - [ligand_smiles_list, candidate_set]
+  - [docking_score, ranking_table]
+  - [affinity_score, ranking_table]
+
+convertible_pairs:
+  - [ligand_smiles, ligand_3d_conformer]
+  - [ligand_smiles_list, ligand_3d_conformer]
+  - [protein_structure_pdb, repaired_pdb]
+  - [repaired_pdb, pocket_box]
+  - [docking_pose, ranking_table]
+  - [mmpbsa_workdir, mmpbsa_result]
+
+format_compatibility:
+  pdb: [pdb, pdbqt]
+  pdbqt: [pdbqt]
+  smiles: [smiles, smi]
+  smi: [smi, smiles]
+  sdf: [sdf, mol2]
+  csv: [csv]
+  json: [json]

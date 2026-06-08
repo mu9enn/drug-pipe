@@ -1,0 +1,56 @@
+version: question_sampling_v2
+
+defaults:
+  edge_profile: core_strict
+  partial_policy: closure_required
+  max_repair_rounds: 2
+
+edge_profiles:
+  core_strict:
+    allowed_views: [core]
+  core_expanded:
+    allowed_views: [core, expanded]
+
+partial_edge_policy:
+  require_satisfied_mapping: true
+
+anchor_policy:
+  excluded_start_tools:
+    - base64_to_server_file
+    - server_file_to_base64
+  excluded_terminal_tools:
+    - base64_to_server_file
+    - server_file_to_base64
+  max_reporting_or_visualization_tools: 1
+  utility_tools:
+    - base64_to_server_file
+    - server_file_to_base64
+    - interaction_visualizer
+    - visualize_molecule
+    - visualize_protein
+
+executability:
+  forbid_file_path_user_inputs: true
+  forbidden_placeholder_patterns:
+    - '(?i)\buser[_ -]?provided\b'
+    - '(?i)\bgiven[_ -]?[a-z0-9_]*\b'
+    - '(?i)\bto[_ -]?be[_ -]?specified\b'
+    - '(?i)\btbd\b'
+    - '(?i)\bplaceholder\b'
+    - '(?i)\b/path/to\b'
+  forbidden_workflow_design_patterns:
+    - '(?i)\bdesign\s+(?:a\s+)?(?:computational\s+)?workflow\b'
+    - '(?i)\bdescribe\s+(?:a\s+)?(?:computational\s+)?workflow\b'
+    - '(?i)\bset\s+up\s+(?:a\s+)?(?:complete\s+)?(?:analysis\s+)?workflow\b'
+  execution_intent_patterns:
+    - '(?i)\bperform\b'
+    - '(?i)\brun\b'
+    - '(?i)\banalyze\b'
+    - '(?i)\bpredict\b'
+    - '(?i)\bgenerate\b'
+    - '(?i)\breturn\b'
+
+science_kb:
+  sqlite_path: science_kb/processed/science_kb.sqlite
+  manifest_path: science_kb/manifests/science_kb_manifest.json
+  mcp_server_name: molclaw-science-kb
