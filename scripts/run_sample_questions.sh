@@ -20,21 +20,33 @@
 #        runs/<run_id>/sample_workdir/   # per-sample Claude Code workdirs/traces
 #        runs/<run_id>/sample_results/   # JSONL/CSV/results/reports
 #
-# Main usage:
-#   bash scripts/run_sample_questions.sh <run_id> --sample-size <N>
+# Main usage (simple_toolchain_question is the default mode):
+#   bash scripts/run_sample_questions.sh <run_id> \
+#     --target-successes <N> --max-attempts <N>
 #
 # Examples:
-#   # Smoke test: generate one sample to inspect quality.
-#   bash scripts/run_sample_questions.sh run_20260601_123052 --sample-size 1
+#   # Simple success-first mode: stop at 20 usable questions or 200 attempts.
+#   bash scripts/run_sample_questions.sh run_20260601_123052 \
+#     --target-successes 20 --max-attempts 200 \
+#     --grounding-selection random_seeded \
+#     --max-repeat-target 2 --max-repeat-compound 2
 #
-#   # Reproducible batch run with a fixed random seed.
-#   bash scripts/run_sample_questions.sh run_20260601_123052 --sample-size 100 --seed 42
+#   # Simple-mode smoke test: generate one usable question.
+#   bash scripts/run_sample_questions.sh run_20260601_123052 \
+#     --target-successes 1 --max-attempts 10
+#
+#   # Legacy closure mode must now be selected explicitly.
+#   bash scripts/run_sample_questions.sh run_20260601_123052 \
+#     --sampling-mode dag_closure --sample-size 20
 #
 #   # Override walk/anchor hop range. Defaults are 2 to 4.
-#   bash scripts/run_sample_questions.sh run_20260601_123052 --sample-size 20 --min-hops 2 --max-hops 5
+#   bash scripts/run_sample_questions.sh run_20260601_123052 \
+#     --target-successes 20 --max-attempts 200 --min-hops 2 --max-hops 5
 #
 # Sampling modes:
-#   - dag_closure: default production mode. Uses dependency-closure logic and
+#   - simple_toolchain_question: default success-first mode. Samples valid hidden
+#     toolchains and asks the Agent only for a compact natural-language question.
+#   - dag_closure: legacy explicit mode. Uses dependency-closure logic and
 #     trajectory_v2 graph outputs where available.
 #   - linear_debug: debug-only linear sampling mode, not recommended for final
 #     KG-sampled task generation.
@@ -60,13 +72,22 @@ SAMPLE_SIZE=""
 MIN_HOPS=2
 MAX_HOPS=4
 SEED=""
-SAMPLING_MODE="dag_closure"
+SAMPLING_MODE="simple_toolchain_question"
 PARTIAL_POLICY="closure_required"
 EDGE_PROFILE="core_strict"
 MAX_REPAIR_ROUNDS=2
+TARGET_SUCCESSES=""
+MAX_ATTEMPTS=""
+JSON_REPAIR_ROUNDS=1
+SCIENCE_KB_TOPK=3
+GROUNDING_SELECTION="random_seeded"
+MAX_REPEAT_TARGET=2
+MAX_REPEAT_COMPOUND=2
 
 usage() {
-  echo "Usage: $0 <run_id> --sample-size <N> [--min-hops <n>] [--max-hops <n>] [--seed <int>] [--sampling-mode dag_closure|linear_debug] [--partial-policy closure_required|exclude] [--edge-profile core_strict|core_expanded] [--max-repair-rounds <n>]"
+  echo "Usage:"
+  echo "  Default simple mode: $0 <run_id> --target-successes <N> --max-attempts <N> [--grounding-selection random_seeded] [...]"
+  echo "  Legacy strict mode: $0 <run_id> --sampling-mode dag_closure|linear_debug --sample-size <N> [...]"
 }
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "--help" || "$RUN_ID" == "-h" ]]; then
@@ -79,6 +100,34 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --sample-size)
       SAMPLE_SIZE="${2:-}"
+      shift 2
+      ;;
+    --target-successes)
+      TARGET_SUCCESSES="${2:-}"
+      shift 2
+      ;;
+    --max-attempts)
+      MAX_ATTEMPTS="${2:-}"
+      shift 2
+      ;;
+    --json-repair-rounds)
+      JSON_REPAIR_ROUNDS="${2:-1}"
+      shift 2
+      ;;
+    --science-kb-topk)
+      SCIENCE_KB_TOPK="${2:-3}"
+      shift 2
+      ;;
+    --grounding-selection)
+      GROUNDING_SELECTION="${2:-random_seeded}"
+      shift 2
+      ;;
+    --max-repeat-target)
+      MAX_REPEAT_TARGET="${2:-2}"
+      shift 2
+      ;;
+    --max-repeat-compound)
+      MAX_REPEAT_COMPOUND="${2:-2}"
       shift 2
       ;;
     --min-hops)
@@ -94,7 +143,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --sampling-mode)
-      SAMPLING_MODE="${2:-dag_closure}"
+      SAMPLING_MODE="${2:-simple_toolchain_question}"
       shift 2
       ;;
     --partial-policy)
@@ -121,10 +170,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$SAMPLE_SIZE" ]]; then
-  echo "ERROR: --sample-size is required" >&2
-  usage
-  exit 2
+if [[ "$SAMPLING_MODE" == "simple_toolchain_question" ]]; then
+  if [[ -z "$TARGET_SUCCESSES" || -z "$MAX_ATTEMPTS" ]]; then
+    echo "ERROR: simple mode requires --target-successes and --max-attempts" >&2
+    usage
+    exit 2
+  fi
+elif [[ -z "$SAMPLE_SIZE" ]]; then
+    echo "ERROR: strict modes require --sample-size" >&2
+    usage
+    exit 2
 fi
 
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
@@ -163,7 +218,6 @@ cmd=(
   --api-key "$API_KEY"
   --mode claude_cc
   sample-questions
-  --sample-size "$SAMPLE_SIZE"
   --min-hops "$MIN_HOPS"
   --max-hops "$MAX_HOPS"
   --sampling-mode "$SAMPLING_MODE"
@@ -172,10 +226,24 @@ cmd=(
   --max-repair-rounds "$MAX_REPAIR_ROUNDS"
 )
 
+if [[ "$SAMPLING_MODE" == "simple_toolchain_question" ]]; then
+  cmd+=(
+    --target-successes "$TARGET_SUCCESSES"
+    --max-attempts "$MAX_ATTEMPTS"
+    --json-repair-rounds "$JSON_REPAIR_ROUNDS"
+    --science-kb-topk "$SCIENCE_KB_TOPK"
+    --grounding-selection "$GROUNDING_SELECTION"
+    --max-repeat-target "$MAX_REPEAT_TARGET"
+    --max-repeat-compound "$MAX_REPEAT_COMPOUND"
+  )
+else
+  cmd+=(--sample-size "$SAMPLE_SIZE")
+fi
+
 if [[ -n "$SEED" ]]; then
   cmd+=(--seed "$SEED")
 fi
 
-echo "[sample-questions] run_id=$RUN_ID sample_size=$SAMPLE_SIZE hops=[$MIN_HOPS,$MAX_HOPS] mode=$SAMPLING_MODE partial=$PARTIAL_POLICY edges=$EDGE_PROFILE repairs=$MAX_REPAIR_ROUNDS seed=${SEED:-none}"
+echo "[sample-questions] run_id=$RUN_ID mode=$SAMPLING_MODE sample_size=${SAMPLE_SIZE:-n/a} target_successes=${TARGET_SUCCESSES:-n/a} max_attempts=${MAX_ATTEMPTS:-n/a} hops=[$MIN_HOPS,$MAX_HOPS] partial=$PARTIAL_POLICY edges=$EDGE_PROFILE repairs=$MAX_REPAIR_ROUNDS json_repairs=$JSON_REPAIR_ROUNDS kb_topk=$SCIENCE_KB_TOPK grounding=$GROUNDING_SELECTION max_repeat_target=$MAX_REPEAT_TARGET max_repeat_compound=$MAX_REPEAT_COMPOUND seed=${SEED:-none}"
 PYTHONPATH="$PROJECT_ROOT/src" "${cmd[@]}"
 echo "[sample-questions] complete: $RUN_DIR/sample_results"

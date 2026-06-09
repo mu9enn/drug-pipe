@@ -19,7 +19,7 @@ from .exporters import export_artifacts
 from .audit_sampler import sample_for_audit
 from .evaluate_logs import evaluate_against_logs
 from .manifest import write_repro_manifest
-from .question_sampling import sample_questions
+from .question_sampling import sample_questions, sample_simple_questions
 
 
 def _base_parser() -> argparse.ArgumentParser:
@@ -96,15 +96,26 @@ def main() -> None:
         default=0,
         help="Optional rerun round index for metadata.",
     )
-    subparsers["sample-questions"].add_argument("--sample-size", type=int, required=True)
+    subparsers["sample-questions"].add_argument("--sample-size", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--target-successes", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--max-attempts", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--json-repair-rounds", type=int, default=1)
+    subparsers["sample-questions"].add_argument("--science-kb-topk", type=int, default=3)
+    subparsers["sample-questions"].add_argument(
+        "--grounding-selection",
+        default="random_seeded",
+        choices=["random_seeded"],
+    )
+    subparsers["sample-questions"].add_argument("--max-repeat-target", type=int, default=2)
+    subparsers["sample-questions"].add_argument("--max-repeat-compound", type=int, default=2)
     subparsers["sample-questions"].add_argument("--min-hops", type=int, default=2)
     subparsers["sample-questions"].add_argument("--max-hops", type=int, default=4)
     subparsers["sample-questions"].add_argument("--seed", type=int, default=None)
     subparsers["sample-questions"].add_argument(
         "--sampling-mode",
         type=str,
-        default="dag_closure",
-        choices=["dag_closure", "linear_debug"],
+        default="simple_toolchain_question",
+        choices=["dag_closure", "linear_debug", "simple_toolchain_question"],
     )
     subparsers["sample-questions"].add_argument(
         "--partial-policy",
@@ -188,17 +199,36 @@ def main() -> None:
     elif args.cmd == "manifest":
         out = write_repro_manifest(config)
     elif args.cmd == "sample-questions":
-        out = sample_questions(
-            config,
-            sample_size=int(args.sample_size),
-            min_hops=int(args.min_hops),
-            max_hops=int(args.max_hops),
-            seed=args.seed if args.seed is None else int(args.seed),
-            sampling_mode=str(args.sampling_mode),
-            partial_policy=str(args.partial_policy),
-            edge_profile=str(args.edge_profile),
-            max_repair_rounds=max(0, int(args.max_repair_rounds)),
-        )
+        if args.sampling_mode == "simple_toolchain_question":
+            if args.target_successes is None or args.max_attempts is None:
+                parser.error("simple_toolchain_question requires --target-successes and --max-attempts")
+            out = sample_simple_questions(
+                config,
+                target_successes=int(args.target_successes),
+                max_attempts=int(args.max_attempts),
+                min_hops=int(args.min_hops),
+                max_hops=int(args.max_hops),
+                json_repair_rounds=max(0, int(args.json_repair_rounds)),
+                science_kb_topk=max(1, int(args.science_kb_topk)),
+                grounding_selection=str(args.grounding_selection),
+                max_repeat_target=max(1, int(args.max_repeat_target)),
+                max_repeat_compound=max(1, int(args.max_repeat_compound)),
+                seed=args.seed if args.seed is None else int(args.seed),
+            )
+        else:
+            if args.sample_size is None:
+                parser.error("dag_closure/linear_debug require --sample-size")
+            out = sample_questions(
+                config,
+                sample_size=int(args.sample_size),
+                min_hops=int(args.min_hops),
+                max_hops=int(args.max_hops),
+                seed=args.seed if args.seed is None else int(args.seed),
+                sampling_mode=str(args.sampling_mode),
+                partial_policy=str(args.partial_policy),
+                edge_profile=str(args.edge_profile),
+                max_repair_rounds=max(0, int(args.max_repair_rounds)),
+            )
     else:
         raise ValueError(f"Unknown command {args.cmd}")
 

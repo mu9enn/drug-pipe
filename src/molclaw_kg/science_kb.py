@@ -186,6 +186,29 @@ class ScienceKB:
                 record.pop("sequence", None)
         return records
 
+    def list_target_ligand_pair_seeds(self) -> list[dict[str, Any]]:
+        """Return a compact, deterministic seed index for script-side sampling."""
+        rows = self.conn.execute(
+            """
+            SELECT x.record_id, x.source_database, x.source_version, x.protein_id,
+                   x.compound_id, x.activity_type, x.activity_value, x.activity_unit,
+                   p.uniprot_accession, p.gene_name, p.protein_name, p.pdb_ids_json,
+                   c.compound_name, c.canonical_smiles
+            FROM target_ligand_pairs x
+            LEFT JOIN proteins p ON p.record_id = (
+              SELECT p2.record_id FROM proteins p2
+              WHERE p2.protein_id=x.protein_id
+              ORDER BY
+                CASE WHEN p2.pdb_ids_json IS NOT NULL AND p2.pdb_ids_json != '[]' THEN 0 ELSE 1 END,
+                p2.record_id
+              LIMIT 1
+            )
+            LEFT JOIN compounds c ON c.compound_id=x.compound_id
+            ORDER BY x.record_id
+            """
+        ).fetchall()
+        return [row_to_record(row) for row in rows]
+
     def find_proteins_with_structures(self, query: str = "", limit: int = 10) -> list[dict[str, Any]]:
         return self.search_proteins(query=query, require_structure=True, limit=limit)
 

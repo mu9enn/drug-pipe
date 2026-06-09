@@ -16,7 +16,7 @@ MolClaw MCP 工具的 Tool Knowledge Graph 构建工程（fixed pruning taxonomy
 8. 主图字段瘦身；重解释信息写入 sidecar：
    - `tool_cards_debug.jsonl`
    - `edge_debug_sidecar.jsonl`
-9. Stage3 默认模式为 `dag_closure`：允许命中 `generates_partial_input_for`，但必须经过 input closure 与 provider 扩展后闭合依赖
+9. Stage3 默认模式为 `simple_toolchain_question`；旧 `dag_closure` 仅保留为显式调用的 legacy 模式
 
 ## 目录
 
@@ -167,3 +167,50 @@ bash scripts/run_sample_questions.sh run_x --sample-size 5 --sampling-mode linea
 - Stage3 默认只从 `core` 边采 anchor；partial 边必须有明确 mapping，且最终
   workflow 必须闭包后才能进入 success。
 - Stage3 不执行远程 MolClaw 科学工具，只允许 Agent 查询只读本地 Science-KB。
+
+### Stage3 simple question sampling mode
+
+`simple_toolchain_question` 是面向高产出率的默认模式：
+
+- 只从 `relation_status=valid` 的边采样 simple hidden toolchain；
+- hidden toolchain 仅作为内部 blueprint，不会拼入公开问题；
+- Agent 只需根据紧凑工具卡、边证据和少量 Science-KB facts 生成自然问题；
+- Python 从完整 Science-KB seed 索引随机选择 target-ligand grounding，并限制同一
+  target/compound 的优先重复次数；
+- Agent 输出仅包含 `status/public_question_text/question_payload/rationale`；
+- 程序将工具名或显式顺序暴露记录为 soft warning，不再因此丢弃可 rollout 问题；
+- 明确要求用户后续补输入、使用 placeholder 或虚构路径的问题会被拒绝；
+- JSON 格式错误时可执行 JSON-only repair；
+- 主循环以目标成功问题数为终止条件，而不是固定尝试次数。
+
+运行示例：
+
+```bash
+bash scripts/run_sample_questions.sh run_x \
+  --target-successes 20 \
+  --max-attempts 200 \
+  --min-hops 2 \
+  --max-hops 4 \
+  --json-repair-rounds 1 \
+  --grounding-selection random_seeded \
+  --science-kb-topk 5 \
+  --max-repeat-target 2 \
+  --max-repeat-compound 2 \
+  --seed 42
+```
+
+旧 closure 模式不再默认启用，需要时显式运行：
+
+```bash
+bash scripts/run_sample_questions.sh run_x \
+  --sampling-mode dag_closure \
+  --sample-size 20
+```
+
+输出：
+
+- `runs/<run_id>/sample_results/sample_success_simple.jsonl`
+- `runs/<run_id>/sample_results/sample_attempts_simple.jsonl`
+- `runs/<run_id>/sample_results/questions_simple.csv`
+- `runs/<run_id>/sample_results/simple_sampling_meta.json`
+- `runs/<run_id>/sample_workdir/simple_toolchain_question/`
