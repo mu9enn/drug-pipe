@@ -1,0 +1,24 @@
+{
+  "version": "v0",
+  "description": "MolClaw mini allowlist for slime-native drug_agent migration phase",
+  "allowed_tools": [
+    "molecule_docking_quickvina_fullprocess",
+    "pred_binding_affinity_boltz2",
+    "calculate_mol_basic_info",
+    "calculate_mol_hydrophobicity",
+    "fix_pdb",
+    "is_valid_smiles",
+    "calculate_mol_hbond",
+    "pred_pocket_prank",
+    "retrieve_protein_structure_by_gene_name",
+    "fpocket_toolkit",
+    "calculate_mol_structure_complexity",
+    "calculate_mol_drug_chemistry",
+    "retrieve_protein_sequence",
+    "server_file_to_base64",
+    "calculate_mol_topology",
+    "retrieve_protein_structure_by_pdb_id",
+    "convert_smiles_to_format",
+    "retrieve_protein_structure_by_uniprot_id"
+  ]
+}

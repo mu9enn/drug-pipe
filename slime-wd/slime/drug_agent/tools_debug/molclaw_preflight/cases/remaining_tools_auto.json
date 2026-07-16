@@ -1,0 +1,414 @@
+[
+  {
+    "case_id": "remaining_001_chroma_complex",
+    "tool_name": "chroma_complex",
+    "arguments": {
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_002_chroma_monomer",
+    "tool_name": "chroma_monomer",
+    "arguments": {
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_003_chroma_symmetry",
+    "tool_name": "chroma_symmetry",
+    "arguments": {
+      "group": "C3",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_004_equiscore_pipeline",
+    "tool_name": "equiscore_pipeline",
+    "arguments": {
+      "docking_result": "value",
+      "receptor_pdb": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_005_equiscore_pocket",
+    "tool_name": "equiscore_pocket",
+    "arguments": {
+      "docking_result": "value",
+      "receptor_pdb": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_006_equiscore_screen",
+    "tool_name": "equiscore_screen",
+    "arguments": {
+      "pocket_dir": "__AUTO__:dir",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_007_evobind_tool",
+    "tool_name": "evobind_tool",
+    "arguments": {
+      "fasta": "__AUTO__:fasta_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_008_extract_bioemu_structures",
+    "tool_name": "extract_bioemu_structures",
+    "arguments": {
+      "input_dir": "__AUTO__:dir",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_009_foldx_tool",
+    "tool_name": "foldx_tool",
+    "arguments": {
+      "mode": "repair",
+      "pdb_path": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_010_fpocket_toolkit",
+    "tool_name": "fpocket_toolkit",
+    "arguments": {
+      "pdb_file": "__AUTO__:pdb_file"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_011_gmx_mmpbsa_propro",
+    "tool_name": "gmx_mmpbsa_propro",
+    "arguments": {
+      "work_dir": "__AUTO__:dir",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_012_goca_pipeline",
+    "tool_name": "goca_pipeline",
+    "arguments": {
+      "protein_pdb": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_013_hdock_tool",
+    "tool_name": "hdock_tool",
+    "arguments": {
+      "receptor": "value",
+      "ligand": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_014_interaction_visualizer",
+    "tool_name": "interaction_visualizer",
+    "arguments": {
+      "mode": "protein_ligand",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_015_karmadock_tool",
+    "tool_name": "karmadock_tool",
+    "arguments": {
+      "ligand_smi": "CCO",
+      "protein_file": "__AUTO__:pdb_file",
+      "crystal_ligand_file": "__AUTO__:sdf_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_016_libinvent_rgroup_sampling_by_scaffold",
+    "tool_name": "libinvent_rgroup_sampling_by_scaffold",
+    "arguments": {
+      "scaffold": "c1ccccc1",
+      "n": 1,
+      "lipinski": false,
+      "filter_preset": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_017_libinvent_rgroup_sampling_by_scaffold_name",
+    "tool_name": "libinvent_rgroup_sampling_by_scaffold_name",
+    "arguments": {
+      "scaffold_name": "benzene",
+      "n": 1,
+      "lipinski": false,
+      "filter_preset": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_018_linkinvent_linker_sampling_by_warhead_pair_name",
+    "tool_name": "linkinvent_linker_sampling_by_warhead_pair_name",
+    "arguments": {
+      "warhead_pair_name": "pair_demo",
+      "n": 1,
+      "filter_preset": "value",
+      "lipinski": false,
+      "min_linker_atoms": 1,
+      "max_linker_atoms": 1
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_019_linkinvent_linker_sampling_by_warheads",
+    "tool_name": "linkinvent_linker_sampling_by_warheads",
+    "arguments": {
+      "warheads": "CCO.CCN",
+      "n": 1,
+      "filter_preset": "value",
+      "lipinski": false,
+      "min_linker_atoms": 1,
+      "max_linker_atoms": 1
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_020_openawsem_sim",
+    "tool_name": "openawsem_sim",
+    "arguments": {
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_021_openawsem_traj_extract",
+    "tool_name": "openawsem_traj_extract",
+    "arguments": {
+      "sim_dir": "__AUTO__:dir",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_022_openmm_extract_frames",
+    "tool_name": "openmm_extract_frames",
+    "arguments": {
+      "work_dir": "__AUTO__:dir",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_023_pack_sidechains",
+    "tool_name": "pack_sidechains",
+    "arguments": {
+      "input_pdb": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_024_pepinvent_peptide_sampling_by_peptide",
+    "tool_name": "pepinvent_peptide_sampling_by_peptide",
+    "arguments": {
+      "peptide": "ACDEFG",
+      "n": 1,
+      "filter_preset": "value",
+      "mw_min": 1.0,
+      "mw_max": 1.0
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_025_pepinvent_peptide_sampling_by_template",
+    "tool_name": "pepinvent_peptide_sampling_by_template",
+    "arguments": {
+      "template": "ACDEFG",
+      "n": 1,
+      "filter_preset": "value",
+      "mw_min": 1.0,
+      "mw_max": 1.0
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_026_pred_binding_affinity_boltz2",
+    "tool_name": "pred_binding_affinity_boltz2",
+    "arguments": {
+      "protein": [
+        {
+          "id": "A",
+          "sequence": "MKTIIALSYIFCLVFA"
+        }
+      ],
+      "smiles": "CCO"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_027_prepare_complex",
+    "tool_name": "prepare_complex",
+    "arguments": {
+      "protein": "value",
+      "ligand": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_028_prepare_protein_md",
+    "tool_name": "prepare_protein_md",
+    "arguments": {
+      "protein_pdb": "__AUTO__:pdb_file"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_029_prolif_docking",
+    "tool_name": "prolif_docking",
+    "arguments": {
+      "protein_path": "__AUTO__:pdb_file",
+      "ligand_paths": [
+        "__AUTO__:sdf_file"
+      ],
+      "ligand_format": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_030_prolif_md",
+    "tool_name": "prolif_md",
+    "arguments": {
+      "topology_path": "__AUTO__:pdb_file",
+      "trajectory_path": "__AUTO__:pdb_file",
+      "ligand_selection": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_031_prolif_pdb",
+    "tool_name": "prolif_pdb",
+    "arguments": {
+      "structure_path": "__AUTO__:pdb_file",
+      "ligand_selection": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_032_prolif_protein_protein",
+    "tool_name": "prolif_protein_protein",
+    "arguments": {
+      "topology_path": "__AUTO__:pdb_file",
+      "trajectory_path": "__AUTO__:pdb_file",
+      "selection_a": "value",
+      "selection_b": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_033_protein_openmm_md",
+    "tool_name": "protein_openmm_md",
+    "arguments": {
+      "protein_pdb": "__AUTO__:pdb_file"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_034_proteinmpnn_tool",
+    "tool_name": "proteinmpnn_tool",
+    "arguments": {
+      "pdb_input": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_035_pulchura_rebuild",
+    "tool_name": "pulchura_rebuild",
+    "arguments": {
+      "input_pdbs": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_036_reinvent_mol2mol_sampling",
+    "tool_name": "reinvent_mol2mol_sampling",
+    "arguments": {
+      "smiles": "CCO",
+      "n": 1,
+      "min_similarity": 1.0,
+      "prior_type": "value",
+      "lipinski": false,
+      "filter_preset": "value"
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_037_residue_mapper",
+    "tool_name": "residue_mapper",
+    "arguments": {
+      "pdb_path": "__AUTO__:pdb_file",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  },
+  {
+    "case_id": "remaining_038_run_mmpbsa",
+    "tool_name": "run_mmpbsa",
+    "arguments": {
+      "work_dir": "__AUTO__:dir",
+      "dry_run": true
+    },
+    "notes": "auto-generated from schema (remaining tool coverage)",
+    "source": "auto_remaining"
+  }
+]

@@ -1,0 +1,56 @@
+# Python caches
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local tooling
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Temp files
+*.tmp
+*.swp
+*.swo
+.DS_Store
+*.log
+*.pid
+*.bak
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+!.env.template
+.mcp.json
+**/.claude/settings.local.json
+.ms_upload_cache
+
+# Large data artifacts
+get-molbench/data/
+get-molbench/outputs/
+results/
+molbench/
+pipeline/e2e/runs/
+pipeline/kg/runs/
+pipeline/kg/data/
+exports/
+
+# Other local runtime folders
+tmp/
+tmp_test_claude/
+**/cc-workdir/
+**/cc_workdir/
+*.tar.gz
+
+# Packaging / build output
+build/
+dist/
+*.egg-info/

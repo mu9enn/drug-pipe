@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "defaults": {
+    "tool_name_casefold": true,
+    "param_name_casefold": true,
+    "list_as_multiset": true,
+    "numeric_tolerance": 1e-06,
+    "artifact_placeholder_tokens": [
+      "<artifact>",
+      "<file>",
+      "<path>",
+      "artifact://",
+      "file://",
+      "path://"
+    ],
+    "artifact_path_suffix_len": 2
+  },
+  "tools": {
+    "is_valid_smiles": {
+      "param_types": {
+        "smiles_list": "smiles_list"
+      }
+    },
+    "convert_smiles_to_format": {
+      "param_types": {
+        "smiles": "smiles",
+        "format": "string"
+      }
+    },
+    "fix_pdb": {
+      "param_types": {
+        "input_path": "artifact",
+        "add_hydrogens": "bool",
+        "remove_heterogens": "bool",
+        "remove_water": "bool",
+        "replace_nonstandard": "bool"
+      }
+    },
+    "retrieve_protein_structure_by_gene_name": {
+      "param_types": {
+        "gene_name": "string"
+      }
+    },
+    "retrieve_protein_sequence": {
+      "param_types": {
+        "protein_id": "string"
+      }
+    },
+    "retrieve_protein_structure_by_pdb_id": {
+      "param_types": {
+        "protein_id": "string"
+      }
+    },
+    "retrieve_protein_structure_by_uniprot_id": {
+      "param_types": {
+        "protein_id": "string"
+      }
+    },
+    "pred_pocket_prank": {
+      "param_types": {
+        "input_path": "artifact",
+        "top_n": "number",
+        "radius": "number"
+      }
+    },
+    "fpocket_toolkit": {
+      "param_types": {
+        "input_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "molecule_docking_quickvina_fullprocess": {
+      "param_types": {
+        "protein_path": "artifact",
+        "ligand_smiles": "smiles",
+        "ligand_path": "artifact",
+        "output_path": "artifact",
+        "num_modes": "number"
+      }
+    },
+    "pred_binding_affinity_boltz2": {
+      "param_types": {
+        "protein_path": "artifact",
+        "ligand_smiles": "smiles",
+        "ligand_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "calculate_mol_basic_info": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "calculate_mol_hydrophobicity": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "calculate_mol_hbond": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "calculate_mol_structure_complexity": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "calculate_mol_drug_chemistry": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "calculate_mol_topology": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "calculate_mol_charge": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "pred_mol_admet": {
+      "param_types": {
+        "smiles": "smiles"
+      }
+    },
+    "pred_protein_structure_esmfold": {
+      "param_types": {
+        "protein_sequence": "string"
+      }
+    },
+    "retrieve_smiles_by_compoundname": {
+      "param_types": {
+        "compound_name": "compound_name"
+      }
+    },
+    "calculate_pdb_basic_info": {
+      "param_types": {
+        "input_path": "artifact"
+      }
+    },
+    "calculate_pdb_quality_metrics": {
+      "param_types": {
+        "input_path": "artifact"
+      }
+    },
+    "convert_complex_cif_to_pdb": {
+      "param_types": {
+        "input_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "convert_pdb_to_pdbqt_dock": {
+      "param_types": {
+        "input_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "extract_pdb_chains": {
+      "param_types": {
+        "input_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "extract_and_save_chains": {
+      "param_types": {
+        "input_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "analyze_protein_ligand_interactions": {
+      "param_types": {
+        "protein_path": "artifact",
+        "ligand_path": "artifact"
+      }
+    },
+    "equiscore_pocket": {
+      "param_types": {
+        "protein_path": "artifact",
+        "ligand_path": "artifact"
+      }
+    },
+    "equiscore_pipeline": {
+      "param_types": {
+        "protein_path": "artifact",
+        "ligand_path": "artifact",
+        "output_path": "artifact"
+      }
+    },
+    "server_file_to_base64": {
+      "param_types": {
+        "input_path": "artifact"
+      }
+    },
+    "base64_to_server_file": {
+      "param_types": {
+        "output_path": "artifact"
+      }
+    }
+  }
+}

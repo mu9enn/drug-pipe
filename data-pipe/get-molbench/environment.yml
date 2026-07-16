@@ -1,0 +1,9 @@
+name: get-molbench
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pandas>=2.2,<3.1
+  - numpy>=1.26,<3.0
+  - rdkit>=2023.9
+  - openpyxl>=3.1,<4.0

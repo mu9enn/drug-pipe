@@ -18,6 +18,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.template
 .mcp.json
 **/.claude/settings.local.json
 .ms_upload_cache
@@ -36,6 +37,26 @@ science_kb/cache/
 science_kb/processed/
 science_kb/manifests/
 
+# Project data and outputs
+get-molbench/data/
+get-molbench/outputs/
+results/
+molbench/
+pipeline/e2e/runs/
+pipeline/kg/runs/
+pipeline/kg/data/
+exports/
+data-pipe/pipeline/kg/runs/
+data-pipe/pipeline/kg/data/
+data-pipe/get-molbench/data/
+data-pipe/get-molbench/outputs/
+slime-wd/cached/
+slime-wd/data/
+slime-wd/debug_logs/
+slime-wd/outputs/
+slime-wd/slime-origin/
+tool-kg/runs/
+
 # Local editor and temporary files
 .idea/
 .vscode/
@@ -44,3 +65,7 @@ science_kb/manifests/
 *.swo
 *.log
 .DS_Store
+*.pid
+*.bak
+tmp/
+tmp_test_claude/

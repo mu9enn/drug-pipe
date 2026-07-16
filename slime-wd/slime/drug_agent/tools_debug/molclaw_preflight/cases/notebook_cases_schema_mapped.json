@@ -1,0 +1,355 @@
+[
+  {
+    "case_id": "nb_001_pred_protein_structure_esmfold",
+    "source": "drug_api_test.ipynb#cell1",
+    "tool_name": "pred_protein_structure_esmfold",
+    "arguments": {
+      "sequence": "MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVVRIELKGIDFKEDGNILGHKLEYNYNSHNVYITADKQKNGIKANFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK"
+    }
+  },
+  {
+    "case_id": "nb_002_pred_mol_admet",
+    "source": "drug_api_test.ipynb#cell2",
+    "tool_name": "pred_mol_admet",
+    "arguments": {
+      "smiles_list": [
+        "N[C@@H](Cc1ccc(O)cc1)C(=O)O",
+        "CC(C)C1=CC=CC=C1"
+      ],
+      "smiles_file": ""
+    }
+  },
+  {
+    "case_id": "nb_003_molecule_docking_quickvina_fullprocess",
+    "source": "drug_api_test.ipynb#cell3",
+    "tool_name": "molecule_docking_quickvina_fullprocess",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file",
+      "smiles": "COc1ccc(-c2cnc(N3Cc4c(nc5ccccc5c4O)C3c3ccc4c(c3)CCO4)nc2)cc1OC",
+      "pocket_center_x": 23.1996,
+      "pocket_center_y": 39.2113,
+      "pocket_center_z": 72.0084,
+      "pocket_size_x": 25.0,
+      "pocket_size_y": 25.0,
+      "pocket_size_z": 25.0
+    }
+  },
+  {
+    "case_id": "nb_004_calculate_dleps_score",
+    "source": "drug_api_test.ipynb#cell4",
+    "tool_name": "calculate_dleps_score",
+    "arguments": {
+      "smiles_list": [
+        "Nc1nnc(S(=O)(=O)NCCc2ccc(O)cc2)s1",
+        "COc1ccc2c(=O)cc(C(=O)N3CCN(c4ccc(F)cc4)CC3)oc2c1"
+      ],
+      "disease_name": "Aging"
+    }
+  },
+  {
+    "case_id": "nb_005_pred_pocket_prank",
+    "source": "drug_api_test.ipynb#cell7",
+    "tool_name": "pred_pocket_prank",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_006_is_valid_protein_sequence",
+    "source": "drug_api_test.ipynb#cell8",
+    "tool_name": "is_valid_protein_sequence",
+    "arguments": {
+      "sequences": [
+        "MVTPEGNVSLVDESLLVGVTDEDRAVRSAHQFYERLIGLWAPA",
+        "CC(C)CO"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_007_is_valid_smiles",
+    "source": "drug_api_test.ipynb#cell9",
+    "tool_name": "is_valid_smiles",
+    "arguments": {
+      "smiles_list": [
+        "CC(C)C",
+        "",
+        "C1CCCC1",
+        "CC(C",
+        "CC)",
+        "C%10C%11",
+        "C1CC2C1CC2",
+        "C1CC1C2CC2",
+        "C1CC1C1CC1",
+        "C1CC1C%10C%10",
+        "C.CC",
+        "InvalidSMILES",
+        "C1CCC"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_008_convert_smiles_to_format",
+    "source": "drug_api_test.ipynb#cell10",
+    "tool_name": "convert_smiles_to_format",
+    "arguments": {
+      "inputs": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ],
+      "target_format": "pdbqt"
+    }
+  },
+  {
+    "case_id": "nb_009_convert_pdb_to_pdbqt_dock",
+    "source": "drug_api_test.ipynb#cell11",
+    "tool_name": "convert_pdb_to_pdbqt_dock",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_010_convert_complex_cif_to_pdb",
+    "source": "drug_api_test.ipynb#cell12",
+    "tool_name": "convert_complex_cif_to_pdb",
+    "arguments": {
+      "cif_file_path": "__AUTO__:cif_file"
+    }
+  },
+  {
+    "case_id": "nb_011_visualize_protein",
+    "source": "drug_api_test.ipynb#cell13",
+    "tool_name": "visualize_protein",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_012_visualize_molecule",
+    "source": "drug_api_test.ipynb#cell14",
+    "tool_name": "visualize_molecule",
+    "arguments": {
+      "input": "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F"
+    }
+  },
+  {
+    "case_id": "nb_013_retrieve_protein_sequence",
+    "source": "drug_api_test.ipynb#cell16",
+    "tool_name": "retrieve_protein_sequence",
+    "arguments": {
+      "identifier": "PDE5A",
+      "organism": "Homo sapiens"
+    }
+  },
+  {
+    "case_id": "nb_014_retrieve_smiles_by_compoundname",
+    "source": "drug_api_test.ipynb#cell17",
+    "tool_name": "retrieve_smiles_by_compoundname",
+    "arguments": {
+      "compound_names": [
+        "aspirin",
+        "caffeine",
+        "glucose",
+        "ibuprofen"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_015_calculate_mol_basic_info",
+    "source": "drug_api_test.ipynb#cell21",
+    "tool_name": "calculate_mol_basic_info",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_016_calculate_mol_hydrophobicity",
+    "source": "drug_api_test.ipynb#cell22",
+    "tool_name": "calculate_mol_hydrophobicity",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_017_calculate_mol_hbond",
+    "source": "drug_api_test.ipynb#cell23",
+    "tool_name": "calculate_mol_hbond",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_018_calculate_mol_structure_complexity",
+    "source": "drug_api_test.ipynb#cell24",
+    "tool_name": "calculate_mol_structure_complexity",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_019_calculate_mol_topology",
+    "source": "drug_api_test.ipynb#cell25",
+    "tool_name": "calculate_mol_topology",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_020_calculate_mol_drug_chemistry",
+    "source": "drug_api_test.ipynb#cell26",
+    "tool_name": "calculate_mol_drug_chemistry",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_021_calculate_mol_charge",
+    "source": "drug_api_test.ipynb#cell27",
+    "tool_name": "calculate_mol_charge",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_022_calculate_mol_complexity",
+    "source": "drug_api_test.ipynb#cell28",
+    "tool_name": "calculate_mol_complexity",
+    "arguments": {
+      "smiles_list": [
+        "O=C(Nc1cccc2c1CCCC2)N1CCc2c([nH]c3ccccc23)C1c1cccc(F)c1F",
+        "O=C(Nc1cccc(C2CN3CCSC3c3ccccc32)c1)Nc1ccc2ccccc2c1"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_023_calculate_protein_sequence_properties",
+    "source": "drug_api_test.ipynb#cell29",
+    "tool_name": "calculate_protein_sequence_properties",
+    "arguments": {
+      "sequence": "MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVVRIELKGIDFKEDGNILGHKLEYNYNSHNVYITADKQKNGIKANFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK"
+    }
+  },
+  {
+    "case_id": "nb_024_calculate_pdb_basic_info",
+    "source": "drug_api_test.ipynb#cell30",
+    "tool_name": "calculate_pdb_basic_info",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_025_calculate_pdb_structural_geometry",
+    "source": "drug_api_test.ipynb#cell31",
+    "tool_name": "calculate_pdb_structural_geometry",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_026_calculate_pdb_quality_metrics",
+    "source": "drug_api_test.ipynb#cell32",
+    "tool_name": "calculate_pdb_quality_metrics",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_027_calculate_pdb_composition_info",
+    "source": "drug_api_test.ipynb#cell33",
+    "tool_name": "calculate_pdb_composition_info",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_028_calculate_common_fragments",
+    "source": "drug_api_test.ipynb#cell34",
+    "tool_name": "calculate_common_fragments",
+    "arguments": {
+      "target_smiles": "CCO",
+      "candidate_smiles_list": [
+        "CCCO",
+        "CCCCO",
+        "CC(C)O",
+        "CCC(C)O",
+        "C1CC1",
+        "CC=O",
+        "CCCOO"
+      ],
+      "radius": 2
+    }
+  },
+  {
+    "case_id": "nb_029_extract_and_save_chains",
+    "source": "drug_api_test.ipynb#cell35",
+    "tool_name": "extract_and_save_chains",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file",
+      "chain_ids": [
+        "A",
+        "B"
+      ]
+    }
+  },
+  {
+    "case_id": "nb_030_extract_pdb_chains",
+    "source": "drug_api_test.ipynb#cell36",
+    "tool_name": "extract_pdb_chains",
+    "arguments": {
+      "pdb_file_path": "__AUTO__:pdb_file"
+    }
+  },
+  {
+    "case_id": "nb_031_analyze_protein_ligand_interactions",
+    "source": "drug_api_test.ipynb#cell38",
+    "tool_name": "analyze_protein_ligand_interactions",
+    "arguments": {
+      "complex_file": "__AUTO__:pdb_file",
+      "ligand_identifier": "auto"
+    }
+  },
+  {
+    "case_id": "nb_032_fix_pdb",
+    "source": "drug_api_test_sxy.ipynb#cell1",
+    "tool_name": "fix_pdb",
+    "arguments": {
+      "input_path": "/root/lwj/wll/code/DrugAgentTools/sxy_local/tool_src_fzl/test_dir/protein.pdb"
+    }
+  },
+  {
+    "case_id": "nb_033_analyze_mmpbsa",
+    "source": "drug_api_test_sxy.ipynb#cell15",
+    "tool_name": "analyze_mmpbsa",
+    "arguments": {
+      "work_dir": "/root/lwj/wll/code/DrugAgentTools/sxy_local/tool_result/gmx_mmpbsa_result/20260227T070917Z_2bc876/protein_fixed_ligand_pose1",
+      "decomp": null,
+      "results": null,
+      "method": null,
+      "pb_decomp": null,
+      "pb_results": null,
+      "gb_decomp": null,
+      "gb_results": null,
+      "gro": null
+    }
+  }
+]
