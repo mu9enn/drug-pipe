@@ -133,18 +133,35 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
                 "confidence_raw": 0.91,
             }
             write_jsonl(source_dir / "pair_adjudications.jsonl", [raw])
-            write_jsonl(source_dir / "scored_edges.jsonl", [scored])
+            scored_supplement = {
+                **scored,
+                "pair_id": "pair::legacy__to__target",
+                "source_tool": "legacy",
+                "target_tool": "target",
+                "relation_status": "valid",
+                "direct_transition": True,
+                "edge_types": [{"type": "feeds_into"}],
+            }
+            write_jsonl(source_dir / "scored_edges.jsonl", [scored, scored_supplement])
             write_jsonl(source_dir / "graph_all.jsonl", [graph])
 
             report = migrate_historical_kg(source_dir, output_dir)
 
-            migrated = read_jsonl(output_dir / "canonical_edges.jsonl")
-            conflicts = read_jsonl(output_dir / "conflict_report.jsonl")
-            persisted_report = json.loads((output_dir / "migration_report.json").read_text(encoding="utf-8"))
-            self.assertEqual(migrated[0]["edge_types"], [])
-            self.assertEqual(migrated[0]["source_authority"], "claude_pair_adjudication")
+            migrated = read_jsonl(output_dir / "edge_decisions.jsonl")
+            issues = read_jsonl(output_dir / "issues.jsonl")
+            persisted_report = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            by_pair = {row["pair_id"]: row for row in migrated}
+            self.assertEqual(by_pair[raw["pair_id"]]["edge_types"], [])
+            self.assertEqual(by_pair[raw["pair_id"]]["source_authority"], "claude_adjudication")
+            self.assertFalse(by_pair[scored_supplement["pair_id"]]["eligible_for_sampling"])
             self.assertEqual(report, persisted_report)
-            self.assertTrue(any(row["comparison"] == "canonical_edge_vs_graph_all" for row in conflicts))
+            self.assertTrue(
+                any(
+                    row["kind"] == "historical_conflict"
+                    and row["comparison"] == "canonical_edge_vs_graph_all"
+                    for row in issues
+                )
+            )
 
 
 if __name__ == "__main__":

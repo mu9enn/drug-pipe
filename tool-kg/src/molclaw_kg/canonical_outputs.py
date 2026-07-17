@@ -10,7 +10,7 @@ from .io_utils import read_jsonl, sha256_file, write_json, write_jsonl
 from .settings import ProjectConfig
 
 
-def _edge_decision(row: dict[str, Any]) -> dict[str, Any]:
+def canonical_edge_to_decision(row: dict[str, Any]) -> dict[str, Any]:
     source_authority = str(row.get("source_authority") or "")
     if source_authority == "claude_pair_adjudication":
         source_authority = "claude_adjudication"
@@ -123,7 +123,7 @@ def publish_canonical_outputs(config: ProjectConfig) -> dict[str, Any]:
     if not canonical_rows:
         raise RuntimeError("canonical_edges.jsonl is missing or empty")
 
-    decisions = [_edge_decision(row) for row in canonical_rows]
+    decisions = [canonical_edge_to_decision(row) for row in canonical_rows]
     decisions.sort(key=lambda row: str(row.get("pair_id") or ""))
     graph = project_graph(decisions, run_dir.name)
 

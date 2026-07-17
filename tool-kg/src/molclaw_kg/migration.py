@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .canonical_edges import CANONICAL_EDGE_SCHEMA_VERSION, canonicalize_adjudication
+from .canonical_outputs import canonical_edge_to_decision, project_graph
 from .io_utils import ensure_dir, sha256_file, stable_hash_obj, write_json, write_jsonl
 
 
@@ -213,9 +214,32 @@ def migrate_historical_kg(source_dir: Path, output_dir: Path) -> dict[str, Any]:
             )
 
     canonical_rows = [canonical_by_pair[key] for key in sorted(canonical_by_pair)]
-    write_jsonl(output_dir / "canonical_edges.jsonl", canonical_rows)
-    write_jsonl(output_dir / "conflict_report.jsonl", conflicts)
-    write_jsonl(output_dir / "rejected.jsonl", rejected)
+    decisions = [canonical_edge_to_decision(row) for row in canonical_rows]
+    graph = project_graph(decisions, output_dir.name)
+    tool_cards_path = source_dir / "tool_cards.jsonl"
+    if tool_cards_path.is_file():
+        tool_catalog, tool_rejected = _read_jsonl_tolerant(tool_cards_path)
+        rejected.extend(tool_rejected)
+    else:
+        tool_ids = sorted(
+            {
+                str(row[field])
+                for row in decisions
+                for field in ("source_tool", "target_tool")
+                if row.get(field)
+            }
+        )
+        tool_catalog = [{"tool_id": tool_id, "source": "historical_edge_reference"} for tool_id in tool_ids]
+
+    write_jsonl(output_dir / "tool_catalog.jsonl", tool_catalog)
+    write_jsonl(output_dir / "edge_decisions.jsonl", decisions)
+    write_jsonl(output_dir / "graph.jsonl", graph)
+    issues = [
+        *({"kind": "historical_conflict", **row} for row in conflicts),
+        *({"kind": "migration_rejection", **row} for row in rejected),
+    ]
+    if issues:
+        write_jsonl(output_dir / "issues.jsonl", issues)
 
     source_hash = stable_hash_obj(
         {name: sha256_file(path) for name, path in sorted(input_paths.items())}
@@ -236,9 +260,9 @@ def migrate_historical_kg(source_dir: Path, output_dir: Path) -> dict[str, Any]:
     report = {
         "source": str(source_dir),
         "source_hash": source_hash,
-        "target_contract": CANONICAL_EDGE_SCHEMA_VERSION,
+        "target_contract": "tool_kg_edge_decision_v1",
         "input_count": len(raw_rows) + len(scored_rows) + len(graph_rows),
-        "output_count": len(canonical_rows),
+        "output_count": len(decisions),
         "rejected_count": len(rejected),
         "conflict_count": len(conflicts),
         "semantic_changes": semantic_changes,
@@ -253,6 +277,12 @@ def migrate_historical_kg(source_dir: Path, output_dir: Path) -> dict[str, Any]:
                 row.get("source_authority") == "legacy_scored_supplement" for row in canonical_rows
             ),
         },
+        "outputs": {
+            "tool_catalog": "tool_catalog.jsonl",
+            "edge_decisions": "edge_decisions.jsonl",
+            "graph": "graph.jsonl",
+            "issues": "issues.jsonl" if issues else None,
+        },
     }
-    write_json(output_dir / "migration_report.json", report)
+    write_json(output_dir / "run_manifest.json", report)
     return report
