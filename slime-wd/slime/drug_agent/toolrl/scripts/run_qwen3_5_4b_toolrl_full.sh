@@ -6,7 +6,7 @@ if [ ! -f "$SLIME_ENV" ]; then
 fi
 source "$SLIME_ENV"
 cd "$SLIME"
-export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/toolrl/mcp_sft_all.toolrl_steps.jsonl}
+export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/toolrl/react_trajectories.toolrl_steps.jsonl}
 export ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-4}
 DATASET_SIZE=$(wc -l < "$PROMPT_DATA")
 export NUM_ROLLOUT=${NUM_ROLLOUT:-$(((DATASET_SIZE + ROLLOUT_BATCH_SIZE - 1) / ROLLOUT_BATCH_SIZE))}

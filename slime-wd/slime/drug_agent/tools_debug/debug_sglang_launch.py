@@ -13,7 +13,7 @@ from typing import Any
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.constants import DATA_ROOT, SLIME_DRUG_RUNS_ROOT
+from drug_agent.constants import DATA_ROOT, DRUG_AGENT_RUNS_ROOT
 from drug_agent.tools_debug.sglang_launcher import detect_sglang_launch_command
 
 
@@ -123,7 +123,7 @@ def main() -> int:
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
 
-        log_path = SLIME_DRUG_RUNS_ROOT / "sglang_drug_agent_debug.log"
+        log_path = DRUG_AGENT_RUNS_ROOT / "sglang_drug_agent_debug.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_fp = log_path.open("a", encoding="utf-8")
         proc = subprocess.Popen(

@@ -16,7 +16,7 @@ cd "$SLIME"
 export MODEL_ARGS_FILE=${MODEL_ARGS_FILE:-scripts/models/qwen3.5-4B.sh}
 export HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-4B}
 export REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-4B_torch_dist}
-export PROMPT_DATA=${PROMPT_DATA:-$GROUP_SPACE/slime-wd/data/mcp_sft_all.train.jsonl}
+export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl}
 
 export NUM_GPUS=${NUM_GPUS:-4}
 export TENSOR_MODEL_PARALLEL_SIZE=${TENSOR_MODEL_PARALLEL_SIZE:-4}

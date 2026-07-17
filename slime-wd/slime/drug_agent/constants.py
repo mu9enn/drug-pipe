@@ -22,23 +22,11 @@ GROUP_SPACE = _default_group_space()
 WD = Path(os.environ.get("WD", str(GROUP_SPACE / "slime-wd")))
 OUTPUTS_ROOT = Path(os.environ.get("OUTPUTS_ROOT", str(WD / "outputs")))
 DATA_ROOT = Path(os.environ.get("DATA_ROOT", os.environ.get("DATA", str(WD / "data"))))
-PIPELINED_DATA = Path(os.environ.get("PIPELINED_DATA", str(DATA_ROOT / "pipelined_data")))
 
-SLIME_DRUG_DATA_ROOT = Path(os.environ.get("DRUG_AGENT_DATA_ROOT", str(OUTPUTS_ROOT / "slime_drug_agent_data")))
-SLIME_DRUG_RUNS_ROOT = Path(os.environ.get("DRUG_AGENT_RUNS_ROOT", str(OUTPUTS_ROOT / "slime_drug_agent_runs")))
-GRPO_OUT_ROOT = SLIME_DRUG_DATA_ROOT / "grpo"
-SFT_OUT_ROOT = SLIME_DRUG_DATA_ROOT / "sft"
+DRUG_AGENT_DATA_ROOT = Path(os.environ.get("DRUG_AGENT_DATA_ROOT", str(OUTPUTS_ROOT / "slime_drug_agent_data")))
+DRUG_AGENT_RUNS_ROOT = Path(os.environ.get("DRUG_AGENT_RUNS_ROOT", str(OUTPUTS_ROOT / "slime_drug_agent_runs")))
+CANONICAL_REACT_DATA = DRUG_AGENT_DATA_ROOT / "react_trajectories.jsonl"
 
-SCHEMA_REPORT_DEFAULT = Path(os.environ.get("DRUG_AGENT_SCHEMA_REPORT", str(OUTPUTS_ROOT / "pipelined_data_schema_report.md")))
-SKIPPED_REPORT_NAME = "skipped_report.jsonl"
-
-SFT_OUTPUTS = PIPELINED_DATA / "sft_outputs"
-SFT_OUTPUTS_ANSWER_HIT = PIPELINED_DATA / "sft_outputs_answer_hit"
-USAGE_SUMMARY_CSV = PIPELINED_DATA / "molclaw_usage_summary.csv"
-
-RAW_TASK_TYPES = ("ac", "pf", "vs")
-
-DEFAULT_MAX_STEPS = 6
 DEFAULT_RUN_NAME = "drug_agent_debug"
 
 DEFAULT_SYSTEM_PROMPT = (

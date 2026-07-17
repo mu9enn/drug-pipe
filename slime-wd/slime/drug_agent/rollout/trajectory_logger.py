@@ -6,7 +6,7 @@ from typing import Any
 
 from slime.utils.types import Sample
 
-from drug_agent.constants import DEFAULT_RUN_NAME, SLIME_DRUG_RUNS_ROOT
+from drug_agent.constants import DEFAULT_RUN_NAME, DRUG_AGENT_RUNS_ROOT
 from drug_agent.utils import append_jsonl, ensure_dir, to_jsonable, utc_now_iso
 
 
@@ -140,7 +140,7 @@ def log_rollout_data(rollout_id, args, samples, rollout_extra_metrics, rollout_t
     """
     try:
         run_name = _get_run_name(args)
-        out_dir = ensure_dir(SLIME_DRUG_RUNS_ROOT / run_name)
+        out_dir = ensure_dir(DRUG_AGENT_RUNS_ROOT / run_name)
         out_path = out_dir / "trajectories.jsonl"
 
         rows = [_build_row(sample, rollout_id=rollout_id) for sample in samples]

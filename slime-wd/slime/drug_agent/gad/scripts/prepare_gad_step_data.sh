@@ -8,7 +8,7 @@ source "$SLIME_ENV"
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
 
-INPUT=${INPUT:-$GROUP_SPACE/slime-wd/data/mcp_sft_all.train.jsonl}
+INPUT=${INPUT:-$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl}
 OUTPUT_ROOT=${OUTPUT_ROOT:-$DRUG_AGENT_DATA_ROOT/gad}
 mkdir -p "$OUTPUT_ROOT"
 if [ ! -f "$INPUT" ]; then

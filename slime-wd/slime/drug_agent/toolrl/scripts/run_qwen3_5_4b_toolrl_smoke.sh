@@ -12,7 +12,7 @@ export REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-4B_torch_dist}
 # An explicit STUDENT_LOAD can still initialize from a prior checkpoint. By
 # default, start ToolRL directly from the original converted model.
 export LOAD=${LOAD:-${STUDENT_LOAD:-$REF_LOAD}}
-export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/toolrl/mcp_sft_all.toolrl_steps.jsonl}
+export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/toolrl/react_trajectories.toolrl_steps.jsonl}
 RUN_NAME=${RUN_NAME:-Qwen3.5-4B_toolrl_smoke_$(date +%Y%m%d_%H%M%S)}
 export SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/$RUN_NAME}
 export NUM_GPUS=${NUM_GPUS:-4}

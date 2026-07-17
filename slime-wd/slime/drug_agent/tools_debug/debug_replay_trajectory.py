@@ -11,7 +11,7 @@ from typing import Any
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.constants import DATA_ROOT, SLIME_DRUG_RUNS_ROOT
+from drug_agent.constants import CANONICAL_REACT_DATA, DRUG_AGENT_RUNS_ROOT
 from drug_agent.offline_guard import assert_tool_environment_allowed
 from drug_agent.protocol.action_parser import parse_action
 from drug_agent.protocol.action_schema import ACTION_TOOL_CALL
@@ -31,14 +31,11 @@ def _error_payload(category: str, message: str) -> dict[str, Any]:
 
 
 def _default_input_jsonl() -> Path:
-    return DATA_ROOT / "mcp_sft_all.train.jsonl"
+    return CANONICAL_REACT_DATA
 
 
 def _default_runs_root() -> Path:
-    from_env = os.environ.get("DRUG_AGENT_RUNS_ROOT")
-    if from_env:
-        return Path(from_env)
-    return SLIME_DRUG_RUNS_ROOT
+    return DRUG_AGENT_RUNS_ROOT
 
 
 def _load_row(input_jsonl: Path, index: int) -> dict[str, Any]:
