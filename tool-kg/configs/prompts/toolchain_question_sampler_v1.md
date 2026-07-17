@@ -15,7 +15,7 @@ Workflow rules:
 - A server file path cannot be a user-given input. Add a retrieval/conversion tool that produces it.
 - You may add a ToolKG-supported edge from `kg_context.json`.
 - For every ToolKG-supported edge, copy its exact `pair_id` from `kg_context.json` into `support_ref`. Never synthesize an `edge::...` or `pair::...` reference.
-- You may add a skills-supported edge only when you provide a real skill path and an exact verbatim evidence span from that file.
+- Skills may clarify tool usage, but every workflow transition must be supported by a canonical ToolKG edge in `kg_context.json`.
 - Do not invent unsupported tool transitions.
 - If a closed, scientifically credible workflow cannot be constructed, return `status="reject"`.
 

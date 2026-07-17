@@ -479,9 +479,8 @@ def _validate_edge_claims(
     tools: set[str],
     proposed_edges: list[dict[str, Any]],
     graph_index: dict[tuple[str, str], list[dict[str, Any]]],
-    skills_root: Path,
-) -> tuple[list[str], list[tuple[str, str]], list[dict[str, Any]], dict[tuple[str, str], str]]:
-    errors, edges, skills_edges, edge_type_by_pair = [], [], [], {}
+) -> tuple[list[str], list[tuple[str, str]], dict[tuple[str, str], str]]:
+    errors, edges, edge_type_by_pair = [], [], {}
     for e in proposed_edges:
         a, b = str(e.get("source_tool", "")), str(e.get("target_tool", ""))
         if a not in tools or b not in tools:
@@ -502,24 +501,13 @@ def _validate_edge_claims(
                 errors.append(f"toolkg_support_ref_mismatch:{a}->{b}:{support_ref}")
                 continue
             edge_type_by_pair[(a, b)] = str(best.get("edge_type", ""))
-        elif support == "skills":
-            raw_path, span = str(e.get("skill_path") or ""), str(e.get("exact_evidence_span") or "")
-            path = (skills_root / raw_path).resolve() if not Path(raw_path).is_absolute() else Path(raw_path).resolve()
-            if not path.is_file() or skills_root.resolve() not in path.parents:
-                errors.append(f"invalid_skill_path:{raw_path}")
-                continue
-            if not span or span not in path.read_text(encoding="utf-8", errors="ignore"):
-                errors.append(f"skill_evidence_span_not_found:{a}->{b}")
-                continue
-            skills_edges.append(e)
-            edge_type_by_pair[(a, b)] = "skills_supported_transition"
         else:
-            errors.append(f"invalid_support_source:{a}->{b}")
+            errors.append(f"noncanonical_edge_support:{a}->{b}:{support}")
             continue
         edges.append((a, b))
     if _topological(tools, edges) is None:
         errors.append("workflow_cycle_or_disconnected_edge")
-    return errors, edges, skills_edges, edge_type_by_pair
+    return errors, edges, edge_type_by_pair
 
 
 def _problem_text_errors(text: str, payload: dict[str, Any], leak_patterns: list[re.Pattern[str]], sampling_cfg: dict[str, Any]) -> list[str]:
@@ -615,12 +603,19 @@ def _materialize_edges(
     out = []
     for e in proposed:
         a, b = str(e.get("source_tool")), str(e.get("target_tool"))
-        if e.get("support_source") == "toolkg":
-            rows = graph_index.get((a, b), [])
-            best = max(rows, key=lambda x: float(x.get("confidence_calibrated", 0)), default={})
-            out.append(_edge_public(best) if best else {"source_tool": a, "target_tool": b, "edge_type": "unknown", "view": "unknown", "relation_status": "valid"})
-        else:
-            out.append({"source_tool": a, "target_tool": b, "edge_type": "skills_supported_transition", "confidence": None, "pair_id": "", "view": "skills_supported", "relation_status": "valid"})
+        rows = graph_index.get((a, b), [])
+        matching = [
+            row
+            for row in rows
+            if str(e.get("support_ref")) in {
+                str(row.get("pair_id", "")),
+                str(row.get("edge_id", "")),
+            }
+        ]
+        if not matching:
+            raise ValueError(f"validated canonical edge missing during materialization: {a}->{b}")
+        best = max(matching, key=lambda x: float(x.get("confidence_calibrated", 0)))
+        out.append(_edge_public(best))
     return out
 
 
@@ -708,7 +703,7 @@ def sample_questions(
     leak_patterns = _compile_leak_patterns(cards)
     proposal_template, repair_template = _load_template(config), _load_template(config, repair=True)
 
-    attempts, successes, closure_rows, grounding_rows, skills_rows = [], [], [], [], []
+    attempts, successes, closure_rows, grounding_rows = [], [], [], []
     for idx in tqdm(range(1, sample_size + 1), desc="sample-questions-v2", unit="sample"):
         sample_id = f"sample_{idx:04d}"
         hops = rng.randint(min_hops, max_hops)
@@ -751,7 +746,6 @@ def sample_questions(
         accepted: dict[str, Any] | None = None
         accepted_closure: dict[str, Any] | None = None
         accepted_edges: list[tuple[str, str]] = []
-        accepted_skills: list[dict[str, Any]] = []
         accepted_edge_types: dict[tuple[str, str], str] = {}
         for repair_round in range(max(0, max_repair_rounds) + 1):
             attempt_dir = sample_root / f"attempt_{repair_round:02d}"
@@ -800,7 +794,7 @@ def sample_questions(
             errors = [f"unknown_tool:{x}" for x in tools if x not in cards]
             if len(tools) < 2 or not proposed_edges:
                 errors.append("workflow_requires_at_least_two_tools_and_one_edge")
-            edge_errors, wf_edges, skill_edges, edge_types = _validate_edge_claims(tools, proposed_edges, graph_index, config.runtime.skills_root)
+            edge_errors, wf_edges, edge_types = _validate_edge_claims(tools, proposed_edges, graph_index)
             errors.extend(edge_errors)
             public_text, payload = str(parsed.get("public_question_text", "")), parsed.get("question_payload") or {}
             inputs, refs = parsed.get("grounded_initial_inputs") or [], parsed.get("grounding_refs") or []
@@ -817,7 +811,7 @@ def sample_questions(
             if errors:
                 final_feedback = errors
                 continue
-            accepted, accepted_closure, accepted_edges, accepted_skills, accepted_edge_types = parsed, closure, wf_edges, skill_edges, edge_types
+            accepted, accepted_closure, accepted_edges, accepted_edge_types = parsed, closure, wf_edges, edge_types
             base["repair_rounds"] = repair_round
             break
 
@@ -840,7 +834,6 @@ def sample_questions(
         anchor_set = set(nodes)
         grounding_rows.append({"sample_id": sample_id, "grounding_refs": accepted["grounding_refs"], "grounded_initial_inputs": accepted["grounded_initial_inputs"]})
         closure_rows.append({"sample_id": sample_id, "closure_report": accepted_closure})
-        skills_rows.extend({"sample_id": sample_id, **x} for x in accepted_skills)
         row = {
             **base,
             "status": "success", "failure_reason": "",
@@ -860,7 +853,6 @@ def sample_questions(
             "anchor_tool_count": len(anchor_set),
             "added_tool_count": len(tools - anchor_set),
             "removed_anchor_tool_count": len(anchor_set - tools),
-            "skills_supported_edge_count": len(accepted_skills),
             "partial_edge_count": sum(x.get("edge_type") == "generates_partial_input_for" for x in materialized),
             "executability_status": "strict_pass",
             "workdir": str(sample_root),
@@ -874,13 +866,11 @@ def sample_questions(
     write_jsonl(results / "sample_success_v2.jsonl", successes)
     write_jsonl(results / "input_closure_report.jsonl", closure_rows)
     write_jsonl(results / "grounding_records.jsonl", grounding_rows)
-    write_jsonl(results / "skills_supported_edges.jsonl", skills_rows)
-
     csv_cols = [
         "index", "sample_id", "status", "failure_reason", "public_question_text", "question_payload",
         "toolchain_nodes", "toolchain_edges", "expected_trajectory", "walk_hops", "start_tool", "end_tool",
         "grounding_count", "grounding_sources", "workflow_tool_count", "anchor_tool_count", "added_tool_count",
-        "removed_anchor_tool_count", "skills_supported_edge_count", "partial_edge_count", "repair_rounds",
+        "removed_anchor_tool_count", "partial_edge_count", "repair_rounds",
         "executability_status", "workdir",
     ]
     with (results / "questions.csv").open("w", encoding="utf-8", newline="") as f:
@@ -912,7 +902,7 @@ def sample_questions(
         "llm_role_distribution": dict(llm_role_counts),
         "tool_usage_distribution": dict(tool_usage_counts),
         "partial_edge_count_in_successes": sum(int(x.get("partial_edge_count") or 0) for x in successes),
-        "skills_supported_edge_count": len(skills_rows), "created_at_utc": _now_utc(),
+        "created_at_utc": _now_utc(),
     }
     write_json(results / "workflow_quality_report.json", quality)
     meta = {

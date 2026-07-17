@@ -12,7 +12,7 @@ Hard requirements:
 - Add or remove tools when needed for dependency closure and scientific necessity.
 - ToolKG edges must exist in `kg_context.json`.
 - For ToolKG edges, copy the exact `pair_id` shown in `kg_context.json` into `support_ref`; never synthesize a reference.
-- Skills-supported edges require a real skill path and exact evidence span.
+- Skills may clarify tool usage, but every workflow transition must be supported by a canonical ToolKG edge in `kg_context.json`.
 - The public question must request actual execution, expose all starting values, hide tool names, and avoid explicit tool order.
 - Return the complete repaired compact proposal as strict JSON matching `output_schema.json`.
 - If the feedback cannot be repaired credibly, return `status="reject"`.

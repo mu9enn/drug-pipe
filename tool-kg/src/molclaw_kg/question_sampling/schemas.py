@@ -7,12 +7,10 @@ WORKFLOW_EDGE_SCHEMA = {
     "properties": {
         "source_tool": {"type": "string", "minLength": 1},
         "target_tool": {"type": "string", "minLength": 1},
-        "support_source": {"type": "string", "enum": ["toolkg", "skills"]},
+        "support_source": {"type": "string", "enum": ["toolkg"]},
         "support_ref": {"type": "string", "minLength": 1},
         "source_output_slot": {"type": ["string", "null"]},
         "target_input_slot": {"type": ["string", "null"]},
-        "skill_path": {"type": ["string", "null"]},
-        "exact_evidence_span": {"type": ["string", "null"]},
     },
 }
 

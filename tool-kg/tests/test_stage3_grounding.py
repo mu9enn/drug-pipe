@@ -63,17 +63,17 @@ class Stage3GroundingTests(unittest.TestCase):
             self.assertTrue(_validate_grounding(kb, inp, ["compound::1"], "Analyze aspirin and return results.", {}))
             kb.close()
 
-    def test_skills_edge_exact_span(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            skill = root / ".claude/skills/x/SKILL.md"
-            skill.parent.mkdir(parents=True)
-            skill.write_text("A output is used by B.", encoding="utf-8")
-            claim = {"source_tool": "a", "target_tool": "b", "support_source": "skills", "support_ref": "doc", "skill_path": ".claude/skills/x/SKILL.md", "exact_evidence_span": "A output is used by B."}
-            errors, edges, skills, _ = _validate_edge_claims({"a", "b"}, [claim], {}, root)
-            self.assertFalse(errors)
-            self.assertEqual(edges, [("a", "b")])
-            self.assertEqual(len(skills), 1)
+    def test_noncanonical_edge_support_is_rejected(self) -> None:
+        claim = {
+            "source_tool": "a",
+            "target_tool": "b",
+            "support_source": "skills",
+            "support_ref": "doc",
+        }
+        errors, edges, edge_types = _validate_edge_claims({"a", "b"}, [claim], {})
+        self.assertIn("noncanonical_edge_support:a->b:skills", errors)
+        self.assertFalse(edges)
+        self.assertFalse(edge_types)
 
 
 if __name__ == "__main__":
