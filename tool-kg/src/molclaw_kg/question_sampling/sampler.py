@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import os
 import random
@@ -23,10 +22,11 @@ except ImportError:  # pragma: no cover
 
 from ..adjudicators.claude_code_runtime import ClaudeCodeRuntime, extract_json_object, safe_name
 from ..constants import TRANSITION_EDGE_TYPES
-from ..io_utils import read_jsonl, write_json, write_jsonl
+from ..io_utils import write_json, write_jsonl
 from ..science_kb import ScienceKB
 from ..settings import ProjectConfig
 from .schemas import QUESTION_SAMPLER_OUTPUT_SCHEMA
+from .canonical_io import canonical_task, load_canonical_sampling_inputs, update_manifest_tasks
 
 
 def _now_utc() -> str:
@@ -148,7 +148,8 @@ def _filtered_edges(
     out = []
     for r in rows:
         edge_type = str(r.get("edge_type", ""))
-        if r.get("view") not in allowed_views:
+        is_canonical = r.get("schema_version") == "tool_kg_graph_edge_v1" and r.get("eligible_for_sampling") is True
+        if not is_canonical and r.get("view") not in allowed_views:
             continue
         if r.get("relation_status") != "valid" or not bool(r.get("direct_transition", False)):
             continue
@@ -668,15 +669,10 @@ def sample_questions(
         partial_policy = "exclude"
 
     run_dir = config.paths.run_dir
-    for name in ["graph_all.jsonl", "tool_cards.jsonl", "tool_snapshot.jsonl", "edge_debug_sidecar.jsonl"]:
-        if not (run_dir / name).is_file():
-            raise FileNotFoundError(run_dir / name)
-
     sampling_cfg = _load_sampling_config(config)
     sqlite_path, manifest_path, kb_server_name = _science_kb_paths(config, sampling_cfg)
     kb = ScienceKB(sqlite_path, manifest_path)
-    graph_rows, cards_rows = read_jsonl(run_dir / "graph_all.jsonl"), read_jsonl(run_dir / "tool_cards.jsonl")
-    debug_rows = read_jsonl(run_dir / "edge_debug_sidecar.jsonl")
+    graph_rows, cards_rows, debug_rows = load_canonical_sampling_inputs(run_dir)
     cards = {str(x["tool_id"]): x for x in cards_rows if x.get("tool_id")}
     debug_idx = _edge_debug_index(debug_rows)
     edges = _filtered_edges(graph_rows, debug_idx, edge_profile, partial_policy, sampling_cfg)
@@ -696,7 +692,8 @@ def sample_questions(
     if not any(starts_by_hops.values()):
         raise RuntimeError("no feasible anchor starts")
 
-    sample_workdir, results = run_dir / "sample_workdir", run_dir / "sample_results"
+    intermediate = run_dir / "intermediate" / "stage3"
+    sample_workdir, results = intermediate / "workdir", run_dir / "results"
     sample_workdir.mkdir(parents=True, exist_ok=True)
     results.mkdir(parents=True, exist_ok=True)
     runtime, rng, usage = ClaudeCodeRuntime(config), random.Random(seed), Counter()
@@ -861,23 +858,11 @@ def sample_questions(
         successes.append(row)
 
     kb.close()
-    write_jsonl(results / "sample_attempts.jsonl", attempts)
-    write_jsonl(results / "sample_success.jsonl", successes)
-    write_jsonl(results / "sample_success_v2.jsonl", successes)
-    write_jsonl(results / "input_closure_report.jsonl", closure_rows)
-    write_jsonl(results / "grounding_records.jsonl", grounding_rows)
-    csv_cols = [
-        "index", "sample_id", "status", "failure_reason", "public_question_text", "question_payload",
-        "toolchain_nodes", "toolchain_edges", "expected_trajectory", "walk_hops", "start_tool", "end_tool",
-        "grounding_count", "grounding_sources", "workflow_tool_count", "anchor_tool_count", "added_tool_count",
-        "removed_anchor_tool_count", "partial_edge_count", "repair_rounds",
-        "executability_status", "workdir",
-    ]
-    with (results / "questions.csv").open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=csv_cols)
-        w.writeheader()
-        for row in attempts:
-            w.writerow({k: json.dumps(row.get(k), ensure_ascii=False) if isinstance(row.get(k), (dict, list)) else row.get(k, "") for k in csv_cols})
+    write_jsonl(intermediate / "sample_attempts.jsonl", attempts)
+    write_jsonl(intermediate / "input_closure_report.jsonl", closure_rows)
+    write_jsonl(intermediate / "grounding_records.jsonl", grounding_rows)
+    tasks = [canonical_task(row, run_dir.name) for row in successes]
+    write_jsonl(results / "tasks.jsonl", tasks)
 
     failures = Counter(str(x.get("failure_reason") or "") for x in attempts if x.get("status") != "success")
     grounding_source_counts = Counter(
@@ -909,7 +894,8 @@ def sample_questions(
         **quality, "sample_size_requested": sample_size, "seed": seed,
         "hop_range": {"min_hops": min_hops, "max_hops": max_hops},
         "science_kb_sqlite": str(sqlite_path), "science_kb_manifest": str(manifest_path),
-        "questions_csv_path": str(results / "questions.csv"), "results_dir": str(results),
+        "tasks_path": str(results / "tasks.jsonl"), "intermediate_dir": str(intermediate),
     }
-    write_json(results / "sampling_meta.json", meta)
+    write_json(intermediate / "sampling_meta.json", meta)
+    update_manifest_tasks(run_dir, len(tasks))
     return meta

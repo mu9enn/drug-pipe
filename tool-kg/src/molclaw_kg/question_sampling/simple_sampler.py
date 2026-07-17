@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import random
 import re
@@ -20,10 +19,11 @@ except ImportError:  # pragma: no cover
         return iterable
 
 from ..adjudicators.claude_code_runtime import ClaudeCodeRuntime, extract_json_object, safe_name
-from ..io_utils import read_jsonl, write_json, write_jsonl
+from ..io_utils import write_json, write_jsonl
 from ..science_kb import ScienceKB
 from ..settings import ProjectConfig
 from .schemas import SIMPLE_QUESTION_OUTPUT_SCHEMA
+from .canonical_io import canonical_task, load_canonical_sampling_inputs, update_manifest_tasks
 
 
 def _now_utc() -> str:
@@ -397,19 +397,12 @@ def sample_simple_questions(
     if grounding_selection != "random_seeded":
         raise ValueError(f"unsupported grounding selection: {grounding_selection}")
     run_dir = config.paths.run_dir
-    for name in ["graph_all.jsonl", "tool_cards.jsonl", "edge_debug_sidecar.jsonl"]:
-        if not (run_dir / name).is_file():
-            raise FileNotFoundError(run_dir / name)
     kb_path, manifest_path = (
         config.paths.root / "science_kb/processed/science_kb.sqlite",
         config.paths.root / "science_kb/manifests/science_kb_manifest.json",
     )
     kb = ScienceKB(kb_path, manifest_path)
-    graph, card_rows, debug_rows = (
-        read_jsonl(run_dir / "graph_all.jsonl"),
-        read_jsonl(run_dir / "tool_cards.jsonl"),
-        read_jsonl(run_dir / "edge_debug_sidecar.jsonl"),
-    )
+    graph, card_rows, debug_rows = load_canonical_sampling_inputs(run_dir)
     cards = {str(row["tool_id"]): row for row in card_rows if row.get("tool_id")}
     debug = _debug_index(debug_rows)
     runtime, rng = ClaudeCodeRuntime(config), random.Random(seed)
@@ -420,7 +413,9 @@ def sample_simple_questions(
     seen_compounds: Counter[str] = Counter()
     prompt = (config.paths.configs / "prompts/toolchain_question_simple_v1.md").read_text(encoding="utf-8")
     repair_prompt = (config.paths.configs / "prompts/toolchain_question_json_repair_v1.md").read_text(encoding="utf-8")
-    results, workdirs = run_dir / "sample_results", run_dir / "sample_workdir" / "simple_toolchain_question"
+    results = run_dir / "results"
+    intermediate = run_dir / "intermediate" / "stage3"
+    workdirs = intermediate / "workdir" / "simple_toolchain_question"
     results.mkdir(parents=True, exist_ok=True)
     workdirs.mkdir(parents=True, exist_ok=True)
     attempts: list[dict[str, Any]] = []
@@ -535,29 +530,11 @@ def sample_simple_questions(
             progress.update(1)
 
     kb.close()
-    attempts_path, success_path, csv_path = (
-        results / "sample_attempts_simple.jsonl",
-        results / "sample_success_simple.jsonl",
-        results / "questions_simple.csv",
-    )
+    attempts_path = intermediate / "sample_attempts.jsonl"
+    tasks_path = results / "tasks.jsonl"
     write_jsonl(attempts_path, attempts)
-    write_jsonl(success_path, successes)
-    cols = [
-        "index", "sample_id", "status", "failure_reason", "public_question_text", "question_payload",
-        "rationale", "hidden_toolchain_nodes", "hidden_toolchain_edges", "grounding_sources", "workdir",
-    ]
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=cols)
-        writer.writeheader()
-        for index, row in enumerate(attempts, 1):
-            writer.writerow({
-                key: (
-                    index if key == "index"
-                    else json.dumps(row.get(key), ensure_ascii=False) if isinstance(row.get(key), (dict, list))
-                    else row.get(key, "")
-                )
-                for key in cols
-            })
+    tasks = [canonical_task(row, run_dir.name) for row in successes]
+    write_jsonl(tasks_path, tasks)
     meta = {
         "sampling_mode": "simple_toolchain_question",
         "target_successes": target_successes,
@@ -577,9 +554,10 @@ def sample_simple_questions(
         "valid_edge_pool_count": len(_valid_edge_pool(graph, cards)),
         "seed": seed,
         "attempts_path": str(attempts_path),
-        "success_path": str(success_path),
-        "questions_csv_path": str(csv_path),
+        "tasks_path": str(tasks_path),
+        "intermediate_dir": str(intermediate),
         "created_at_utc": _now_utc(),
     }
-    write_json(results / "simple_sampling_meta.json", meta)
+    write_json(intermediate / "sampling_meta.json", meta)
+    update_manifest_tasks(run_dir, len(tasks))
     return meta

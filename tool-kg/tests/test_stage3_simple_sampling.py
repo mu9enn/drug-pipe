@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from molclaw_kg.adjudicators.claude_code_runtime import extract_json_object
-from molclaw_kg.io_utils import read_jsonl, write_jsonl
+from molclaw_kg.io_utils import read_jsonl, write_json, write_jsonl
 from molclaw_kg.question_sampling.simple_sampler import (
     _sequence_hint,
     _tool_leaks,
@@ -132,14 +132,33 @@ class SimpleSamplingTests(unittest.TestCase):
             conn.commit()
             conn.close()
             (root / "science_kb/manifests/science_kb_manifest.json").write_text("{}", encoding="utf-8")
-            run_dir.mkdir(parents=True)
-            write_jsonl(run_dir / "graph_all.jsonl", [edge("foldx_tool", "tool_b")])
+            results_dir = run_dir / "results"
+            results_dir.mkdir(parents=True)
+            canonical_edge = {
+                **edge("foldx_tool", "tool_b"),
+                "schema_version": "tool_kg_graph_edge_v1",
+                "eligible_for_sampling": True,
+                "direct_transition": True,
+            }
+            write_jsonl(results_dir / "graph.jsonl", [canonical_edge])
             cards = [
                 {"tool_id": "foldx_tool", "description_summary": "A", "connectable_inputs": [], "connectable_outputs": []},
                 {"tool_id": "tool_b", "description_summary": "B", "connectable_inputs": [], "connectable_outputs": []},
             ]
-            write_jsonl(run_dir / "tool_cards.jsonl", cards)
-            write_jsonl(run_dir / "edge_debug_sidecar.jsonl", [])
+            write_jsonl(results_dir / "tool_catalog.jsonl", cards)
+            write_jsonl(
+                results_dir / "edge_decisions.jsonl",
+                [{
+                    "pair_id": "pair::foldx_tool__to__tool_b",
+                    "source_tool": "foldx_tool",
+                    "target_tool": "tool_b",
+                    "edge_types": [{"type": "generates_partial_input_for"}],
+                    "satisfied_inputs": [],
+                    "unsatisfied_inputs": [],
+                    "source_authority": "claude_adjudication",
+                }],
+            )
+            write_json(results_dir / "run_manifest.json", {"counts": {}, "outputs": {}})
             config = SimpleNamespace(
                 paths=SimpleNamespace(root=root, run_dir=run_dir, configs=root / "configs"),
                 runtime=SimpleNamespace(server_url="", api_key=""),
@@ -162,14 +181,17 @@ class SimpleSamplingTests(unittest.TestCase):
             ):
                 meta = sample_simple_questions(config, target_successes=1, max_attempts=2, min_hops=1, max_hops=1, seed=1)
             self.assertEqual(meta["success_count"], 1)
-            success_rows = read_jsonl(run_dir / "sample_results/sample_success_simple.jsonl")
+            success_rows = read_jsonl(results_dir / "tasks.jsonl")
             self.assertEqual(len(success_rows), 1)
             self.assertIn("FoldX", success_rows[0]["public_question_text"])
-            self.assertTrue(success_rows[0]["soft_warnings"])
-            attempts = read_jsonl(run_dir / "sample_results/sample_attempts_simple.jsonl")
+            self.assertEqual(success_rows[0]["schema_version"], "tool_kg_task_v1")
+            attempts_path = run_dir / "intermediate/stage3/sample_attempts.jsonl"
+            attempts = read_jsonl(attempts_path)
             self.assertEqual(attempts[0]["failure_reason"], "non_rolloutable_user_followup")
-            self.assertTrue((run_dir / "sample_results/sample_attempts_simple.jsonl").is_file())
-            self.assertTrue((run_dir / "sample_results/questions_simple.csv").is_file())
+            self.assertTrue(attempts_path.is_file())
+            self.assertFalse((results_dir / "questions_simple.csv").exists())
+            manifest = json.loads((results_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["counts"]["tasks"], 1)
 
 
 if __name__ == "__main__":

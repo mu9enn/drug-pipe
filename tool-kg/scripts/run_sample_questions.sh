@@ -4,11 +4,8 @@
 #
 # Preconditions:
 #   1. Stage1 + Stage2 must already be complete for the target run_id.
-#   2. The run directory must contain:
-#        runs/<run_id>/graph_all.jsonl
-#        runs/<run_id>/tool_cards.jsonl
-#        runs/<run_id>/tool_snapshot.jsonl
-#        runs/<run_id>/edge_debug_sidecar.jsonl
+#   2. The canonical results directory must contain graph.jsonl,
+#      tool_catalog.jsonl, edge_decisions.jsonl, and run_manifest.json.
 #   3. The fixed local Science-KB must already be built with:
 #        python scripts/build_science_kb.py --replace
 #   4. The project .env must define MOLCLAW_SCP_API_KEY.
@@ -16,9 +13,8 @@
 # What this script does:
 #   - Samples tool workflows from the generated ToolKG.
 #   - Calls the Claude Code agent to generate non-leaking public questions.
-#   - Writes all Stage3 outputs under:
-#        runs/<run_id>/sample_workdir/   # per-sample Claude Code workdirs/traces
-#        runs/<run_id>/sample_results/   # JSONL/CSV/results/reports
+#   - Writes canonical tasks to runs/<run_id>/results/tasks.jsonl.
+#   - Writes retry/workdir/audit state under runs/<run_id>/intermediate/stage3/.
 #
 # Main usage (simple_toolchain_question is the default mode):
 #   bash scripts/run_sample_questions.sh <run_id> \
@@ -196,9 +192,9 @@ if [[ -z "$API_KEY" ]]; then
 fi
 
 RUN_DIR="$PROJECT_ROOT/runs/$RUN_ID"
-for f in graph_all.jsonl tool_cards.jsonl tool_snapshot.jsonl edge_debug_sidecar.jsonl; do
-  if [[ ! -f "$RUN_DIR/$f" ]]; then
-    echo "ERROR: missing required file: $RUN_DIR/$f" >&2
+for f in graph.jsonl tool_catalog.jsonl edge_decisions.jsonl run_manifest.json; do
+  if [[ ! -f "$RUN_DIR/results/$f" ]]; then
+    echo "ERROR: missing required file: $RUN_DIR/results/$f" >&2
     exit 2
   fi
 done
