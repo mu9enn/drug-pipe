@@ -12,6 +12,9 @@ if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
 from evaluate.task_evaluator import evaluate_task_answer, load_chemistry_module  # noqa: E402
+from cleaning.acceptance_gate import decide_final_status  # noqa: E402
+from cleaning.hard_cleaner import hard_clean  # noqa: E402
+from cleaning.llm_cleaner import RewriteFunction, clean_with_llm  # noqa: E402
 from postprocess.react_constructor import (  # noqa: E402
     CANONICAL_SYSTEM_PROMPT,
     reconstruct_react_messages,
@@ -145,6 +148,8 @@ def curate_sample(
     *,
     default_task: str,
     chemistry: Any | None,
+    llm_rewrite: RewriteFunction | None = None,
+    llm_clean_required: bool = False,
 ) -> dict[str, Any]:
     question = safe_load_json(sample.sample_dir / "question.json") or safe_load_json(sample.row_dir / "question.json")
     parsed = safe_load_json(sample.sample_dir / "parsed_answer.json")
@@ -165,25 +170,35 @@ def curate_sample(
         task=task,
     )
     resolved_final_answer = trace_stats["resolved_final_answer"]
-    evaluation = evaluate_task_answer(
-        task,
-        prediction=resolved_final_answer,
-        ground_truth=question.get("answer"),
-        candidates=_candidate_values(question),
-        chemistry=chemistry,
-        parse_error=parsed.get("parse_error"),
-        task_contract=(
-            question.get("evaluation")
-            if isinstance(question.get("evaluation"), dict)
-            else question.get("task_contract")
-            if isinstance(question.get("task_contract"), dict)
-            else {}
-        ),
-        execution_evidence={
-            "molclaw_usage_count": trace_stats["molclaw_usage_count"],
-            "observation_count": trace_stats["observed_tool_call_count"],
-        },
-    )
+    evaluator_error = ""
+    try:
+        evaluation = evaluate_task_answer(
+            task,
+            prediction=resolved_final_answer,
+            ground_truth=question.get("answer"),
+            candidates=_candidate_values(question),
+            chemistry=chemistry,
+            parse_error=parsed.get("parse_error"),
+            task_contract=(
+                question.get("evaluation")
+                if isinstance(question.get("evaluation"), dict)
+                else question.get("task_contract")
+                if isinstance(question.get("task_contract"), dict)
+                else {}
+            ),
+            execution_evidence={
+                "molclaw_usage_count": trace_stats["molclaw_usage_count"],
+                "observation_count": trace_stats["observed_tool_call_count"],
+            },
+        )
+    except RuntimeError as exc:
+        evaluator_error = str(exc)
+        evaluation = {
+            "task_answer_valid": False,
+            "invalid_reasons": [f"evaluator_error:{exc}"],
+            "metrics": {},
+            "audit": {"evaluator_error": str(exc)},
+        }
 
     return_code = run_meta.get("return_code")
     timed_out = bool(parsed.get("timed_out") or run_meta.get("timed_out"))
@@ -209,24 +224,38 @@ def curate_sample(
         training_reasons.append(f"missing_tool_observations:{trace_stats['missing_observation_count']}")
     if resolved_final_answer in (None, "", []):
         training_reasons.append("missing_final_answer")
-    if trace_stats["error_status_conflicts"]:
-        training_reasons.append(f"error_status_conflicts:{len(trace_stats['error_status_conflicts'])}")
     training_trace_valid = not training_reasons
-    accepted = execution_valid and evaluation["task_answer_valid"] and training_trace_valid
     sample_key = f"{task}:{sample.row_number}:{sample.dataset_index}:{sample.rollout_index}:{session_path.resolve()}"
     record_id = f"react_{task}_{hashlib.sha256(sample_key.encode()).hexdigest()[:16]}"
-    return {
+    training_record = {
         "schema_version": SCHEMA_VERSION,
         "id": record_id,
         "messages": messages,
-        "status": {
-            "accepted": accepted,
+    }
+    llm_cleaned, llm_report = clean_with_llm(training_record, llm_rewrite)
+    hard_cleaned, hard_report = hard_clean(llm_cleaned)
+    if trace_stats["error_status_conflicts"]:
+        hard_report["errors"].append("source_error_status_conflict")
+        hard_report["errors"] = list(dict.fromkeys(hard_report["errors"]))
+    decision = decide_final_status(
+        execution_valid=execution_valid,
+        task_answer_valid=bool(evaluation["task_answer_valid"]),
+        training_trace_valid=training_trace_valid,
+        llm_clean_status=str(llm_report["status"]),
+        llm_clean_findings=list(llm_report["findings"]),
+        hard_clean_findings=list(hard_report["errors"]),
+        llm_clean_required=llm_clean_required,
+    )
+    return {
+        "training_record": hard_cleaned,
+        "audit": {
+            "id": record_id,
+            "final_status": decision["final_status"],
+            "final_status_authority": decision["authority"],
+            "final_status_reasons": decision["reasons"],
             "execution_valid": execution_valid,
             "task_answer_valid": evaluation["task_answer_valid"],
             "training_trace_valid": training_trace_valid,
-        },
-        "metrics": evaluation["metrics"],
-        "metadata": {
             "task": task,
             "task_id": f"{task}_row{sample.row_number:04d}_idx{sample.dataset_index}_r{sample.rollout_index:04d}",
             "source_session": str(session_path.resolve()),
@@ -238,34 +267,62 @@ def curate_sample(
             "malformed_session_line_count": malformed_line_count,
             "return_code": return_code,
             "timed_out": timed_out,
+            "task_metrics": evaluation["metrics"],
+            "task_evaluator_audit": evaluation.get("audit", {}),
+            "task_evaluator_error": evaluator_error,
+            "llm_clean": llm_report,
+            "hard_clean": hard_report,
         },
     }
 
 
-def curate_results_dir(results_dir: Path, task: str | None = None) -> dict[str, Any]:
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def curate_results_dir(
+    results_dir: Path,
+    task: str | None = None,
+    *,
+    llm_rewrite: RewriteFunction | None = None,
+    llm_clean_required: bool = False,
+) -> dict[str, Any]:
     results_dir = results_dir.resolve()
     task_name = infer_task(results_dir, task)
     chemistry, chemistry_error = load_chemistry_module()
     records = [
-        curate_sample(sample, default_task=task_name, chemistry=chemistry)
+        curate_sample(
+            sample,
+            default_task=task_name,
+            chemistry=chemistry,
+            llm_rewrite=llm_rewrite,
+            llm_clean_required=llm_clean_required,
+        )
         for sample in discover_rollout_samples(results_dir)
     ]
-    accepted = [record for record in records if record["status"]["accepted"]]
-    rejected = [record for record in records if not record["status"]["accepted"]]
+    accepted = [record for record in records if record["audit"]["final_status"] == "accepted"]
+    rejected = [record["audit"] for record in records if record["audit"]["final_status"] == "rejected"]
+    quarantine = [record["audit"] for record in records if record["audit"]["final_status"] == "quarantine"]
+    audits = [record["audit"] for record in records]
     output_dir = results_dir / "trajectories"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     outputs = {
         "react_trajectories": output_dir / "react_trajectories.jsonl",
-        "rejected": output_dir / "react_rejected.jsonl",
-        "trajectory_level": output_dir / "trajectory_level.jsonl",
-        "accepted": output_dir / "accepted.jsonl",
+        "curation_audit": output_dir / "curation_audit.jsonl",
+        "rejected": output_dir / "rejected.jsonl",
     }
-    for name, path in outputs.items():
-        rows = accepted if name in {"react_trajectories", "accepted"} else rejected if name == "rejected" else records
-        with path.open("w", encoding="utf-8") as handle:
-            for row in rows:
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    _write_jsonl(outputs["react_trajectories"], [record["training_record"] for record in accepted])
+    _write_jsonl(outputs["curation_audit"], audits)
+    _write_jsonl(outputs["rejected"], rejected)
+    quarantine_path = output_dir / "quarantine.jsonl"
+    if quarantine:
+        _write_jsonl(quarantine_path, quarantine)
+        outputs["quarantine"] = quarantine_path
+    elif quarantine_path.exists():
+        quarantine_path.unlink()
 
     summary = {
         "schema_version": SCHEMA_VERSION,
@@ -274,19 +331,22 @@ def curate_results_dir(results_dir: Path, task: str | None = None) -> dict[str, 
         "input_count": len(records),
         "output_count": len(accepted),
         "rejected_count": len(rejected),
+        "quarantine_count": len(quarantine),
         "chemistry_available": chemistry is not None,
         "chemistry_error": chemistry_error,
         "authority": {
             "execution_valid": "trace_curator",
             "task_answer_valid": "task_evaluator",
             "training_trace_valid": "trace_curator",
-            "accepted": "trace_curator",
+            "final_status": "final_acceptance_gate",
             "molclaw_usage": "trace_curator",
-            "react_messages": "trace_curator",
+            "react_messages": "react_constructor",
+            "llm_clean": "llm_cleaner",
+            "hard_clean_findings": "hard_cleaner",
         },
         "outputs": {name: str(path) for name, path in outputs.items()},
     }
-    (output_dir / "dataset_summary.json").write_text(
+    (output_dir / "curation_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )

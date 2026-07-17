@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ sys.path.insert(0, str(PIPELINE_DIR))
 sys.path.insert(0, str(POSTPROCESS_DIR))
 
 from evaluate.task_evaluator import evaluate_task_answer  # noqa: E402
-from trace_curator import RolloutSample, curate_sample, reconstruct_react_messages  # noqa: E402
+from trace_curator import RolloutSample, curate_results_dir, curate_sample, reconstruct_react_messages  # noqa: E402
 
 
 def assistant_event(*items: dict) -> dict:
@@ -125,10 +126,47 @@ class CuratorAuthorityTest(unittest.TestCase):
                 default_task="kg",
                 chemistry=None,
             )
-            self.assertTrue(record["status"]["execution_valid"])
-            self.assertTrue(record["status"]["task_answer_valid"])
-            self.assertFalse(record["status"]["training_trace_valid"])
-            self.assertFalse(record["status"]["accepted"])
+            self.assertTrue(record["audit"]["execution_valid"])
+            self.assertTrue(record["audit"]["task_answer_valid"])
+            self.assertFalse(record["audit"]["training_trace_valid"])
+            self.assertEqual(record["audit"]["final_status"], "rejected")
+            self.assertEqual(
+                set(record["training_record"]),
+                {"schema_version", "id", "messages"},
+            )
+
+    def test_results_separate_canonical_training_from_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            results = Path(td)
+            (results / "run_config.json").write_text('{"task":"kg"}', encoding="utf-8")
+            sample_dir = results / "row0001_idx0"
+            sample_dir.mkdir()
+            (sample_dir / "question.json").write_text(
+                '{"task":"kg","question":"Run the task","answer":[]}',
+                encoding="utf-8",
+            )
+            (sample_dir / "parsed_answer.json").write_text('{"answer":{"result":"done"}}', encoding="utf-8")
+            (sample_dir / "run_meta.json").write_text('{"return_code":0}', encoding="utf-8")
+            (sample_dir / "complete_session.jsonl").write_text(
+                '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1",'
+                '"name":"mcp__molclaw-scp__x","input":{}}]}}\n'
+                '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c1",'
+                '"content":{"status":"success","result":"done"}}]}}\n',
+                encoding="utf-8",
+            )
+            summary = curate_results_dir(results)
+            output_dir = results / "trajectories"
+            training = json.loads((output_dir / "react_trajectories.jsonl").read_text(encoding="utf-8"))
+            audit = json.loads((output_dir / "curation_audit.jsonl").read_text(encoding="utf-8"))
+            self.assertEqual(set(training), {"schema_version", "id", "messages"})
+            self.assertNotIn("source_session", training)
+            self.assertEqual(audit["final_status_authority"], "final_acceptance_gate")
+            self.assertIn("source_session", audit)
+            self.assertEqual(summary["output_count"], 1)
+            self.assertEqual(
+                set(summary["outputs"]),
+                {"react_trajectories", "curation_audit", "rejected"},
+            )
 
 
 if __name__ == "__main__":

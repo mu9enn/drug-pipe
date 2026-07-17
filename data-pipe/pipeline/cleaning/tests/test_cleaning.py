@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from pipeline.cleaning.hard_cleaner import hard_clean  # noqa: E402
 from pipeline.cleaning.llm_cleaner import clean_with_llm  # noqa: E402
+from pipeline.cleaning.acceptance_gate import decide_final_status  # noqa: E402
 
 
 def sample_record(*middle: dict, final: dict | None = None) -> dict:
@@ -163,6 +164,32 @@ class HardCleanerTest(unittest.TestCase):
         self.assertIn("<artifact:local/result.pdb>", cleaned["messages"][2]["content"])
         self.assertEqual(report["counts"]["tool_calls"], 1)
         self.assertEqual(report["counts"]["observations"], 1)
+
+
+class AcceptanceGateTest(unittest.TestCase):
+    def test_gate_is_the_only_stage_that_assigns_final_status(self) -> None:
+        decision = decide_final_status(
+            execution_valid=True,
+            task_answer_valid=True,
+            training_trace_valid=True,
+            llm_clean_status="cleaned",
+            llm_clean_findings=[],
+            hard_clean_findings=[],
+        )
+        self.assertEqual(decision["final_status"], "accepted")
+        self.assertEqual(decision["authority"], "final_acceptance_gate")
+
+    def test_gate_quarantines_unsafe_cleaning_without_relabeling_base_facts(self) -> None:
+        decision = decide_final_status(
+            execution_valid=True,
+            task_answer_valid=True,
+            training_trace_valid=True,
+            llm_clean_status="unsafe_rewrite",
+            llm_clean_findings=["llm_changed_task_prediction"],
+            hard_clean_findings=[],
+        )
+        self.assertEqual(decision["final_status"], "quarantine")
+        self.assertIn("llm_clean_unsafe_rewrite", decision["reasons"])
 
 
 if __name__ == "__main__":

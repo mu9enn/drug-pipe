@@ -6,7 +6,10 @@ import re
 from collections import Counter, deque
 from typing import Any
 
-from pipeline.postprocess.react_constructor import sanitize_artifacts
+try:
+    from pipeline.postprocess.react_constructor import sanitize_artifacts
+except ImportError:
+    from postprocess.react_constructor import sanitize_artifacts
 
 
 TOOL_CALL_RE = re.compile(r"<tool_call>([\s\S]*?)</tool_call>")
@@ -151,9 +154,12 @@ def _clean_protocol_messages(
             observations.append({"tool_name": tool_name, "payload": payload})
             return f'<observation tool_name="{tool_name}">{_serialize(payload)}</observation>'
 
-        content = TOOL_CALL_RE.sub(clean_call, content)
-        content = OBSERVATION_RE.sub(clean_observation, content)
-        matches = list(FINAL_RE.finditer(content))
+        role = str(message.get("role") or "")
+        if role == "assistant":
+            content = TOOL_CALL_RE.sub(clean_call, content)
+        if role in {"user", "tool"}:
+            content = OBSERVATION_RE.sub(clean_observation, content)
+        matches = list(FINAL_RE.finditer(content)) if role == "assistant" else []
         if matches:
             parsed = _parse_json(matches[-1].group(1))
             if not isinstance(parsed, dict):
