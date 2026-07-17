@@ -65,49 +65,33 @@ if [[ "$SKIP_EXPORT" -eq 0 ]]; then
   done
 fi
 
-if [[ "$SKIP_SCAN" -eq 0 ]]; then
-  echo "[postprocess] stage2: scan_molclaw_usage (accepted candidates)"
-  "$PYTHON_BIN" "$PIPELINE_DIR/postprocess/scan_molclaw_usage.py" \
-    --results-root "$RESULTS_ROOT" \
-    --output-root "$OUTPUT_ROOT" \
-    --use-accepted-only
-fi
-
 if [[ "$SKIP_SFT" -eq 0 ]]; then
-  echo "[postprocess] stage3: post_process_sft (script-1 ReAct/RL formatting and hard-clean)"
+  echo "[postprocess] stage2: aggregate canonical ReAct trajectories"
   cmd=(
-    "$PYTHON_BIN" "$PIPELINE_DIR/postprocess/post_process_sft.py"
-    --input-root "$OUTPUT_ROOT"
+    "$PYTHON_BIN" "$PIPELINE_DIR/postprocess/aggregate_react.py"
+    --results-root "$RESULTS_ROOT"
+    --output-root "$OUTPUT_ROOT"
   )
   if [[ "$ANSWER_HIT_ONLY" -eq 1 ]]; then
     cmd+=(--answer-hit-only)
   fi
-  if [[ "$SPLIT_MULTI_TOOL_CALLS" -eq 1 ]]; then
-    cmd+=(--split-multi-tool-calls)
-  fi
   "${cmd[@]}"
 fi
 
-if [[ "$SKIP_SFT" -eq 0 && "$SKIP_PRECHECK" -eq 0 ]]; then
-  echo "[postprocess] stage4: pre-LLM semantic detector (flags only; never rejects or rewrites)"
-  "$PYTHON_BIN" "$SCRIPT_DIR/validate_llm_cleaned.py" \
-    --mode pre-llm \
-    --input-dir "$OUTPUT_ROOT/sft_outputs/mcp_sft_all" \
-    --output-json "$OUTPUT_ROOT/sft_outputs/pre_llm_semantic_report.json" \
-    --output-md "$OUTPUT_ROOT/sft_outputs/pre_llm_semantic_report.md"
+if [[ "$SKIP_SCAN" -eq 0 ]]; then
+  echo "[postprocess] usage and task metrics were consumed from the curator record; no second scan was run"
+fi
+if [[ "$SPLIT_MULTI_TOOL_CALLS" -eq 1 ]]; then
+  echo "[postprocess] --split-multi-tool-calls is retained for CLI compatibility; canonical grouping is unchanged"
+fi
+if [[ "$SKIP_PRECHECK" -eq 0 ]]; then
+  echo "[postprocess] semantic repair/precheck is outside the default deterministic mainline"
 fi
 
 echo "[done] postprocess pipeline finished"
 echo "  results_root: $RESULTS_ROOT"
 echo "  output_root:  $OUTPUT_ROOT"
 if [[ "$SKIP_SFT" -eq 0 ]]; then
-  echo "  sft_all:      $OUTPUT_ROOT/sft_outputs/mcp_sft_all/"
-  echo "  sft_all_compat_jsonl: $OUTPUT_ROOT/sft_outputs/mcp_sft_all.jsonl"
-  echo "  rl_all:       $OUTPUT_ROOT/sft_outputs/mcp_rl_prompts_all.jsonl"
-  if [[ "$SKIP_PRECHECK" -eq 0 ]]; then
-    echo "  pre_llm_report: $OUTPUT_ROOT/sft_outputs/pre_llm_semantic_report.json"
-  fi
-  if [[ "$SPLIT_MULTI_TOOL_CALLS" -eq 1 ]]; then
-    echo "  split_tools:  enabled"
-  fi
+  echo "  canonical_react: $OUTPUT_ROOT/react_trajectories.jsonl"
+  echo "  rejected:        $OUTPUT_ROOT/react_rejected.jsonl"
 fi
