@@ -32,10 +32,11 @@ def _evaluate_file(path: Path, task: str) -> Dict[str, Any]:
         entry["task_answer_valid"] = result["task_answer_valid"]
         entry["eval_audit"] = result["audit"]
         entry["eval_audit"]["invalid_reasons"] = result["invalid_reasons"]
-        valid_count += int(result["task_answer_valid"])
+        eligible = bool(result["aggregate_eligible"])
+        valid_count += int(eligible)
         invalid_hist.update(result["invalid_reasons"])
         for name, value in result["metrics"].items():
-            if isinstance(value, (int, float, bool)):
+            if eligible and isinstance(value, (int, float, bool)):
                 metric_values.setdefault(name, []).append(float(value))
 
     path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -48,6 +49,7 @@ def _evaluate_file(path: Path, task: str) -> Dict[str, Any]:
             "top3_avg_hit_num": averages.get("top3_hit_num", 0.0),
             "top10_avg_hit_num": averages.get("top10_hit_num", 0.0),
             "n_samples": len(entries),
+            "n_valid_scored": valid_count,
         }
     elif task == "ac":
         task_summary = {
@@ -61,6 +63,7 @@ def _evaluate_file(path: Path, task: str) -> Dict[str, Any]:
             "avg_f1": averages.get("f1", 0.0),
             "single_answer_accuracy": averages.get("acc", 0.0),
             "n_samples": len(entries),
+            "n_valid_scored": valid_count,
         }
     return {
         f"molbench_{task}_molbench_{task}": task_summary,

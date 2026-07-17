@@ -257,6 +257,11 @@ def curate_sample(
     if final_answer in (None, "", []):
         final_answer = parsed.get("answer_block")
 
+    messages, trace_stats = reconstruct_react_messages(
+        events,
+        question_text=_question_text(question),
+        final_answer=final_answer,
+    )
     evaluation = evaluate_task_answer(
         task,
         prediction=final_answer,
@@ -264,11 +269,17 @@ def curate_sample(
         candidates=_candidate_values(question),
         chemistry=chemistry,
         parse_error=parsed.get("parse_error"),
-    )
-    messages, trace_stats = reconstruct_react_messages(
-        events,
-        question_text=_question_text(question),
-        final_answer=final_answer,
+        task_contract=(
+            question.get("evaluation")
+            if isinstance(question.get("evaluation"), dict)
+            else question.get("task_contract")
+            if isinstance(question.get("task_contract"), dict)
+            else {}
+        ),
+        execution_evidence={
+            "molclaw_usage_count": trace_stats["molclaw_usage_count"],
+            "observation_count": trace_stats["observed_tool_call_count"],
+        },
     )
 
     return_code = run_meta.get("return_code")

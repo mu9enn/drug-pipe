@@ -24,12 +24,21 @@ def user_event(*items: dict) -> dict:
 
 
 class EvaluatorAuthorityTest(unittest.TestCase):
+    class IdentityChemistry:
+        @staticmethod
+        def MolFromSmiles(value):
+            return value if value else None
+
+        @staticmethod
+        def MolToSmiles(value, canonical=True, isomericSmiles=True):
+            return value
+
     def test_evaluator_owns_metrics_and_answer_validity(self) -> None:
         result = evaluate_task_answer(
             "pf",
             prediction=["A", "B"],
             ground_truth=["B", "C"],
-            chemistry=None,
+            chemistry=self.IdentityChemistry(),
         )
         self.assertTrue(result["task_answer_valid"])
         self.assertEqual(result["metrics"]["precision"], 0.5)
@@ -42,10 +51,11 @@ class EvaluatorAuthorityTest(unittest.TestCase):
             prediction=["A", "A"],
             ground_truth=["A"],
             candidates=["A", "B"],
-            chemistry=None,
+            chemistry=self.IdentityChemistry(),
         )
         self.assertFalse(result["task_answer_valid"])
-        self.assertIn("duplicate_predictions", result["invalid_reasons"])
+        self.assertFalse(result["aggregate_eligible"])
+        self.assertTrue(any(reason.startswith("duplicate_predictions") for reason in result["invalid_reasons"]))
         self.assertEqual(result["metrics"]["top3_hit_num"], 2.0)
 
     def test_kg_narrative_answer_is_not_parsed_as_smiles(self) -> None:
@@ -59,9 +69,11 @@ class EvaluatorAuthorityTest(unittest.TestCase):
             prediction="The repaired structure was written to /tmp/egfr_fixed.pdb.",
             ground_truth=[],
             chemistry=RejectingChemistry(),
+            execution_evidence={"tool_call_count": 1, "observation_count": 1},
         )
         self.assertTrue(result["task_answer_valid"])
-        self.assertEqual(result["metrics"], {"answer_present": True})
+        self.assertTrue(result["metrics"]["answer_present"])
+        self.assertTrue(result["metrics"]["execution_evidence_present"])
         self.assertFalse(result["audit"]["chemistry_canonicalization"])
 
 
@@ -102,7 +114,10 @@ class CuratorAuthorityTest(unittest.TestCase):
             (sample_dir / "run_meta.json").write_text('{"return_code":0}', encoding="utf-8")
             (sample_dir / "complete_session.jsonl").write_text(
                 '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1",'
-                '"name":"mcp__molclaw-scp__x","input":{}}]}}\n',
+                '"name":"mcp__molclaw-scp__x","input":{}},{"type":"tool_use","id":"c2",'
+                '"name":"mcp__molclaw-scp__y","input":{}}]}}\n'
+                '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c1",'
+                '"content":{"status":"ok"}}]}}\n',
                 encoding="utf-8",
             )
             record = curate_sample(
