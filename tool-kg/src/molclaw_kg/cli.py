@@ -19,6 +19,7 @@ from .exporters import export_artifacts
 from .audit_sampler import sample_for_audit
 from .evaluate_logs import evaluate_against_logs
 from .manifest import write_repro_manifest
+from .canonical_outputs import publish_canonical_outputs
 from .question_sampling import sample_questions, sample_simple_questions
 
 
@@ -55,6 +56,7 @@ def main() -> None:
         "audit",
         "eval-logs",
         "manifest",
+        "finalize",
         "sample-questions",
         "run-all",
         "migrate-kg",
@@ -214,6 +216,8 @@ def main() -> None:
         out = evaluate_against_logs(config)
     elif args.cmd == "manifest":
         out = write_repro_manifest(config)
+    elif args.cmd == "finalize":
+        out = publish_canonical_outputs(config)
     elif args.cmd == "sample-questions":
         if args.sampling_mode == "simple_toolchain_question":
             if args.target_successes is None or args.max_attempts is None:

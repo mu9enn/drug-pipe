@@ -161,12 +161,8 @@ if [[ "$ALERT_RERUN" -eq 1 ]]; then
   fi
 fi
 
-run_cli score
-run_cli views
-run_cli provenance
-run_cli export
-run_cli audit
-run_cli eval-logs
-run_cli manifest
+run_cli canonical-edges
+run_cli finalize
 
 echo "stage2 complete: $RUN_DIR"
+echo "canonical results: $RUN_DIR/results"

@@ -3,18 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .audit_sampler import sample_for_audit
 from .candidate_generation import generate_candidates
 from .canonical_edges import build_canonical_edges
+from .canonical_outputs import publish_canonical_outputs
 from .doc_chunker import chunk_skills
-from .evaluate_logs import evaluate_against_logs
-from .exporters import export_artifacts
-from .graph_views import build_graph_views
 from .io_utils import write_json
-from .manifest import write_repro_manifest
 from .mcp_snapshot import run_snapshot
 from .pairwise_runner import run_pairwise_adjudication
-from .provenance import build_provenance_sidecar
 from .settings import build_config
 from .tool_card_builder import build_tool_cards
 
@@ -57,12 +52,7 @@ def run_all(
         resume=resume,
     )
     status["steps"]["canonical_edges"] = build_canonical_edges(config)
-    status["steps"]["graph_views"] = build_graph_views(config)
-    status["steps"]["provenance"] = build_provenance_sidecar(config)
-    status["steps"]["export"] = export_artifacts(config)
-    status["steps"]["audit_sample"] = sample_for_audit(config)
-    status["steps"]["log_evaluation"] = evaluate_against_logs(config)
-    status["steps"]["repro_manifest"] = write_repro_manifest(config)
+    status["steps"]["canonical_outputs"] = publish_canonical_outputs(config)
 
     write_json(config.paths.run_dir / "pipeline_status.json", status)
     return status
