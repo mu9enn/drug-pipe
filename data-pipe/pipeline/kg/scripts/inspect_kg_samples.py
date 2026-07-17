@@ -87,9 +87,16 @@ def main() -> None:
 
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
     sample_dir = kg_run_dir / "sample_results"
+    canonical_path = kg_run_dir / "results" / "tasks.jsonl"
     success_path_v2 = sample_dir / "sample_success_v2.jsonl"
     success_path_v1 = sample_dir / "sample_success.jsonl"
-    success_path = success_path_v2 if success_path_v2.is_file() else success_path_v1
+    success_path = (
+        canonical_path
+        if canonical_path.is_file()
+        else success_path_v2
+        if success_path_v2.is_file()
+        else success_path_v1
+    )
     questions_path = sample_dir / "questions.csv"
 
     rows = _load_jsonl(success_path)
@@ -106,8 +113,8 @@ def main() -> None:
 
     per_sample: list[dict[str, Any]] = []
     for i, rec in enumerate(rows, start=1):
-        sid = str(rec.get("sample_id") or f"sample_{i:04d}")
-        status = str(rec.get("status") or "unknown").strip().lower()
+        sid = str(rec.get("id") or rec.get("sample_id") or f"sample_{i:04d}")
+        status = str(rec.get("status") or ("success" if success_path == canonical_path else "unknown")).strip().lower()
         status_hist[status] = status_hist.get(status, 0) + 1
 
         q1 = str(rec.get("public_question_text") or "").strip()
@@ -177,7 +184,7 @@ def main() -> None:
 
     report = {
         "kg_run_dir": str(kg_run_dir),
-        "sample_success_path": str(success_path),
+        "task_records_path": str(success_path),
         "questions_csv_path": str(questions_path),
         "sample_count": len(rows),
         "questions_csv_rows": len(qmap),
