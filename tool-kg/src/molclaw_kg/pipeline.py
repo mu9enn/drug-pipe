@@ -5,7 +5,7 @@ from typing import Any
 
 from .audit_sampler import sample_for_audit
 from .candidate_generation import generate_candidates
-from .confidence import score_edges
+from .canonical_edges import build_canonical_edges
 from .doc_chunker import chunk_skills
 from .evaluate_logs import evaluate_against_logs
 from .exporters import export_artifacts
@@ -56,7 +56,7 @@ def run_all(
         max_workers=max_workers,
         resume=resume,
     )
-    status["steps"]["scoring"] = score_edges(config)
+    status["steps"]["canonical_edges"] = build_canonical_edges(config)
     status["steps"]["graph_views"] = build_graph_views(config)
     status["steps"]["provenance"] = build_provenance_sidecar(config)
     status["steps"]["export"] = export_artifacts(config)

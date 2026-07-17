@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from datetime import datetime, timezone
 from typing import Any
 
-from .constants import TRANSITION_EDGE_TYPES
 from .io_utils import read_jsonl, write_json, write_jsonl
 from .models import FinalEdge
-from .relation_utils import normalize_edge_types, normalize_relation_status
 from .settings import ProjectConfig
 
 
-def _edge_id(source_tool: str, target_tool: str, edge_type: str, source_slot: str | None, target_slot: str | None) -> str:
-    raw = f"{source_tool}|{edge_type}|{target_tool}|{source_slot or ''}|{target_slot or ''}".encode("utf-8")
+def _edge_id(
+    source_tool: str,
+    target_tool: str,
+    edge_type: str | None,
+    source_slot: str | None,
+    target_slot: str | None,
+) -> str:
+    raw = f"{source_tool}|{edge_type or ''}|{target_tool}|{source_slot or ''}|{target_slot or ''}".encode("utf-8")
     return "edge::" + hashlib.md5(raw).hexdigest()[:16]
 
 
 def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
-    scored = read_jsonl(config.paths.run_dir / "scored_edges.jsonl")
+    canonical = read_jsonl(config.paths.run_dir / "canonical_edges.jsonl")
     cards = {x["tool_id"]: x for x in read_jsonl(config.paths.run_dir / "tool_cards.jsonl")}
 
     th = config.rules.get("thresholds", {})
@@ -27,14 +30,14 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
     final_edges: list[FinalEdge] = []
     debug_rows: list[dict[str, Any]] = []
 
-    for row in scored:
+    for row in canonical:
         s_tool = row["source_tool"]
         t_tool = row["target_tool"]
         pair_id = str(row.get("pair_id") or f"pair::{s_tool}__to__{t_tool}")
-        relation_status = normalize_relation_status(row.get("relation_status", row.get("decision")))
+        relation_status = str(row["relation_status"])
         conf = float(row.get("confidence_calibrated", 0.0))
-        src_stage = cards.get(s_tool, {}).get("primary_stage", "simulation_prediction")
-        tgt_stage = cards.get(t_tool, {}).get("primary_stage", "simulation_prediction")
+        src_stage = row.get("source_stage") or cards.get(s_tool, {}).get("primary_stage", "simulation_prediction")
+        tgt_stage = row.get("target_stage") or cards.get(t_tool, {}).get("primary_stage", "simulation_prediction")
 
         if relation_status == "negative":
             view = "negative"
@@ -50,17 +53,11 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
             else:
                 view = "uncertain"
 
-        edge_types = normalize_edge_types(row.get("edge_types", []))
+        edge_types = row.get("edge_types", [])
         if not edge_types:
-            if relation_status == "alternative":
-                default_type = "alternative_to"
-            elif relation_status == "negative":
-                default_type = "generates_partial_input_for"
-            else:
-                default_type = "generates_partial_input_for"
             edge_types = [
                 {
-                    "type": default_type,
+                    "type": None,
                     "source_slot": None,
                     "target_slot_or_precondition": None,
                     "confidence": conf,
@@ -69,9 +66,7 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
             ]
 
         for et in edge_types:
-            etype = et.get("type", "generates_partial_input_for")
-            if relation_status == "valid" and etype not in TRANSITION_EDGE_TYPES:
-                etype = "generates_partial_input_for"
+            etype = et.get("type")
 
             edge_id = _edge_id(s_tool, t_tool, etype, et.get("source_slot"), et.get("target_slot_or_precondition"))
             final_edges.append(
@@ -92,8 +87,8 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
                     view=view,  # type: ignore[arg-type]
                     evidence_ids=sorted(set(et.get("evidence_ids", []) or row.get("evidence_ids", []))),
                     negative_reason=row.get("negative_reason"),
-                    created_at=datetime.now(timezone.utc).isoformat(),
-                    run_id=row.get("run_id", config.paths.run_dir.name),
+                    created_at=str(row.get("source_created_at_utc") or ""),
+                    run_id=config.paths.run_dir.name,
                 )
             )
             debug_rows.append(
@@ -107,9 +102,10 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
                     "satisfied_mappings": row.get("satisfied_mappings", []),
                     "unsatisfied_required_inputs": row.get("unsatisfied_required_inputs", []),
                     "evidence_refs": row.get("evidence_refs", []),
-                    "agent_conf": row.get("components", {}).get("agent"),
+                    "agent_conf": row.get("confidence_raw"),
                     "rationale": row.get("rationale", ""),
-                    "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "source_authority": row.get("source_authority"),
+                    "source_created_at_utc": row.get("source_created_at_utc"),
                 }
             )
 
@@ -125,7 +121,9 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
         write_jsonl(config.paths.run_dir / f"graph_{view}.jsonl", by_view.get(view, []))
 
     summary = {
+        "source": str(config.paths.run_dir / "canonical_edges.jsonl"),
         "edge_count_all": len(all_rows),
+        "semantic_rewrites": 0,
         "view_counts": {k: len(v) for k, v in sorted(by_view.items())},
         "outputs": {
             "all": str(config.paths.run_dir / "graph_all.jsonl"),

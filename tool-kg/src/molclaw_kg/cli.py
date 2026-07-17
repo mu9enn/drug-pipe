@@ -5,15 +5,15 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from .pipeline import run_all
 from .settings import build_config
-from .mcp_snapshot import run_snapshot
 from .tool_card_builder import build_tool_cards
 from .doc_chunker import chunk_skills
 from .candidate_generation import generate_candidates
 from .pairwise_runner import run_pairwise_adjudication
 from .confidence import score_edges
+from .canonical_edges import build_canonical_edges
 from .graph_views import build_graph_views
+from .migration import migrate_historical_kg
 from .provenance import build_provenance_sidecar
 from .exporters import export_artifacts
 from .audit_sampler import sample_for_audit
@@ -48,6 +48,7 @@ def main() -> None:
         "candidates",
         "adjudicate",
         "score",
+        "canonical-edges",
         "views",
         "provenance",
         "export",
@@ -56,8 +57,12 @@ def main() -> None:
         "manifest",
         "sample-questions",
         "run-all",
+        "migrate-kg",
     ]:
         subparsers[name] = sub.add_parser(name)
+
+    subparsers["migrate-kg"].add_argument("--source-dir", required=True)
+    subparsers["migrate-kg"].add_argument("--output-dir", required=True)
 
     subparsers["tool-cards"].add_argument(
         "--tool-ids-file",
@@ -133,7 +138,14 @@ def main() -> None:
 
     root = Path(args.project_root).resolve()
 
+    if args.cmd == "migrate-kg":
+        out = migrate_historical_kg(Path(args.source_dir), Path(args.output_dir))
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return
+
     if args.cmd == "run-all":
+        from .pipeline import run_all
+
         out = run_all(
             project_root=root,
             run_id=args.run_id,
@@ -159,6 +171,8 @@ def main() -> None:
     )
 
     if args.cmd == "snapshot":
+        from .mcp_snapshot import run_snapshot
+
         out = run_snapshot(config)
     elif args.cmd == "tool-cards":
         out = build_tool_cards(
@@ -186,6 +200,8 @@ def main() -> None:
         )
     elif args.cmd == "score":
         out = score_edges(config)
+    elif args.cmd == "canonical-edges":
+        out = build_canonical_edges(config)
     elif args.cmd == "views":
         out = build_graph_views(config)
     elif args.cmd == "provenance":

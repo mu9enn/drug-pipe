@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import threading
@@ -19,7 +18,6 @@ except ImportError:  # pragma: no cover
 
 from .adjudicators.agent_cc import AgentCCAdjudicator
 from .io_utils import append_jsonl, atomic_write_jsonl, read_jsonl, stable_hash_obj, write_json, write_jsonl
-from .relation_utils import context_from_legacy_fields, normalize_edge_types, normalize_relation_status
 from .schemas import ADJUDICATION_SCHEMA
 from .settings import ProjectConfig
 from .runtime_state import latest_jsonl_by_key, next_attempt_dir
@@ -32,76 +30,16 @@ def _select_adjudicator(config: ProjectConfig, mode: str):
     return AgentCCAdjudicator(config)
 
 
-def _repair_direction(pair_id: str, obj: dict[str, Any]) -> dict[str, Any]:
-    fixed = dict(obj)
-    fixed.setdefault("pair_id", pair_id)
-    rel = normalize_relation_status(fixed.get("relation_status", fixed.get("decision")))
-    fixed["relation_status"] = rel
-    fixed.setdefault("direct_transition", False)
-    fixed["edge_types"] = normalize_edge_types(fixed.get("edge_types", []))
-    fixed.setdefault("negative_reason", None)
-    fixed["context"] = str(fixed.get("context") or context_from_legacy_fields(fixed))
-    fixed.setdefault("satisfied_mappings", [])
-    fixed.setdefault("unsatisfied_required_inputs", [])
-    fixed.setdefault("evidence_refs", [])
-    fixed.setdefault("rationale", "repair filled missing fields")
-    fixed.setdefault("agent_confidence", 0.5)
-    fixed.setdefault("agent_model", "claude-cc-v1")
-
-    if any(et.get("type") == "requires_intermediate" for et in fixed["edge_types"] if isinstance(et, dict)):
-        fixed["edge_types"] = [et for et in fixed["edge_types"] if et.get("type") != "requires_intermediate"]
-        fixed["relation_status"] = "negative"
-        fixed["negative_reason"] = fixed.get("negative_reason") or "requires_intermediate"
-        fixed["direct_transition"] = False
-
-    return fixed
-
-
-def _default_response(pair_id: str, reason: str) -> dict[str, Any]:
+def _failure_response(pair_id: str, reason: str) -> dict[str, Any]:
     return {
         "pair_id": pair_id,
-        "relation_status": "uncertain",
-        "direct_transition": False,
-        "edge_types": [],
-        "negative_reason": reason,
-        "context": reason,
-        "satisfied_mappings": [],
-        "unsatisfied_required_inputs": [],
-        "evidence_refs": [],
-        "rationale": reason,
-        "agent_confidence": 0.5,
-        "agent_model": "claude-cc-v1",
+        "_parse_failure": reason,
     }
 
 
 def _safe_name(text: str) -> str:
     s = re.sub(r"[^a-zA-Z0-9._-]+", "_", text)
     return s[:120] if s else "pair"
-
-
-def _stage_pruning_mode(config: ProjectConfig, taxonomy_policy: dict[str, Any]) -> str:
-    env_mode = os.getenv("MOLCLAW_STAGE_PRUNING_MODE", "").strip().lower()
-    if env_mode in {"relation_aware", "cross_stage_only", "all"}:
-        return env_mode
-    mode = str((config.rules.get("stage_pruning") or {}).get("mode", "relation_aware")).strip().lower()
-    if mode in {"relation_aware", "cross_stage_only", "all"}:
-        return mode
-    policy_mode = str(taxonomy_policy.get("default_mode", "")).strip().lower()
-    return policy_mode if policy_mode in {"relation_aware", "cross_stage_only", "all"} else "relation_aware"
-
-
-def _prune_reason_by_stage(pair: dict[str, Any], mode: str, taxonomy) -> str | None:
-    if mode == "all":
-        return None
-    src_stage = str(pair.get("source_stage", "")).strip()
-    tgt_stage = str(pair.get("target_stage", "")).strip()
-    if mode == "cross_stage_only":
-        return "same_stage_pruned" if src_stage == tgt_stage else None
-    if src_stage == tgt_stage:
-        return "same_stage_transition_pruned"
-    if not taxonomy.is_transition_allowed(src_stage, tgt_stage):
-        return "stage_transition_not_allowed"
-    return None
 
 
 def _load_pair_prompt_template(config: ProjectConfig) -> str:
@@ -172,10 +110,8 @@ def _build_pair_spec(*, row: dict[str, Any], cards: dict[str, dict[str, Any]]) -
             "target_tool": target,
             "source_stage": row.get("source_stage"),
             "target_stage": row.get("target_stage"),
-            "schema_score": float(row.get("schema_score", 0.0)),
-            "suggested_edge_types": row.get("suggested_edge_types") or [],
-            "negative_reason": row.get("negative_reason"),
-            "source": row.get("source") or [],
+            "proposal_reasons": row.get("proposal_reasons") or [],
+            "recall_risk": row.get("recall_risk"),
         },
         "adjudication_goal": "Judge direct typed edge for this directed pair and record coverage/missing requirements.",
         "must_not_do": [
@@ -288,7 +224,7 @@ def _flatten_cache_entry_to_record(
 ) -> dict[str, Any]:
     response = cache_entry.get("response")
     if not isinstance(response, dict):
-        response = _default_response(str(pair["pair_id"]), "cache_missing_response")
+        response = _failure_response(str(pair["pair_id"]), "cache_missing_response")
     trace = cache_entry.get("trace") if isinstance(cache_entry.get("trace"), dict) else {}
     schema_ok = bool(trace.get("schema_ok", True))
     schema_error = trace.get("schema_error")
@@ -298,7 +234,7 @@ def _flatten_cache_entry_to_record(
         "target_tool": str(pair["target_tool"]),
         "source_stage": pair.get("source_stage"),
         "target_stage": pair.get("target_stage"),
-        "response": _repair_direction(str(pair["pair_id"]), response),
+        "response": dict(response),
         "response_schema_ok": schema_ok,
         "response_schema_error": schema_error,
         "cache_key": cache_key,
@@ -306,7 +242,6 @@ def _flatten_cache_entry_to_record(
         "created_at_utc": cache_entry.get("created_at_utc", datetime.now(timezone.utc).isoformat()),
         "trace": trace,
     }
-    rec["response"]["evidence_refs"] = _extract_evidence_refs(rec["response"])
     return rec
 
 
@@ -334,7 +269,7 @@ def _run_pairwise_attempt(
     err_msg = None
     schema_ok = False
     schema_error = None
-    response_obj: dict[str, Any] = _default_response(pair_id, "worker_exception")
+    response_obj: dict[str, Any] = _failure_response(pair_id, "worker_exception")
     trace: dict[str, Any] = {}
     cache_key = ""
     created_at = datetime.now(timezone.utc).isoformat()
@@ -391,12 +326,11 @@ def _run_pairwise_attempt(
             schema_ok = False
             schema_error = str(e)
 
-        response_obj = _repair_direction(pair_id, raw if isinstance(raw, dict) else {})
-        response_obj["evidence_refs"] = _extract_evidence_refs(response_obj)
+        response_obj = dict(raw) if isinstance(raw, dict) else _failure_response(pair_id, "agent_output_not_object")
     except Exception as e:  # pragma: no cover - worker safety net
         status = "worker_exception"
         err_msg = f"{type(e).__name__}: {e}"
-        response_obj = _default_response(pair_id, "agent_output_parse_failed_directional")
+        response_obj = _failure_response(pair_id, "agent_output_parse_failed_directional")
         trace = {
             "provider": "worker_exception",
             "provider_switch_ok": False,
@@ -480,49 +414,6 @@ def _run_pairwise_attempt(
     return rec, cache_entry
 
 
-def _extract_evidence_refs(response_obj: dict[str, Any]) -> list[str]:
-    refs = []
-    for x in (response_obj.get("evidence_refs") or []):
-        if isinstance(x, str) and x.strip():
-            refs.append(x.strip())
-    for et in response_obj.get("edge_types", []):
-        if not isinstance(et, dict):
-            continue
-        for x in (et.get("evidence_ids") or []):
-            if isinstance(x, str) and x.strip():
-                refs.append(x.strip())
-    dedup = []
-    for x in refs:
-        if x not in dedup:
-            dedup.append(x)
-    return dedup
-
-
-def _deterministic_alternative_response(*, pair_id: str, cluster_id: str) -> dict[str, Any]:
-    return {
-        "pair_id": pair_id,
-        "relation_status": "alternative",
-        "direct_transition": False,
-        "edge_types": [
-            {
-                "type": "alternative_to",
-                "source_slot": None,
-                "target_slot_or_precondition": None,
-                "confidence": 0.92,
-                "evidence_ids": [f"alternative_cluster::{cluster_id}"],
-            }
-        ],
-        "negative_reason": None,
-        "context": "",
-        "satisfied_mappings": [],
-        "unsatisfied_required_inputs": [],
-        "evidence_refs": [f"alternative_cluster::{cluster_id}"],
-        "rationale": "deterministic alternative edge generated from configured alternative cluster",
-        "agent_confidence": 0.92,
-        "agent_model": "deterministic-alternative-cluster",
-    }
-
-
 def _load_pair_ids_filter(path: Path) -> set[str]:
     if not path.exists():
         raise FileNotFoundError(f"pair ids file not found: {path}")
@@ -550,14 +441,14 @@ def _extract_pair_adjudication_alerts(rows: list[dict[str, Any]]) -> tuple[list[
     pair_ids: list[str] = []
     for r in rows:
         schema_ok = bool(r.get("response_schema_ok", False))
-        neg_reason = str(r.get("negative_reason") or "")
-        if (not schema_ok) or (neg_reason == "agent_output_parse_failed_directional"):
+        failure_reason = str(r.get("_parse_failure") or "")
+        if (not schema_ok) or failure_reason:
             rec = {
                 "pair_id": r.get("pair_id"),
                 "source_tool": r.get("source_tool"),
                 "target_tool": r.get("target_tool"),
                 "response_schema_ok": schema_ok,
-                "negative_reason": r.get("negative_reason"),
+                "failure_reason": failure_reason or r.get("response_schema_error"),
                 "created_at_utc": r.get("created_at_utc"),
             }
             alerts.append(rec)
@@ -599,109 +490,20 @@ def run_pairwise_adjudication(
     final_map: dict[str, dict[str, Any]] = latest_jsonl_by_key(out_path, "pair_id") if reuse_existing else {}
 
     taxonomy = load_stage_taxonomy(config.stage_taxonomy_path)
-    pruning_mode = _stage_pruning_mode(config, taxonomy.pruning_policy)
-
-    alt_dir_map: dict[tuple[str, str], str] = {}
-    for src, tgt, relation, cluster_id in taxonomy.alternative_pairs():
-        if relation != "alternative_to":
-            continue
-        alt_dir_map[(src, tgt)] = cluster_id
-
-    pair_by_id = {p["pair_id"]: p for p in pairs}
-    for (src, tgt), cluster_id in alt_dir_map.items():
-        pid = f"pair::{src}__to__{tgt}"
-        if pid in pair_by_id:
-            continue
-        if src not in cards or tgt not in cards:
-            continue
-        synthetic = {
-            "pair_id": pid,
-            "source_tool": src,
-            "target_tool": tgt,
-            "source_stage": cards[src].get("primary_stage", ""),
-            "target_stage": cards[tgt].get("primary_stage", ""),
-            "source": ["alternative_cluster"],
-            "schema_score": 0.0,
-            "suggested_edge_types": ["alternative_to"],
-            "negative_reason": None,
-        }
-        pairs.append(synthetic)
-        pair_by_id[pid] = synthetic
-
-    pruned = []
-    stage_kept = []
-    deterministic_out_rows: list[dict[str, Any]] = []
-
-    for p in pairs:
-        src_tool = str(p["source_tool"])
-        tgt_tool = str(p["target_tool"])
-        pair_id = str(p["pair_id"])
-
-        cluster_id = alt_dir_map.get((src_tool, tgt_tool))
-        if cluster_id:
-            response = _deterministic_alternative_response(pair_id=pair_id, cluster_id=cluster_id)
-            deterministic_out_rows.append(
-                {
-                    "pair_id": pair_id,
-                    "source_tool": src_tool,
-                    "target_tool": tgt_tool,
-                    "source_stage": p.get("source_stage"),
-                    "target_stage": p.get("target_stage"),
-                    "response": response,
-                    "response_schema_ok": True,
-                    "response_schema_error": None,
-                    "cache_key": f"deterministic::{pair_id}",
-                    "from_cache": False,
-                    "created_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "trace": {
-                        "provider": "deterministic-alternative-cluster",
-                        "provider_switch_ok": True,
-                        "provider_switch_message": "n/a",
-                        "command": "none",
-                        "return_code": 0,
-                        "timed_out": False,
-                        "latency_sec": 0.0,
-                        "prompt_sha256": "",
-                        "mcp_config_sha256": "",
-                        "mcp_server_name": "",
-                        "mcp_server_url": "",
-                        "workdir": "",
-                        "session_file": "",
-                        "skills_root": str(config.runtime.skills_root),
-                        "parsed_ok": True,
-                        "schema_ok": True,
-                        "schema_error": None,
-                    },
-                }
-            )
-            continue
-
-        reason = _prune_reason_by_stage(p, pruning_mode, taxonomy)
-        if reason is not None:
-            pruned.append(
-                {
-                    "pair_id": pair_id,
-                    "source_tool": src_tool,
-                    "target_tool": tgt_tool,
-                    "source_stage": p.get("source_stage"),
-                    "target_stage": p.get("target_stage"),
-                    "reason": reason,
-                    "mode": pruning_mode,
-                }
-            )
-        else:
-            stage_kept.append(p)
+    pruned: list[dict[str, Any]] = []
+    stage_kept = list(pairs)
 
     write_jsonl(config.paths.run_dir / "pair_pruned_by_stage.jsonl", pruned)
     write_json(
         config.paths.run_dir / "pair_pruned_by_stage_meta.json",
         {
-            "stage_pruning_mode": pruning_mode,
+            "stage_pruning_mode": "disabled_semantic_authority",
             "stage_pruning_policy": taxonomy.pruning_policy,
             "input_pair_count": len(pairs),
-            "pruned_pair_count": len(pruned),
+            "pruned_pair_count": 0,
             "kept_pair_count": len(stage_kept),
-            "deterministic_alternative_count": len(deterministic_out_rows),
+            "deterministic_alternative_count": 0,
+            "note": "Stage and alternative semantics are decided only by Claude adjudication.",
         },
     )
 
@@ -772,26 +574,11 @@ def run_pairwise_adjudication(
                 final_map[pair_id] = _flatten_adjudication_record(rec)
                 progress_rows.append(rec)
 
-    # preserve deterministic alternatives and any existing rows for untouched pairs
+    # Preserve cache hits, progress rows, and any existing rows for untouched pairs.
     for rec in cache_hit_rows:
         final_map[rec["pair_id"]] = _flatten_adjudication_record(rec)
     for rec in progress_rows:
         final_map[rec["pair_id"]] = _flatten_adjudication_record(rec)
-    for rec in deterministic_out_rows:
-        final_map[rec["pair_id"]] = {
-            "pair_id": rec["pair_id"],
-            "source_tool": rec["source_tool"],
-            "target_tool": rec["target_tool"],
-            "source_stage": rec.get("source_stage"),
-            "target_stage": rec.get("target_stage"),
-            **rec["response"],
-            "response_schema_ok": rec["response_schema_ok"],
-            "response_schema_error": rec["response_schema_error"],
-            "cache_key": rec["cache_key"],
-            "from_cache": rec["from_cache"],
-            "trace": rec["trace"],
-            "created_at_utc": rec["created_at_utc"],
-        }
 
     final_rows = [final_map[k] for k in sorted(final_map.keys())]
     atomic_write_jsonl(out_path, final_rows)
@@ -803,7 +590,7 @@ def run_pairwise_adjudication(
     rerun_targets_path.write_text("".join(f"{x}\n" for x in alert_pair_ids), encoding="utf-8")
     by_reason: dict[str, int] = defaultdict(int)
     for a in alerts:
-        reason = str(a.get("negative_reason") or ("schema_not_ok" if not a.get("response_schema_ok", True) else "other"))
+        reason = str(a.get("failure_reason") or ("schema_not_ok" if not a.get("response_schema_ok", True) else "other"))
         by_reason[reason] += 1
     write_json(
         config.paths.run_dir / "pair_adjudication_alerts_meta.json",
@@ -827,7 +614,7 @@ def run_pairwise_adjudication(
     relation_status_count = Counter()
     schema_ok_count = 0
     for x in final_rows:
-        rel = normalize_relation_status(x.get("relation_status", x.get("decision")))
+        rel = str(x.get("relation_status") or "schema_failure")
         relation_status_count[rel] += 1
         if x.get("response_schema_ok"):
             schema_ok_count += 1
@@ -840,8 +627,8 @@ def run_pairwise_adjudication(
         "pair_count_actual_model_calls": actual_calls,
         "pair_count_cache_hits": cache_hit_count,
         "pair_count_skipped_existing": skipped_existing,
-        "deterministic_alternative_count": len(deterministic_out_rows),
-        "stage_pruning_mode": pruning_mode,
+        "deterministic_alternative_count": 0,
+        "stage_pruning_mode": "disabled_semantic_authority",
         "relation_status_count": dict(sorted(relation_status_count.items())),
         "schema_ok_count": schema_ok_count,
         "model": adjudicator.model_name,

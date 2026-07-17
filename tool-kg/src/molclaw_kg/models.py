@@ -83,10 +83,8 @@ class CandidatePair(BaseModel):
     target_tool: str
     source_stage: str
     target_stage: str
-    source: list[str] = Field(default_factory=list)
-    schema_score: float = 0.0
-    suggested_edge_types: list[str] = Field(default_factory=list)
-    negative_reason: str | None = None
+    proposal_reasons: list[str] = Field(default_factory=list)
+    recall_risk: str | None = None
 
 
 class EdgeTypeDecision(BaseModel):
@@ -134,7 +132,7 @@ class FinalEdge(BaseModel):
     pair_id: str
     source_tool: str
     target_tool: str
-    edge_type: str
+    edge_type: str | None = None
     direct_transition: bool
     source_slot: str | None = None
     target_slot: str | None = None
@@ -148,13 +146,3 @@ class FinalEdge(BaseModel):
     negative_reason: str | None = None
     created_at: str
     run_id: str
-
-
-class ValidationResult(BaseModel):
-    # Kept only for backward import compatibility; validate stage is removed from main pipeline.
-    edge_id: str
-    pair_id: str
-    validator_name: str
-    status: Literal["pass", "weak", "fail"]
-    message: str
-    details: dict[str, Any] = Field(default_factory=dict)
