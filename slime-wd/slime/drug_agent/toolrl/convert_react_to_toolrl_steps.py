@@ -11,8 +11,8 @@ from typing import Any, Iterable
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.protocol.react_protocol import parse_react_sequence
-from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist, parse_tool_calls
+from drug_agent.decision_extractor import iter_react_decisions, parse_assistant_decision
+from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist
 from drug_agent.utils import ensure_dir, read_jsonl, to_jsonable, write_json, write_jsonl
 
 
@@ -43,14 +43,10 @@ def _load_records(path: Path) -> list[dict[str, Any]]:
     raise ValueError(f"Unsupported input file: {path}")
 
 
-def _copy_message(message: dict[str, Any]) -> dict[str, Any]:
-    out = {"role": message.get("role"), "content": message.get("content")}
-    if "name" in message:
-        out["name"] = message["name"]
-    return out
-
-
 def _infer_task_type(record: dict[str, Any], source_path: str) -> str | None:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    if isinstance(metadata.get("task"), str) and metadata["task"].strip():
+        return metadata["task"].strip()
     for candidate in (record.get("task_type"), record.get("task")):
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
@@ -69,8 +65,8 @@ def _infer_task_type(record: dict[str, Any], source_path: str) -> str | None:
 
 def _parse_target_assistant(message: dict[str, Any]) -> dict[str, Any]:
     content = message.get("content")
-    parsed = parse_tool_calls(content if isinstance(content, str) else "", role="assistant", keep_non_molclaw=True)
-    tool_calls = parsed.get("molclaw_tool_calls") if isinstance(parsed.get("molclaw_tool_calls"), list) else []
+    parsed = parse_assistant_decision(content)
+    tool_calls = parsed.get("tool_calls") if isinstance(parsed.get("tool_calls"), list) else []
     return {
         "role": "assistant",
         "content": content,
@@ -176,17 +172,10 @@ def convert_react_to_toolrl_steps(
             )
             continue
 
-        for message_index, message in enumerate(messages):
-            if not isinstance(message, dict):
-                continue
-            if message.get("role") != "assistant":
-                continue
-            content = message.get("content")
-            if not isinstance(content, str):
-                counts["skip_non_string_assistant"] += 1
-                continue
-
-            parsed = parse_tool_calls(content, role="assistant", allowed_tool_names=allowlist, keep_non_molclaw=True)
+        for decision in iter_react_decisions(messages):
+            message_index = int(decision["assistant_index"])
+            message = decision["target_assistant"]
+            parsed = decision["parse"]
             if not parsed.get("ok"):
                 counts["skip_parse_failed"] += 1
                 skipped_rows.append(
@@ -197,15 +186,17 @@ def convert_react_to_toolrl_steps(
                         "assistant_index": message_index,
                         "skip_reason": "assistant_parse_failed",
                         "details": {
-                            "error_type": parsed.get("error_type"),
-                            "error_message": parsed.get("error_message"),
+                            "error_message": parsed.get("error"),
                         },
                     }
                 )
                 continue
 
-            target_tool_calls = parsed.get("molclaw_tool_calls") if isinstance(parsed.get("molclaw_tool_calls"), list) else []
-            target_tool_calls = [item for item in target_tool_calls if isinstance(item, dict)]
+            target_tool_calls = [
+                {**item, "keep": True}
+                for item in parsed.get("tool_calls", [])
+                if isinstance(item, dict) and item.get("tool_name") in allowlist
+            ]
             if not target_tool_calls:
                 counts["skip_no_molclaw_tool_calls"] += 1
                 skipped_rows.append(
@@ -216,14 +207,14 @@ def convert_react_to_toolrl_steps(
                         "assistant_index": message_index,
                         "skip_reason": "no_molclaw_tool_calls",
                         "details": {
-                            "non_molclaw_tool_call_count": int(parsed.get("non_molclaw_tool_call_count") or 0),
-                            "has_final_answer": bool(parsed.get("has_final_answer")),
+                            "non_molclaw_tool_call_count": len(parsed.get("tool_calls", [])),
+                            "has_final_answer": decision["decision_type"] == "final_answer",
                         },
                     }
                 )
                 continue
 
-            prompt_messages = [_copy_message(item) for item in messages[:message_index]]
+            prompt_messages = decision["state_messages"]
             if not prompt_messages:
                 counts["skip_empty_prompt"] += 1
                 skipped_rows.append(
@@ -243,7 +234,7 @@ def convert_react_to_toolrl_steps(
                 message_index=message_index,
                 prompt_messages=prompt_messages,
                 assistant_message=message,
-                parsed_assistant=parsed,
+                parsed_assistant={**parsed, "molclaw_tool_calls": target_tool_calls},
                 source_path=str(input_path),
             )
             output_rows.append(sample)

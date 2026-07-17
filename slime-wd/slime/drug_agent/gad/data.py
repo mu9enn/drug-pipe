@@ -6,8 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from drug_agent.protocol.react_protocol import parse_react_sequence
-from drug_agent.toolrl.parse_tool_calls import parse_tool_calls
+from drug_agent.decision_extractor import iter_react_decisions
 from drug_agent.utils import read_jsonl, write_json, write_jsonl
 
 NON_MOLCLAW_LOCAL_TOOLS = {
@@ -27,10 +26,6 @@ NON_MOLCLAW_LOCAL_TOOLS = {
 }
 
 
-def _message_copy(message: dict[str, Any]) -> dict[str, Any]:
-    return {key: message[key] for key in ("role", "content", "name") if key in message}
-
-
 def _partition_cleaned_tool_calls(tool_info: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Classify calls from the cleaned ReAct source without a mini allowlist.
 
@@ -44,7 +39,8 @@ def _partition_cleaned_tool_calls(tool_info: dict[str, Any]) -> tuple[list[dict[
     for call in tool_info.get("tool_calls") or []:
         raw = str(call.get("tool_name_raw") or "")
         bare = str(call.get("tool_name") or "").strip().lower()
-        is_other_mcp = raw.startswith("mcp__") and not raw.startswith("mcp__molclaw-scp__")
+        is_molclaw_mcp = raw.startswith(("mcp__molclaw-scp__", "mcp__molclaw-vs__"))
+        is_other_mcp = raw.startswith("mcp__") and not is_molclaw_mcp
         if is_other_mcp or bare in NON_MOLCLAW_LOCAL_TOOLS:
             rejected.append(call)
         else:
@@ -61,16 +57,15 @@ def convert_records(records: list[dict[str, Any]], source: str = "") -> tuple[li
         if not isinstance(messages, list):
             skipped.append({"record_index": record_index, "skip_reason": "missing_messages"})
             continue
-        for assistant_index, message in enumerate(messages):
-            if not isinstance(message, dict) or message.get("role") != "assistant":
-                continue
-            response = message.get("content")
-            parsed = parse_react_sequence(response, role="assistant") if isinstance(response, str) else {"ok": False}
+        for decision in iter_react_decisions(messages):
+            assistant_index = int(decision["assistant_index"])
+            response = decision["target_assistant"]["content"]
+            parsed = decision["parse"]
             if not parsed.get("ok"):
                 skipped.append({"record_index": record_index, "assistant_index": assistant_index, "skip_reason": "parse_failed"})
                 counts["skip_parse_failed"] += 1
                 continue
-            tool_info = parse_tool_calls(response, keep_non_molclaw=True)
+            tool_info = {"tool_calls": decision["tool_calls"]}
             target_calls, rejected_calls = _partition_cleaned_tool_calls(tool_info)
             if rejected_calls:
                 skipped.append(
@@ -83,12 +78,12 @@ def convert_records(records: list[dict[str, Any]], source: str = "") -> tuple[li
                 )
                 counts["skip_non_molclaw_tool"] += 1
                 continue
-            decision_type = "final_answer" if tool_info.get("has_final_answer") else "tool_call"
+            decision_type = decision["decision_type"]
             if decision_type == "tool_call" and not target_calls:
                 skipped.append({"record_index": record_index, "assistant_index": assistant_index, "skip_reason": "no_decision"})
                 counts["skip_no_decision"] += 1
                 continue
-            state = [_message_copy(item) for item in messages[:assistant_index] if isinstance(item, dict)]
+            state = decision["state_messages"]
             if not state:
                 skipped.append({"record_index": record_index, "assistant_index": assistant_index, "skip_reason": "invalid_state_boundary"})
                 counts["skip_invalid_state_boundary"] += 1

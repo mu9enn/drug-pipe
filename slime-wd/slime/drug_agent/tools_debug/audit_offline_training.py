@@ -22,6 +22,7 @@ FORMAL_SCRIPTS = {
     "gad_stage3_full": ROOT / "gad/scripts/run_stage3_gad_grpo_full.sh",
 }
 FORMAL_HOOKS = {
+    "shared_decision_extractor": ROOT / "decision_extractor.py",
     "sft_materialize": ROOT / "data/materialize_sft_jsonl.py",
     "sft_validate": ROOT / "data/validate_sft_messages.py",
     "toolrl_converter": ROOT / "toolrl/convert_react_to_toolrl_steps.py",
