@@ -190,16 +190,17 @@ def _expected_trajectory_from_simple_sample(rec: dict[str, Any]) -> dict[str, An
 
 
 def _normalize_sample(rec: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(rec.get("hidden_toolchain_nodes"), list):
-        return rec
     normalized = dict(rec)
-    normalized.setdefault("toolchain_nodes", rec["hidden_toolchain_nodes"])
-    normalized.setdefault("toolchain_edges", rec.get("hidden_toolchain_edges") or [])
-    normalized.setdefault("expected_trajectory", _expected_trajectory_from_simple_sample(rec))
-    nodes = normalized["toolchain_nodes"]
+    if isinstance(rec.get("hidden_toolchain_nodes"), list):
+        normalized.setdefault("toolchain_nodes", rec["hidden_toolchain_nodes"])
+        normalized.setdefault("toolchain_edges", rec.get("hidden_toolchain_edges") or [])
+        normalized.setdefault("expected_trajectory", _expected_trajectory_from_simple_sample(rec))
+    nodes = normalized.get("toolchain_nodes")
     if nodes:
-        normalized.setdefault("start_tool", nodes[0])
-        normalized.setdefault("end_tool", nodes[-1])
+        if not normalized.get("start_tool"):
+            normalized["start_tool"] = nodes[0]
+        if not normalized.get("end_tool"):
+            normalized["end_tool"] = nodes[-1]
     return normalized
 
 
@@ -284,8 +285,10 @@ def main() -> None:
 
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
+    canonical_tasks = kg_run_dir / "results" / "tasks.jsonl"
     sample_dir = kg_run_dir / "sample_results"
     sample_sources = [
+        (canonical_tasks, None),
         (sample_dir / "sample_success_simple.jsonl", sample_dir / "questions_simple.csv"),
         (sample_dir / "sample_success_v2.jsonl", sample_dir / "questions.csv"),
         (sample_dir / "sample_success.jsonl", sample_dir / "questions.csv"),
@@ -293,11 +296,11 @@ def main() -> None:
     selected_source = next(((success, questions) for success, questions in sample_sources if success.is_file()), None)
     if selected_source is None:
         searched = " / ".join(str(success) for success, _ in sample_sources)
-        raise FileNotFoundError(f"sample_success jsonl not found: {searched}")
+        raise FileNotFoundError(f"canonical or compatibility task JSONL not found: {searched}")
     success_path, questions_path = selected_source
 
     rows = [_normalize_sample(row) for row in _load_jsonl(success_path)]
-    qmap = _load_questions_csv(questions_path)
+    qmap = _load_questions_csv(questions_path) if questions_path is not None else {}
     kg_run_id = kg_run_dir.name
     kg_project_root = kg_run_dir.parent.parent
     include_raw_sample = not args.no_include_raw_sample
@@ -306,7 +309,7 @@ def main() -> None:
     rejected: list[dict[str, Any]] = []
 
     for i, rec in enumerate(rows, start=1):
-        sample_id = str(rec.get("sample_id") or f"sample_{i:04d}").strip()
+        sample_id = str(rec.get("id") or rec.get("sample_id") or f"sample_{i:04d}").strip()
         sample_index = _as_int(rec.get("index") or rec.get("attempt_index"), i)
         status = str(rec.get("status") or "").strip().lower()
 
@@ -399,7 +402,7 @@ def main() -> None:
         "kg_run_id": kg_run_id,
         "input": {
             "sample_success": str(success_path),
-            "questions_csv": str(questions_path),
+            "questions_csv": str(questions_path) if questions_path is not None else None,
         },
         "output": {
             "kg_sampled_tasks_jsonl": str(tasks_jsonl),

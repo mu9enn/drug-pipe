@@ -42,8 +42,51 @@ def load_canonical_sampling_inputs(
     return graph, cards, decision_context
 
 
+def _simple_expected_trajectory(row: dict[str, Any]) -> dict[str, Any] | None:
+    tools = row.get("hidden_toolchain_nodes")
+    edges = row.get("hidden_toolchain_edges")
+    if not isinstance(tools, list) or not tools:
+        return None
+    node_ids = {str(tool): f"tool::{index:02d}::{tool}" for index, tool in enumerate(tools, start=1)}
+    graph_edges = []
+    for index, edge in enumerate(edges if isinstance(edges, list) else [], start=1):
+        if not isinstance(edge, dict):
+            continue
+        source = str(edge.get("source_tool") or "")
+        target = str(edge.get("target_tool") or "")
+        if source not in node_ids or target not in node_ids:
+            continue
+        graph_edges.append(
+            {
+                "edge_id": f"edge::toolchain::{index:02d}",
+                "source": node_ids[source],
+                "target": node_ids[target],
+                "relation": edge.get("edge_type") or "workflow_transition",
+            }
+        )
+    payload = row.get("question_payload") if isinstance(row.get("question_payload"), dict) else {}
+    return {
+        "schema_version": "trajectory_v2_graph",
+        "workflow_graph": {
+            "nodes": [
+                {"node_id": node_ids[str(tool)], "type": "tool", "label": str(tool), "tool_id": str(tool)}
+                for tool in tools
+            ],
+            "edges": graph_edges,
+        },
+        "execution_plan": {
+            "topological_order": [node_ids[str(tool)] for tool in tools],
+            "tool_order": [str(tool) for tool in tools],
+        },
+        "final_deliverable": payload.get("expected_output"),
+    }
+
+
 def canonical_task(row: dict[str, Any], run_id: str) -> dict[str, Any]:
     task_id = str(row.get("sample_id") or row.get("id") or "")
+    expected = row.get("expected_trajectory")
+    if not isinstance(expected, dict):
+        expected = _simple_expected_trajectory(row)
     return {
         "schema_version": "tool_kg_task_v1",
         "id": task_id,
@@ -52,7 +95,12 @@ def canonical_task(row: dict[str, Any], run_id: str) -> dict[str, Any]:
         "question_payload": row.get("question_payload") or {},
         "toolchain_nodes": row.get("toolchain_nodes") or row.get("hidden_toolchain_nodes") or [],
         "toolchain_edges": row.get("toolchain_edges") or row.get("hidden_toolchain_edges") or [],
-        "expected_trajectory": row.get("expected_trajectory"),
+        "walk_hops": row.get("walk_hops"),
+        "start_tool": row.get("start_tool")
+        or ((row.get("hidden_toolchain_nodes") or [None])[0]),
+        "end_tool": row.get("end_tool")
+        or ((row.get("hidden_toolchain_nodes") or [None])[-1]),
+        "expected_trajectory": expected,
         "grounded_initial_inputs": row.get("grounded_initial_inputs") or [],
         "grounding_refs": row.get("grounding_refs") or [],
         "grounding_sources": row.get("grounding_sources") or [],

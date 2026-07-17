@@ -16,24 +16,23 @@ class BuildKgTaskDatasetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_dir = root / "tool-kg" / "runs" / "run_simple"
-            sample_dir = run_dir / "sample_results"
+            sample_dir = run_dir / "results"
             output_dir = root / "tasks"
             sample_dir.mkdir(parents=True)
             sample = {
-                "sample_id": "simple_0001",
-                "attempt_index": 1,
-                "status": "success",
+                "schema_version": "tool_kg_task_v1",
+                "id": "simple_0001",
                 "public_question_text": "Retrieve and repair the structure for EGFR.",
                 "question_payload": {
                     "task": "protein preparation",
                     "inputs": {"gene_name": "EGFR"},
                     "expected_output": "A repaired protein structure.",
                 },
-                "hidden_toolchain_nodes": [
+                "toolchain_nodes": [
                     "retrieve_protein_structure_by_gene_name",
                     "fix_pdb",
                 ],
-                "hidden_toolchain_edges": [
+                "toolchain_edges": [
                     {
                         "source_tool": "retrieve_protein_structure_by_gene_name",
                         "target_tool": "fix_pdb",
@@ -43,8 +42,33 @@ class BuildKgTaskDatasetTest(unittest.TestCase):
                     }
                 ],
                 "walk_hops": 1,
+                "expected_trajectory": {
+                    "schema_version": "trajectory_v2_graph",
+                    "workflow_graph": {
+                        "nodes": [
+                            {
+                                "node_id": "tool::01::retrieve",
+                                "type": "tool",
+                                "tool_id": "retrieve_protein_structure_by_gene_name",
+                            },
+                            {"node_id": "tool::02::fix", "type": "tool", "tool_id": "fix_pdb"},
+                        ],
+                        "edges": [
+                            {
+                                "edge_id": "edge::01",
+                                "source": "tool::01::retrieve",
+                                "target": "tool::02::fix",
+                                "relation": "feeds_into",
+                            }
+                        ],
+                    },
+                    "execution_plan": {
+                        "topological_order": ["tool::01::retrieve", "tool::02::fix"],
+                        "tool_order": ["retrieve_protein_structure_by_gene_name", "fix_pdb"],
+                    },
+                },
             }
-            (sample_dir / "sample_success_simple.jsonl").write_text(
+            (sample_dir / "tasks.jsonl").write_text(
                 json.dumps(sample) + "\n",
                 encoding="utf-8",
             )
@@ -80,7 +104,7 @@ class BuildKgTaskDatasetTest(unittest.TestCase):
             self.assertEqual(task["expected_trajectory"]["schema_version"], "trajectory_v2_graph")
             self.assertEqual(
                 task["expected_trajectory"]["execution_plan"]["tool_order"],
-                sample["hidden_toolchain_nodes"],
+                sample["toolchain_nodes"],
             )
 
 
