@@ -4,7 +4,7 @@
 
 ## Tool Catalog
 
-`tool_cards.jsonl` 每行一个工具。关系发现稳定消费：
+正式产物 `results/tool_catalog.jsonl` 每行一个工具；run 根目录的 `tool_cards.jsonl` 是可恢复的 Stage1 中间状态。
 
 ```json
 {
@@ -19,18 +19,19 @@
 
 MCP schema 字段为确定性事实；skills 语义由 tool-card agent 摘要。`doc_chunks` 只是 tool-card 构建缓存。
 
-## Canonical Edge
+## Edge Decisions 与 Graph
 
-`canonical_edges.jsonl` 每行对应一次 schema-valid directional adjudication：
+正式产物 `results/edge_decisions.jsonl` 中每个 directed pair 最多一条标准 decision：
 
 ```json
 {
-  "schema_version": "canonical_edge_v1",
+  "schema_version": "tool_kg_edge_decision_v1",
   "pair_id": "...",
   "source_tool": "...",
   "target_tool": "...",
   "relation_status": "valid",
   "direct_transition": true,
+  "edge_type": "generates_full_input_for",
   "edge_types": [{
     "type": "generates_full_input_for",
     "source_slot": "...",
@@ -38,23 +39,22 @@ MCP schema 字段为确定性事实；skills 语义由 tool-card agent 摘要。
     "confidence": 0.86,
     "evidence_ids": ["..."]
   }],
-  "satisfied_mappings": [],
-  "unsatisfied_required_inputs": [],
-  "context": "...",
+  "satisfied_inputs": [],
+  "unsatisfied_inputs": [],
   "negative_reason": null,
-  "evidence_refs": [],
+  "evidence": [],
   "rationale": "...",
   "confidence_raw": 0.86,
-  "confidence_calibrated": 0.86,
-  "source_authority": "claude_pair_adjudication"
+  "source_authority": "claude_adjudication",
+  "eligible_for_sampling": true
 }
 ```
 
-`graph_all/core/expanded/uncertain/negative.jsonl` 和 `edge_debug_sidecar.jsonl` 都是 projection。没有 edge type 的 negative/uncertain 判断保持 `null`，不生成替代关系。
+`legacy_scored_supplement` 默认 `eligible_for_sampling=false`。`results/graph.jsonl` 只投影 `valid + eligible_for_sampling` 的边，不修改 relation/type/confidence。旧 core/expanded/negative/uncertain、CSV、GraphML 都是按需 compatibility export，不是默认正式产物。
 
 ## Canonical Task
 
-Data-Pipe 的 KG adapter 输出 `kg_task_spec_v0.2`：
+Tool-KG Stage3 先写 `results/tasks.jsonl`（`tool_kg_task_v1`）；Data-Pipe adapter 再输出 `kg_task_spec_v0.2`：
 
 ```json
 {
@@ -86,7 +86,7 @@ Data-Pipe 的 KG adapter 输出 `kg_task_spec_v0.2`：
 
 ```json
 {
-  "schema_version": "react_trajectory_v2",
+  "schema_version": "drug_agent_sft_react_json_v1",
   "id": "...",
   "messages": [
     {"role": "system", "content": "..."},
@@ -94,19 +94,21 @@ Data-Pipe 的 KG adapter 输出 `kg_task_spec_v0.2`：
     {"role": "assistant", "content": "<thought>...</thought><tool_call>...</tool_call>"},
     {"role": "user", "content": "<observation tool_name=\"...\">...</observation>"},
     {"role": "assistant", "content": "<final_answer>...</final_answer>"}
-  ],
-  "status": {
-    "accepted": true,
-    "execution_valid": true,
-    "task_answer_valid": true,
-    "training_trace_valid": true
-  },
-  "metrics": {},
-  "metadata": {"task": "...", "source_session": "..."}
+  ]
 }
 ```
 
-`task_answer_valid` 只来自 evaluator；其余两个 validity 与最终 accepted 由 curator 决定。聚合器不重新 curation。
+训练文件不含 source path、return code、metrics 或 rejection reasons。它们按相同 `id` 写入 `curation_audit.jsonl`。默认最终文件是：
+
+```text
+react_trajectories.jsonl
+curation_audit.jsonl
+rejected.jsonl
+quarantine.jsonl          # 仅有内容时
+curation_summary.json
+```
+
+`task_answer_valid` 只来自 evaluator；`execution_valid`/`training_trace_valid` 来自 curator；只有 final acceptance gate 决定 accepted/rejected/quarantine。聚合器只去重和汇总。
 
 ## Shared Decision State
 

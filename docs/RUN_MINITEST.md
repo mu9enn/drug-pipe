@@ -82,12 +82,9 @@ PY
 
 run_kg_cli adjudicate --pair-ids-file "$KG_PAIR_IDS"
 run_kg_cli canonical-edges
-run_kg_cli views
-run_kg_cli provenance
-run_kg_cli export
-run_kg_cli manifest
+run_kg_cli finalize
 
-python - "$KG_RUN_DIR/graph_all.jsonl" <<'PY'
+python - "$KG_RUN_DIR/results/graph.jsonl" <<'PY'
 import json
 import sys
 
@@ -112,7 +109,7 @@ bash scripts/run_sample_questions.sh "$KG_RUN_ID" \
 人工检查：
 
 ```bash
-python - "$KG_RUN_DIR/graph_all.jsonl" <<'PY'
+python - "$KG_RUN_DIR/results/edge_decisions.jsonl" <<'PY'
 import json
 import sys
 
@@ -121,7 +118,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 print(json.dumps(rows, ensure_ascii=False, indent=2))
 PY
 
-python - "$KG_RUN_DIR/sample_results/sample_success_simple.jsonl" <<'PY'
+python - "$KG_RUN_DIR/results/tasks.jsonl" <<'PY'
 import json
 import sys
 
@@ -131,7 +128,7 @@ print(json.dumps(row, ensure_ascii=False, indent=2)[:10000])
 PY
 ```
 
-若这条关系被合理裁决为 `negative`/`uncertain`，这本身是有效 mini-test 结果，但同一个 run 无法采 grounded question。先检查 `pair_adjudications.jsonl`、`tool_cards.jsonl` 和 `graph_all.jsonl`；确认不是模型/格式故障后，可将下一节的 `KG_TASK_RUN_ID` 指向另一个已有有效边的完成 run。
+若这条关系被合理裁决为 `negative`/`uncertain`，这本身是有效 mini-test 结果，但同一个 run 无法采 grounded question。先检查中间 `pair_adjudications.jsonl`、正式 `results/edge_decisions.jsonl` 与 `results/graph.jsonl`；确认不是模型/格式故障后，可将下一节的 `KG_TASK_RUN_ID` 指向另一个已有有效边的完成 run。
 
 ## 2. Grounded task：导出一个、执行一个、curate 一个
 
@@ -157,7 +154,8 @@ bash pipeline/kg/run_kg_pipeline.sh \
 
 bash scripts/run_postprocess.sh \
   --results-root "$MINI_ROOT/data_pipe_results" \
-  --output-root "$MINI_ROOT/react"
+  --output-root "$MINI_ROOT/react" \
+  --llm-clean
 ```
 
 curator 会调用统一 evaluator；`kg` 是可执行性/工具使用评测，不另跑 benchmark evaluator。人工检查原始 run、评测、接收与拒绝原因：
@@ -171,8 +169,8 @@ export DATA_RUN_DIR=$(
 
 test -n "$DATA_RUN_DIR"
 python -m json.tool "$DATA_RUN_DIR/run_config.json"
-python -m json.tool "$DATA_RUN_DIR/trajectories/dataset_summary.json"
-python -m json.tool "$MINI_ROOT/react/curation_report.json"
+python -m json.tool "$DATA_RUN_DIR/trajectories/curation_summary.json"
+python -m json.tool "$MINI_ROOT/react/curation_summary.json"
 
 cd "$DRUG_PIPE_ROOT/slime-wd/slime"
 PYTHONPATH=. python drug_agent/data/sample_debug.py \
@@ -186,7 +184,7 @@ PYTHONPATH=. python drug_agent/data/sample_debug.py \
 test "$(wc -l < "$MINI_ROOT/react/react_trajectories.jsonl")" -eq 1
 ```
 
-若为 0，查看 `$MINI_ROOT/react/react_rejected.jsonl` 和 `$DATA_RUN_DIR/trajectories/react_rejected.jsonl`，修正真实执行问题后重跑；不要为了打通训练而绕过 curator。
+若为 0，查看 `$MINI_ROOT/react/rejected.jsonl`、可能存在的 `quarantine.jsonl` 和 `$DATA_RUN_DIR/trajectories/curation_audit.jsonl`，修正真实执行或清洗问题后重跑；不要为了打通训练而绕过 final gate。
 
 ## 3. Slime：用新默认路径派生三类训练数据
 

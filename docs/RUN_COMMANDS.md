@@ -25,6 +25,8 @@ PYTHONPATH=src python -m molclaw_kg.cli \
   sample-questions --target-successes 10 --max-attempts 40 --seed 42
 ```
 
+正式 KG 结果位于 `runs/run_x/results/`：`tool_catalog.jsonl`、`edge_decisions.jsonl`、`graph.jsonl`、可选 `tasks.jsonl`、`run_manifest.json`，有问题时另有 `issues.jsonl`。
+
 历史 KG 确定性迁移，不调用 Claude/MCP：
 
 ```bash
@@ -53,7 +55,9 @@ bash scripts/run_postprocess.sh \
   --output-root results/postprocess_candidates
 ```
 
-输出训练接口为 `results/postprocess_candidates/react_trajectories.jsonl`。
+需要正式 LLM semantic clean 时增加 `--llm-clean`；该 rewrite 会先经过 tool/observation/prediction 不变性保护，再进入 hard clean 和 final gate。
+
+输出训练接口为 `results/postprocess_candidates/react_trajectories.jsonl`；审计为同目录 `curation_audit.jsonl`，拒绝与隔离分别为 `rejected.jsonl`、条件生成的 `quarantine.jsonl`。
 
 历史 trace 确定性迁移：
 
@@ -150,6 +154,8 @@ PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 
 cd ../data-pipe
 PYTHONPATH=. python -m unittest discover -s pipeline/postprocess/tests -p 'test_*.py' -v
+PYTHONPATH=. python -m unittest discover -s pipeline/evaluate/tests -p 'test_*.py' -v
+PYTHONPATH=. python -m unittest discover -s pipeline/cleaning/tests -p 'test_*.py' -v
 PYTHONPATH=. python -m unittest discover -s pipeline/kg/tests -p 'test_*.py' -v
 
 cd ../slime-wd/slime
