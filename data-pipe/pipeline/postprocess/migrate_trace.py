@@ -12,6 +12,12 @@ try:
     from .trace_curator import SCHEMA_VERSION, curate_sample, discover_rollout_samples, infer_task
 except ImportError:
     from trace_curator import SCHEMA_VERSION, curate_sample, discover_rollout_samples, infer_task
+try:
+    from ..cleaning.acceptance_gate import decide_final_status
+    from ..evaluate.task_evaluator import load_chemistry_module
+except ImportError:
+    from cleaning.acceptance_gate import decide_final_status
+    from evaluate.task_evaluator import load_chemistry_module
 
 
 def _sha256_file(path: Path) -> str:
@@ -58,6 +64,7 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
     output_dir = output_dir.resolve()
     rows, rejected = _read_jsonl_tolerant(source)
     migrated: list[dict[str, Any]] = []
+    audits: list[dict[str, Any]] = []
     message_hash_changes = 0
     for line_number, row in enumerate(rows, start=1):
         messages = row.get("messages")
@@ -70,28 +77,30 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
         message_hash_changes += int(before_hash != after_hash)
         sample_id = str(row.get("id") or f"legacy_{line_number:06d}")
         task = next((name for name in ("vs", "ac", "pf", "kg", "e2e") if f"_{name}_" in sample_id), "unknown")
-        migrated.append(
+        migrated.append({"schema_version": SCHEMA_VERSION, "id": sample_id, "messages": copied_messages})
+        decision = decide_final_status(
+            execution_valid=True,
+            task_answer_valid=True,
+            training_trace_valid=True,
+            llm_clean_status="not_run",
+            llm_clean_findings=[],
+            hard_clean_findings=[],
+        )
+        audits.append(
             {
-                "schema_version": SCHEMA_VERSION,
                 "id": sample_id,
-                "messages": copied_messages,
-                "status": {
-                    "accepted": True,
-                    "execution_valid": True,
-                    "task_answer_valid": True,
-                    "training_trace_valid": True,
-                },
-                "metrics": {},
-                "metadata": {
-                    "task": task,
-                    "migration_source_schema": row.get("schema_version"),
-                    "status_source": "legacy_accepted_sft",
-                    "message_sha256": before_hash,
-                },
+                "task": task,
+                "final_status": decision["final_status"],
+                "final_status_authority": decision["authority"],
+                "final_status_reasons": decision["reasons"],
+                "migration_source_schema": row.get("schema_version"),
+                "status_source": "legacy_accepted_sft",
+                "message_sha256": before_hash,
             }
         )
 
     _write_jsonl(output_dir / "react_trajectories.jsonl", migrated)
+    _write_jsonl(output_dir / "curation_audit.jsonl", audits)
     _write_jsonl(output_dir / "rejected.jsonl", rejected)
     report = {
         "source": str(source),
@@ -120,28 +129,33 @@ def migrate_raw_reference(source_root: Path, output_dir: Path) -> dict[str, Any]
     output_dir = output_dir.resolve()
     source_files = sorted(source_root.rglob("complete_session.jsonl"))
     records: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
+    chemistry, chemistry_error = load_chemistry_module()
     for run_dir in sorted(path for path in source_root.iterdir() if path.is_dir()):
         task = infer_task(run_dir)
         for sample in discover_rollout_samples(run_dir):
-            record = curate_sample(sample, default_task=task, chemistry=None)
+            record = curate_sample(sample, default_task=task, chemistry=chemistry)
             records.append(record)
-            if not record["status"]["accepted"]:
-                rejected.append(record)
-    _write_jsonl(output_dir / "react_all.jsonl", records)
+    accepted = [record for record in records if record["audit"]["final_status"] == "accepted"]
+    rejected = [record["audit"] for record in records if record["audit"]["final_status"] == "rejected"]
+    quarantine = [record["audit"] for record in records if record["audit"]["final_status"] == "quarantine"]
     _write_jsonl(
         output_dir / "react_trajectories.jsonl",
-        [record for record in records if record["status"]["accepted"]],
+        [record["training_record"] for record in accepted],
     )
-    _write_jsonl(output_dir / "react_rejected.jsonl", rejected)
+    _write_jsonl(output_dir / "curation_audit.jsonl", [record["audit"] for record in records])
+    _write_jsonl(output_dir / "rejected.jsonl", rejected)
+    if quarantine:
+        _write_jsonl(output_dir / "quarantine.jsonl", quarantine)
     report = {
         "source": str(source_root),
         "source_hash": _source_hash(source_files),
         "target_contract": SCHEMA_VERSION,
         "input_count": len(source_files),
-        "output_count": sum(record["status"]["accepted"] for record in records),
+        "output_count": len(accepted),
         "rejected_count": len(rejected),
+        "quarantine_count": len(quarantine),
         "conflict_count": 0,
+        "chemistry_error": chemistry_error,
         "semantic_changes": [
             "workspace/debug calls removed from training messages",
             "MolClaw usage and three validity states materialized once",

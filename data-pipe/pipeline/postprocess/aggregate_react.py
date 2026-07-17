@@ -19,9 +19,9 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _answer_hit(record: dict[str, Any]) -> bool:
-    task = str((record.get("metadata") or {}).get("task") or "")
-    metrics = record.get("metrics") if isinstance(record.get("metrics"), dict) else {}
+def _answer_hit(audit: dict[str, Any]) -> bool:
+    task = str(audit.get("task") or "")
+    metrics = audit.get("task_metrics") if isinstance(audit.get("task_metrics"), dict) else {}
     if task == "vs":
         return float(metrics.get("top3_hit_num") or 0.0) >= 1.0
     if task == "ac":
@@ -41,55 +41,95 @@ def aggregate_react(
     output_root = output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     accepted_by_id: dict[str, dict[str, Any]] = {}
+    audit_by_id: dict[str, dict[str, Any]] = {}
     rejected: list[dict[str, Any]] = []
-    duplicate_ids: list[dict[str, Any]] = []
+    quarantine: list[dict[str, Any]] = []
     filtered = 0
+    source_files = [
+        source
+        for source in sorted(results_root.rglob("trajectories/react_trajectories.jsonl"))
+        if output_root not in source.parents
+    ]
 
-    for source in sorted(results_root.rglob("trajectories/react_trajectories.jsonl")):
+    for source in source_files:
+        audit_path = source.with_name("curation_audit.jsonl")
+        source_audits = {
+            str(row.get("id") or ""): row
+            for row in _read_jsonl(audit_path)
+        } if audit_path.is_file() else {}
+        audit_by_id.update(source_audits)
         for record in _read_jsonl(source):
             record_id = str(record.get("id") or "")
             if not record_id:
                 rejected.append({"source": str(source), "reason": "missing_id", "record": record})
                 continue
-            if answer_hit_only and not _answer_hit(record):
+            if set(record) != {"schema_version", "id", "messages"}:
+                rejected.append({"id": record_id, "source": str(source), "reason": "noncanonical_training_shape"})
+                continue
+            audit = source_audits.get(record_id)
+            if audit is None:
+                rejected.append({"id": record_id, "source": str(source), "reason": "missing_curation_audit"})
+                continue
+            if answer_hit_only and not _answer_hit(audit):
                 filtered += 1
                 continue
             existing = accepted_by_id.get(record_id)
             if existing is not None and existing != record:
-                duplicate_ids.append({"id": record_id, "source": str(source), "reason": "nonidentical_duplicate"})
+                rejected.append({"id": record_id, "source": str(source), "reason": "nonidentical_duplicate"})
                 continue
             accepted_by_id[record_id] = record
 
-    for source in sorted(results_root.rglob("trajectories/react_rejected.jsonl")):
+    for source in sorted(results_root.rglob("trajectories/rejected.jsonl")):
+        if output_root in source.parents:
+            continue
         rejected.extend(_read_jsonl(source))
+    for source in sorted(results_root.rglob("trajectories/quarantine.jsonl")):
+        if output_root in source.parents:
+            continue
+        quarantine.extend(_read_jsonl(source))
 
     accepted = [accepted_by_id[key] for key in sorted(accepted_by_id)]
+    audit_rows = [audit_by_id[key] for key in sorted(audit_by_id)]
     accepted_path = output_root / "react_trajectories.jsonl"
-    rejected_path = output_root / "react_rejected.jsonl"
-    duplicate_path = output_root / "duplicate_id_conflicts.jsonl"
+    audit_path = output_root / "curation_audit.jsonl"
+    rejected_path = output_root / "rejected.jsonl"
     for path, rows in [
         (accepted_path, accepted),
+        (audit_path, audit_rows),
         (rejected_path, rejected),
-        (duplicate_path, duplicate_ids),
     ]:
         with path.open("w", encoding="utf-8") as handle:
             for row in rows:
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    quarantine_path = output_root / "quarantine.jsonl"
+    if quarantine:
+        with quarantine_path.open("w", encoding="utf-8") as handle:
+            for row in quarantine:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    elif quarantine_path.exists():
+        quarantine_path.unlink()
 
-    task_counts = Counter(str((row.get("metadata") or {}).get("task") or "unknown") for row in accepted)
+    task_counts = Counter(
+        str(audit_by_id.get(str(row.get("id") or ""), {}).get("task") or "unknown")
+        for row in accepted
+    )
     report = {
-        "target_contract": "react_trajectory_v2",
+        "target_contract": "drug_agent_sft_react_json_v1",
         "source": str(results_root),
-        "input_file_count": len(list(results_root.rglob("trajectories/react_trajectories.jsonl"))),
+        "input_file_count": len(source_files),
         "output_count": len(accepted),
         "rejected_count": len(rejected),
-        "duplicate_conflict_count": len(duplicate_ids),
+        "quarantine_count": len(quarantine),
         "answer_hit_filtered_count": filtered,
         "task_counts": dict(sorted(task_counts.items())),
-        "output": str(accepted_path),
-        "rejected_output": str(rejected_path),
+        "outputs": {
+            "react_trajectories": str(accepted_path),
+            "curation_audit": str(audit_path),
+            "rejected": str(rejected_path),
+            **({"quarantine": str(quarantine_path)} if quarantine else {}),
+        },
     }
-    (output_root / "curation_report.json").write_text(
+    (output_root / "curation_summary.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
