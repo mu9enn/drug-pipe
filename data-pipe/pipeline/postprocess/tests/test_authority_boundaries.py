@@ -48,6 +48,22 @@ class EvaluatorAuthorityTest(unittest.TestCase):
         self.assertIn("duplicate_predictions", result["invalid_reasons"])
         self.assertEqual(result["metrics"]["top3_hit_num"], 2.0)
 
+    def test_kg_narrative_answer_is_not_parsed_as_smiles(self) -> None:
+        class RejectingChemistry:
+            @staticmethod
+            def MolFromSmiles(_value):
+                return None
+
+        result = evaluate_task_answer(
+            "kg",
+            prediction="The repaired structure was written to /tmp/egfr_fixed.pdb.",
+            ground_truth=[],
+            chemistry=RejectingChemistry(),
+        )
+        self.assertTrue(result["task_answer_valid"])
+        self.assertEqual(result["metrics"], {"answer_present": True})
+        self.assertFalse(result["audit"]["chemistry_canonicalization"])
+
 
 class CuratorAuthorityTest(unittest.TestCase):
     def test_curator_counts_usage_once_and_builds_canonical_roles(self) -> None:

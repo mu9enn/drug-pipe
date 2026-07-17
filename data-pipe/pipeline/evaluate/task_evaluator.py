@@ -85,6 +85,29 @@ def evaluate_task_answer(
     prediction_raw = as_string_list(prediction)
     ground_truth_raw = as_string_list(ground_truth)
     candidates_raw = as_string_list(candidates)
+    if task_name in {"kg", "e2e"}:
+        reasons = ["parse_error"] if parse_error else []
+        answer_present = bool(prediction) if isinstance(prediction, (dict, list)) else bool(str(prediction or "").strip())
+        if not answer_present:
+            reasons.append("empty_prediction")
+        return {
+            "task": task_name,
+            "task_answer_valid": not reasons,
+            "invalid_reasons": reasons,
+            "metrics": {"answer_present": answer_present},
+            "canonical": {
+                "prediction": prediction_raw,
+                "ground_truth": ground_truth_raw,
+                "candidates": candidates_raw,
+            },
+            "audit": {
+                "prediction_size": len(prediction_raw) if prediction_raw else int(answer_present),
+                "ground_truth_size": len(ground_truth_raw),
+                "candidate_size": len(candidates_raw),
+                "chemistry_canonicalization": False,
+            },
+        }
+
     prediction_canonical, prediction_errors = _canonicalize(prediction_raw, chemistry)
     ground_truth_canonical, ground_truth_errors = _canonicalize(ground_truth_raw, chemistry)
     candidates_canonical, candidate_errors = _canonicalize(candidates_raw, chemistry)
@@ -126,10 +149,6 @@ def evaluate_task_answer(
         if not prediction_raw:
             reasons.append("empty_prediction")
         metrics = _set_metrics(prediction_canonical, ground_truth_canonical)
-    else:
-        if not prediction_raw:
-            reasons.append("empty_prediction")
-
     return {
         "task": task_name,
         "task_answer_valid": not reasons,

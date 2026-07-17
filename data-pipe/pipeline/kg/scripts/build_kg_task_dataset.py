@@ -135,6 +135,74 @@ def _validate_expected_trajectory_v2(expected: Any) -> tuple[bool, str | None]:
     return True, None
 
 
+def _expected_trajectory_from_simple_sample(rec: dict[str, Any]) -> dict[str, Any] | None:
+    toolchain = rec.get("hidden_toolchain_nodes")
+    edges = rec.get("hidden_toolchain_edges")
+    if not isinstance(toolchain, list) or not toolchain:
+        return None
+    if not isinstance(edges, list):
+        edges = []
+
+    node_ids = {
+        str(tool_id): f"tool::{index:02d}::{_normalize_tool_name(str(tool_id))}"
+        for index, tool_id in enumerate(toolchain, start=1)
+        if str(tool_id).strip()
+    }
+    nodes = [
+        {
+            "node_id": node_id,
+            "type": "tool",
+            "label": tool_id,
+            "tool_id": tool_id,
+            "llm_role": None,
+            "message_intent": None,
+            "payload": None,
+        }
+        for tool_id, node_id in node_ids.items()
+    ]
+    workflow_edges: list[dict[str, Any]] = []
+    for index, edge in enumerate(edges, start=1):
+        if not isinstance(edge, dict):
+            continue
+        source_tool = str(edge.get("source_tool") or "")
+        target_tool = str(edge.get("target_tool") or "")
+        if source_tool not in node_ids or target_tool not in node_ids:
+            continue
+        workflow_edges.append(
+            {
+                "edge_id": f"edge::toolchain::{index:02d}",
+                "source": node_ids[source_tool],
+                "target": node_ids[target_tool],
+                "relation": str(edge.get("edge_type") or "workflow_transition"),
+            }
+        )
+
+    payload = rec.get("question_payload") if isinstance(rec.get("question_payload"), dict) else {}
+    return {
+        "schema_version": "trajectory_v2_graph",
+        "workflow_graph": {"nodes": nodes, "edges": workflow_edges},
+        "execution_plan": {
+            "topological_order": [node_ids[str(tool_id)] for tool_id in toolchain if str(tool_id) in node_ids],
+            "tool_order": [str(tool_id) for tool_id in toolchain if str(tool_id).strip()],
+        },
+        "final_deliverable": payload.get("expected_output"),
+    }
+
+
+def _normalize_sample(rec: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(rec.get("hidden_toolchain_nodes"), list):
+        return rec
+    normalized = dict(rec)
+    normalized.setdefault("toolchain_nodes", rec["hidden_toolchain_nodes"])
+    normalized.setdefault("toolchain_edges", rec.get("hidden_toolchain_edges") or [])
+    normalized.setdefault("expected_trajectory", _expected_trajectory_from_simple_sample(rec))
+    nodes = normalized["toolchain_nodes"]
+    if nodes:
+        normalized.setdefault("start_tool", nodes[0])
+        normalized.setdefault("end_tool", nodes[-1])
+    return normalized
+
+
 def _build_task_spec(
     *,
     rec: dict[str, Any],
@@ -217,15 +285,18 @@ def main() -> None:
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     sample_dir = kg_run_dir / "sample_results"
-    success_path_v2 = sample_dir / "sample_success_v2.jsonl"
-    success_path_v1 = sample_dir / "sample_success.jsonl"
-    success_path = success_path_v2 if success_path_v2.is_file() else success_path_v1
-    questions_path = sample_dir / "questions.csv"
+    sample_sources = [
+        (sample_dir / "sample_success_simple.jsonl", sample_dir / "questions_simple.csv"),
+        (sample_dir / "sample_success_v2.jsonl", sample_dir / "questions.csv"),
+        (sample_dir / "sample_success.jsonl", sample_dir / "questions.csv"),
+    ]
+    selected_source = next(((success, questions) for success, questions in sample_sources if success.is_file()), None)
+    if selected_source is None:
+        searched = " / ".join(str(success) for success, _ in sample_sources)
+        raise FileNotFoundError(f"sample_success jsonl not found: {searched}")
+    success_path, questions_path = selected_source
 
-    if not success_path.is_file():
-        raise FileNotFoundError(f"sample_success jsonl not found: {success_path_v2} / {success_path_v1}")
-
-    rows = _load_jsonl(success_path)
+    rows = [_normalize_sample(row) for row in _load_jsonl(success_path)]
     qmap = _load_questions_csv(questions_path)
     kg_run_id = kg_run_dir.name
     kg_project_root = kg_run_dir.parent.parent
@@ -236,7 +307,7 @@ def main() -> None:
 
     for i, rec in enumerate(rows, start=1):
         sample_id = str(rec.get("sample_id") or f"sample_{i:04d}").strip()
-        sample_index = _as_int(rec.get("index"), i)
+        sample_index = _as_int(rec.get("index") or rec.get("attempt_index"), i)
         status = str(rec.get("status") or "").strip().lower()
 
         qcsv_row = qmap.get(sample_id, {})
