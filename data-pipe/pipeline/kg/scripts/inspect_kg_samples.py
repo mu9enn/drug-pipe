@@ -83,6 +83,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect tool-kg sampled outputs for schema and field quality.")
     parser.add_argument("--kg-run-dir", required=True, help="Path like .../tool-kg/runs/<run_id>")
     parser.add_argument("--report-out", default="", help="Optional JSON report output path")
+    parser.add_argument("--legacy-sample-results", action="store_true")
     args = parser.parse_args()
 
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
@@ -91,12 +92,11 @@ def main() -> None:
     success_path_v2 = sample_dir / "sample_success_v2.jsonl"
     success_path_v1 = sample_dir / "sample_success.jsonl"
     success_path = (
-        canonical_path
-        if canonical_path.is_file()
-        else success_path_v2
-        if success_path_v2.is_file()
-        else success_path_v1
-    )
+        success_path_v2 if success_path_v2.is_file() else success_path_v1
+    ) if args.legacy_sample_results else canonical_path
+    if not success_path.is_file():
+        suffix = " (use --legacy-sample-results only for historical runs)" if not args.legacy_sample_results else ""
+        raise FileNotFoundError(f"task records not found: {success_path}{suffix}")
     questions_path = sample_dir / "questions.csv"
 
     rows = _load_jsonl(success_path)

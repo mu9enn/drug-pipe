@@ -281,22 +281,32 @@ def main() -> None:
     parser.add_argument("--max-samples", type=int, default=0, help="Max accepted samples to export; 0 means all")
     parser.add_argument("--schema-version", default="kg_task_spec_v0.2")
     parser.add_argument("--no-include-raw-sample", action="store_true", help="Do not embed raw KG record in metadata")
+    parser.add_argument(
+        "--legacy-sample-results",
+        action="store_true",
+        help="Explicitly read historical sample_results/sample_success*.jsonl instead of canonical results/tasks.jsonl.",
+    )
     args = parser.parse_args()
 
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     canonical_tasks = kg_run_dir / "results" / "tasks.jsonl"
     sample_dir = kg_run_dir / "sample_results"
-    sample_sources = [
-        (canonical_tasks, None),
+    legacy_sources = [
         (sample_dir / "sample_success_simple.jsonl", sample_dir / "questions_simple.csv"),
         (sample_dir / "sample_success_v2.jsonl", sample_dir / "questions.csv"),
         (sample_dir / "sample_success.jsonl", sample_dir / "questions.csv"),
     ]
+    sample_sources = legacy_sources if args.legacy_sample_results else [(canonical_tasks, None)]
     selected_source = next(((success, questions) for success, questions in sample_sources if success.is_file()), None)
     if selected_source is None:
         searched = " / ".join(str(success) for success, _ in sample_sources)
-        raise FileNotFoundError(f"canonical or compatibility task JSONL not found: {searched}")
+        suffix = (
+            " Pass --legacy-sample-results only for an intentional historical compatibility run."
+            if not args.legacy_sample_results
+            else ""
+        )
+        raise FileNotFoundError(f"task JSONL not found: {searched}.{suffix}")
     success_path, questions_path = selected_source
 
     rows = [_normalize_sample(row) for row in _load_jsonl(success_path)]
