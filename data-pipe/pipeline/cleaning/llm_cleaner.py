@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import subprocess
 from typing import Any, Callable
 
 
@@ -106,3 +107,26 @@ def clean_with_llm(
         return source, report
     report["actions"].append("semantic_text_rewrite")
     return candidate, report
+
+
+def build_claude_rewriter(claude_bin: str, prompt: str) -> RewriteFunction:
+    def rewrite(sample: dict[str, Any]) -> dict[str, Any]:
+        request = f"{prompt}\n\nINPUT RECORD:\n{json.dumps(sample, ensure_ascii=False)}"
+        process = subprocess.run(
+            [claude_bin, "-p", request],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if process.returncode != 0:
+            raise RuntimeError(f"claude_exit_code:{process.returncode}")
+        value = process.stdout.strip()
+        if value.startswith("```") and value.endswith("```"):
+            lines = value.splitlines()
+            value = "\n".join(lines[1:-1])
+        parsed = json.loads(value)
+        if not isinstance(parsed, dict):
+            raise ValueError("llm_output_not_object")
+        return parsed
+
+    return rewrite
