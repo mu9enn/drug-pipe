@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import sys
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,16 +12,15 @@ if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
 from evaluate.task_evaluator import evaluate_task_answer, load_chemistry_module  # noqa: E402
-
-
-SCHEMA_VERSION = "react_trajectory_v2"
-TASK_CHOICES = {"vs", "ac", "pf", "e2e", "kg"}
-MOLCLAW_PREFIXES = ("mcp__molclaw-scp__", "mcp__molclaw-vs__")
-ROLLOUT_RE = re.compile(r"rollout(\d+)$")
-SYSTEM_PROMPT = (
-    "You are a scientific agent. Use real MolClaw tools, reason before each decision, "
-    "ground conclusions in tool observations, and return a concise final answer."
+from postprocess.react_constructor import (  # noqa: E402
+    CANONICAL_SYSTEM_PROMPT,
+    reconstruct_react_messages,
 )
+
+
+SCHEMA_VERSION = "drug_agent_sft_react_json_v1"
+TASK_CHOICES = {"vs", "ac", "pf", "e2e", "kg"}
+SYSTEM_PROMPT = CANONICAL_SYSTEM_PROMPT
 
 
 @dataclass(frozen=True)
@@ -80,14 +77,16 @@ def discover_rollout_samples(results_dir: Path) -> list[RolloutSample]:
             row_number = -1
         row_question = safe_load_json(row_dir / "question.json")
         dataset_index = str(row_question.get("dataset_index") or row_number)
-        if (row_dir / "parsed_answer.json").is_file():
+        if (row_dir / "complete_session.jsonl").is_file() or (row_dir / "parsed_answer.json").is_file():
             samples.append(RolloutSample(row_dir, row_dir, row_number, dataset_index, 1))
-            continue
         for rollout_dir in sorted(path for path in row_dir.iterdir() if path.is_dir() and path.name.startswith("rollout")):
-            if not (rollout_dir / "parsed_answer.json").is_file():
+            if not any(
+                (rollout_dir / marker).is_file()
+                for marker in ("complete_session.jsonl", "parsed_answer.json", "run_meta.json", "question.json")
+            ):
                 continue
-            match = ROLLOUT_RE.search(rollout_dir.name)
-            rollout_index = int(match.group(1)) if match else len(samples) + 1
+            suffix = rollout_dir.name.removeprefix("rollout")
+            rollout_index = int(suffix) if suffix.isdigit() else len(samples) + 1
             question = safe_load_json(rollout_dir / "question.json")
             samples.append(
                 RolloutSample(
@@ -141,104 +140,6 @@ def _candidate_values(question: dict[str, Any]) -> Any:
     return None
 
 
-def _serialize_payload(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _tool_call_tag(name: str, arguments: Any, call_id: str) -> str:
-    payload = {"name": name, "arguments": arguments if isinstance(arguments, dict) else {}, "id": call_id}
-    return f"<tool_call>{_serialize_payload(payload)}</tool_call>"
-
-
-def _observation_tag(name: str, content: Any, is_error: bool) -> str:
-    payload = {"tool_name": name, "content": content, "is_error": bool(is_error)}
-    return f'<observation tool_name="{name}">{_serialize_payload(payload)}</observation>'
-
-
-def reconstruct_react_messages(
-    events: list[dict[str, Any]],
-    *,
-    question_text: str,
-    final_answer: Any,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT, "step_loss_mask": 0},
-        {"role": "user", "content": question_text, "step_loss_mask": 0},
-    ]
-    retained_calls: dict[str, str] = {}
-    observed_calls: set[str] = set()
-    tool_hist: Counter[str] = Counter()
-    dropped_non_molclaw_calls = 0
-
-    def append_turn(turn: dict[str, Any]) -> None:
-        if len(messages) > 2 and messages[-1]["role"] == turn["role"]:
-            messages[-1]["content"] = f"{messages[-1]['content']}\n{turn['content']}"
-            return
-        messages.append(turn)
-
-    for event in events:
-        message = event.get("message") if isinstance(event.get("message"), dict) else {}
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        if event.get("type") == "assistant":
-            thought_parts: list[str] = []
-            call_parts: list[str] = []
-            for item in content:
-                if not isinstance(item, dict):
-                    continue
-                item_type = str(item.get("type") or "")
-                if item_type in {"thinking", "text"}:
-                    value = item.get("thinking") if item_type == "thinking" else item.get("text")
-                    if isinstance(value, str) and value.strip():
-                        thought_parts.append(value.strip())
-                elif item_type == "tool_use":
-                    name = str(item.get("name") or "")
-                    call_id = str(item.get("id") or "")
-                    if not name.startswith(MOLCLAW_PREFIXES):
-                        dropped_non_molclaw_calls += 1
-                        continue
-                    retained_calls[call_id] = name
-                    tool_hist[name] += 1
-                    call_parts.append(_tool_call_tag(name, item.get("input"), call_id))
-            if call_parts:
-                thought = "\n".join(thought_parts).strip()
-                rendered = (f"<thought>{thought}</thought>\n" if thought else "") + "\n".join(call_parts)
-                append_turn({"role": "assistant", "content": rendered, "step_loss_mask": 1})
-        elif event.get("type") == "user":
-            observations: list[str] = []
-            for item in content:
-                if not isinstance(item, dict) or item.get("type") != "tool_result":
-                    continue
-                call_id = str(item.get("tool_use_id") or "")
-                name = retained_calls.get(call_id)
-                if not name:
-                    continue
-                observed_calls.add(call_id)
-                observations.append(_observation_tag(name, item.get("content"), bool(item.get("is_error"))))
-            if observations:
-                append_turn({"role": "user", "content": "\n".join(observations), "step_loss_mask": 0})
-
-    final_payload = final_answer if isinstance(final_answer, (dict, list)) else {"answer": final_answer}
-    messages.append(
-        {
-            "role": "assistant",
-            "content": f"<final_answer>{_serialize_payload(final_payload)}</final_answer>",
-            "step_loss_mask": 1,
-        }
-    )
-    return messages, {
-        "molclaw_usage_count": len(retained_calls),
-        "molclaw_usage_computation_count": 1,
-        "tool_name_hist": dict(tool_hist),
-        "observed_tool_call_count": len(observed_calls),
-        "missing_observation_count": len(set(retained_calls) - observed_calls),
-        "dropped_non_molclaw_call_count": dropped_non_molclaw_calls,
-    }
-
-
 def curate_sample(
     sample: RolloutSample,
     *,
@@ -261,10 +162,12 @@ def curate_sample(
         events,
         question_text=_question_text(question),
         final_answer=final_answer,
+        task=task,
     )
+    resolved_final_answer = trace_stats["resolved_final_answer"]
     evaluation = evaluate_task_answer(
         task,
-        prediction=final_answer,
+        prediction=resolved_final_answer,
         ground_truth=question.get("answer"),
         candidates=_candidate_values(question),
         chemistry=chemistry,
@@ -287,6 +190,8 @@ def curate_sample(
     execution_reasons: list[str] = []
     if not session_path.is_file():
         execution_reasons.append("missing_session")
+    if not (sample.sample_dir / "parsed_answer.json").is_file():
+        execution_reasons.append("missing_parsed_answer")
     if return_code not in (None, 0):
         execution_reasons.append(f"runner_nonzero_rc:{return_code}")
     if timed_out:
@@ -302,8 +207,10 @@ def curate_sample(
         training_reasons.append("missing_molclaw_usage")
     if trace_stats["missing_observation_count"]:
         training_reasons.append(f"missing_tool_observations:{trace_stats['missing_observation_count']}")
-    if final_answer in (None, "", []):
+    if resolved_final_answer in (None, "", []):
         training_reasons.append("missing_final_answer")
+    if trace_stats["error_status_conflicts"]:
+        training_reasons.append(f"error_status_conflicts:{len(trace_stats['error_status_conflicts'])}")
     training_trace_valid = not training_reasons
     accepted = execution_valid and evaluation["task_answer_valid"] and training_trace_valid
     sample_key = f"{task}:{sample.row_number}:{sample.dataset_index}:{sample.rollout_index}:{session_path.resolve()}"
