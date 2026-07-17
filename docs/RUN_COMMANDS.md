@@ -73,8 +73,11 @@ python pipeline/postprocess/migrate_trace.py raw-reference \
 cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime
 source /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
 
-REACT=/path/to/react_trajectories.jsonl
+REACT_SOURCE=/path/to/data-pipe/results/postprocess_candidates/react_trajectories.jsonl
 OUT=$DRUG_AGENT_DATA_ROOT
+mkdir -p "$OUT"
+cp "$REACT_SOURCE" "$OUT/react_trajectories.jsonl"
+REACT=$OUT/react_trajectories.jsonl
 
 PYTHONPATH=. python drug_agent/data/validate_sft_messages.py \
   --input "$REACT" --protocol react_json
@@ -94,7 +97,7 @@ PYTHONPATH=. python -m drug_agent.gad.data \
 
 ## Formal offline training
 
-这些命令启动 GPU/Ray。显式数据变量避免使用 legacy 默认路径。
+这些命令启动 GPU/Ray。launcher 默认读取 canonical 文件名；这里仍显式传入路径，便于正式 run 留下清楚的数据来源。
 
 SFT 4B full：
 
@@ -147,6 +150,7 @@ PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 
 cd ../data-pipe
 PYTHONPATH=. python -m unittest discover -s pipeline/postprocess/tests -p 'test_*.py' -v
+PYTHONPATH=. python -m unittest discover -s pipeline/kg/tests -p 'test_*.py' -v
 
 cd ../slime-wd/slime
 PYTHONPATH=. python -m unittest -v \

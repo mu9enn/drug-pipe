@@ -54,6 +54,6 @@ SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state �
 
 - Tool-KG `score` 命令委托 canonical edge builder；不再二次打分。
 - `trajectory_exporter.py`、`scan_molclaw_usage.py`、`post_process_sft.py` 保留旧入口形状，但 authority 都在 evaluator/curator。
-- owner 已运行过的训练默认数据路径暂时保留；canonical 主线应显式传入 `PROMPT_DATA` 或 `INPUT`。修改这些默认值需 owner 确认。
+- SFT、ToolRL、GAD 与 online replay 的默认输入都从 `$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl` 或其方法派生目录开始；`PROMPT_DATA`/`INPUT` 只用于显式覆盖。
 
 OPD、VERL bundle、legacy action-JSON SFT、legacy online PPO/GRPO 和批量 LLM semantic repair 不属于当前主线。
