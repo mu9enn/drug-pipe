@@ -1,9 +1,5 @@
-from drug_agent.toolrl.convert_react_to_toolrl_steps import convert_react_to_toolrl_steps
-from drug_agent.toolrl.molclaw_reward import reward_func
-from drug_agent.toolrl.parse_tool_calls import parse_tool_calls
+"""Offline ToolRL data and reward modules.
 
-__all__ = [
-    "convert_react_to_toolrl_steps",
-    "reward_func",
-    "parse_tool_calls",
-]
+Import concrete functions from their owning modules. Keeping package import
+side-effect free also makes ``python -m drug_agent.toolrl...`` deterministic.
+"""
