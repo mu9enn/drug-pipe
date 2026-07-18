@@ -58,6 +58,15 @@ class TaskEvaluatorTest(unittest.TestCase):
         self.assertTrue(result["task_answer_valid"])
         self.assertFalse(result["audit"]["chemistry_canonicalization"])
 
+    def test_kg_process_only_answer_is_not_a_result(self) -> None:
+        result = evaluate_task_answer(
+            "kg",
+            prediction="Analysis complete",
+            ground_truth=None,
+        )
+        self.assertFalse(result["task_answer_valid"])
+        self.assertIn("missing_result_content", result["invalid_reasons"])
+
     def test_invalid_vs_is_excluded_from_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "predictions.json"

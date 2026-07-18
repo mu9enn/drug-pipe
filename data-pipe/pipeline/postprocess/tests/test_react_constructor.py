@@ -10,6 +10,7 @@ PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
 sys.path.insert(0, str(PIPELINE_DIR / "postprocess"))
 
+from cleaning.hard_cleaner import hard_clean  # noqa: E402
 from react_constructor import reconstruct_react_messages  # noqa: E402
 from trace_curator import discover_rollout_samples  # noqa: E402
 
@@ -125,6 +126,85 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertIn("Docking completed", payload["summary"])
         self.assertEqual(payload["evidence"][0]["key_values"]["score"], -7.1)
         self.assertIn("<artifact:", json.dumps(payload, ensure_ascii=False))
+
+    def test_hard_clean_does_not_reconstruct_or_recompact_canonical_react(self) -> None:
+        events = [
+            assistant_event(
+                {
+                    "type": "tool_use",
+                    "id": "c1",
+                    "name": "mcp__molclaw-scp__fpocket_toolkit",
+                    "input": {},
+                }
+            ),
+            user_event(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": {
+                        "status": "success",
+                        "score": 3.5,
+                        "rows": [{"value": index} for index in range(200)],
+                    },
+                }
+            ),
+        ]
+        messages, stats = reconstruct_react_messages(
+            events,
+            question_text="Find a pocket",
+            final_answer={"result": "Pocket 1"},
+            task="e2e",
+            max_observation_chars=200,
+        )
+        self.assertEqual(stats["compacted_observation_count"], 1)
+        source_roles = [message["role"] for message in messages]
+        self.assertEqual(
+            sum(
+                "<final_answer>" in message["content"]
+                for message in messages
+                if message["role"] == "assistant"
+            ),
+            1,
+        )
+        source_observation = next(
+            message["content"] for message in messages if "<observation " in message["content"]
+        )
+        source_payload = json.loads(source_observation.split(">", 1)[1].split("</observation>", 1)[0])
+
+        assistant_message = next(
+            message for message in messages if message["role"] == "assistant" and "<tool_call>" in message["content"]
+        )
+        assistant_message["content"] = (
+            "<thought>Review ../outputs/result.pdb.</thought>\n" + assistant_message["content"]
+        )
+        cleaned, report = hard_clean(
+            {
+                "schema_version": "drug_agent_sft_react_json_v1",
+                "id": "react_test",
+                "messages": messages,
+            }
+        )
+        cleaned_text = "\n".join(message["content"] for message in cleaned["messages"])
+        cleaned_observation = next(
+            message["content"] for message in cleaned["messages"] if "<observation " in message["content"]
+        )
+        cleaned_payload = json.loads(cleaned_observation.split(">", 1)[1].split("</observation>", 1)[0])
+
+        self.assertEqual([message["role"] for message in cleaned["messages"]], source_roles)
+        self.assertEqual(
+            sum(
+                "<final_answer>" in message["content"]
+                for message in cleaned["messages"]
+                if message["role"] == "assistant"
+            ),
+            1,
+        )
+        self.assertEqual(cleaned_payload, source_payload)
+        self.assertIn("<artifact:structure/result.pdb>", cleaned_text)
+        self.assertEqual(report["counts"]["tool_calls"], 1)
+        self.assertEqual(report["counts"]["observations"], 1)
+        self.assertNotIn("final_status", report)
+        self.assertNotIn("accepted", report)
 
 
 if __name__ == "__main__":
