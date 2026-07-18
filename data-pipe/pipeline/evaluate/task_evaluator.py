@@ -6,6 +6,21 @@ from typing import Any
 SUPPORTED_TASKS = {"vs", "ac", "pf", "kg", "e2e"}
 MOLBENCH_TASKS = {"vs", "ac", "pf"}
 RDKIT_REQUIRED_MESSAGE = "RDKit is required for MolBench chemical evaluation."
+PROCESS_ONLY_ANSWERS = {
+    "analysis complete",
+    "analysis completed",
+    "completed",
+    "completed successfully",
+    "done",
+    "task complete",
+    "task completed",
+}
+REFUSAL_PREFIXES = (
+    "i cannot ",
+    "i can't ",
+    "unable to ",
+    "no result",
+)
 
 
 def as_string_list(value: Any) -> list[str]:
@@ -248,13 +263,27 @@ def _has_answer(value: Any) -> bool:
     return bool(str(value or "").strip())
 
 
+def _has_result_content(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_result_content(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_has_result_content(item) for item in value)
+    if value is None:
+        return False
+    if isinstance(value, (int, float, bool)):
+        return True
+    text = " ".join(str(value).strip().lower().split())
+    if not text or text in PROCESS_ONLY_ANSWERS:
+        return False
+    return not text.startswith(REFUSAL_PREFIXES)
+
+
 def evaluate_exploratory(
     task: str,
     *,
     prediction: Any,
     parse_error: Any = None,
     task_contract: dict[str, Any] | None = None,
-    execution_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[str] = []
     if parse_error:
@@ -262,6 +291,9 @@ def evaluate_exploratory(
     answer_present = _has_answer(prediction)
     if not answer_present:
         reasons.append("empty_prediction")
+    result_content_present = _has_result_content(prediction)
+    if answer_present and not result_content_present:
+        reasons.append("missing_result_content")
 
     contract = task_contract or {}
     required_fields = contract.get("required_final_fields")
@@ -273,18 +305,12 @@ def evaluate_exploratory(
             if missing:
                 reasons.append(f"missing_required_final_fields:{','.join(missing)}")
 
-    evidence = execution_evidence or {}
-    tool_call_count = int(evidence.get("molclaw_usage_count") or evidence.get("tool_call_count") or 0)
-    observation_count = int(evidence.get("observation_count") or 0)
-    if tool_call_count < 1 or observation_count < 1:
-        reasons.append("missing_execution_evidence")
-
     return _base_result(
         task,
         reasons=reasons,
         metrics={
             "answer_present": answer_present,
-            "execution_evidence_present": tool_call_count > 0 and observation_count > 0,
+            "result_content_present": result_content_present,
         },
         prediction=[],
         ground_truth=[],
@@ -295,8 +321,6 @@ def evaluate_exploratory(
             "candidate_size": 0,
             "chemistry_canonicalization": False,
             "required_final_fields": required_fields or [],
-            "tool_call_count": tool_call_count,
-            "observation_count": observation_count,
         },
     )
 
@@ -310,7 +334,6 @@ def evaluate_task_answer(
     chemistry: Any | None = None,
     parse_error: Any = None,
     task_contract: dict[str, Any] | None = None,
-    execution_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task_name = str(task).strip().lower()
     if task_name not in SUPPORTED_TASKS:
@@ -343,5 +366,4 @@ def evaluate_task_answer(
         prediction=prediction,
         parse_error=parse_error,
         task_contract=task_contract,
-        execution_evidence=execution_evidence,
     )

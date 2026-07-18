@@ -70,11 +70,10 @@ class EvaluatorAuthorityTest(unittest.TestCase):
             prediction="The repaired structure was written to /tmp/egfr_fixed.pdb.",
             ground_truth=[],
             chemistry=RejectingChemistry(),
-            execution_evidence={"tool_call_count": 1, "observation_count": 1},
         )
         self.assertTrue(result["task_answer_valid"])
         self.assertTrue(result["metrics"]["answer_present"])
-        self.assertTrue(result["metrics"]["execution_evidence_present"])
+        self.assertTrue(result["metrics"]["result_content_present"])
         self.assertFalse(result["audit"]["chemistry_canonicalization"])
 
 
@@ -111,7 +110,10 @@ class CuratorAuthorityTest(unittest.TestCase):
                 '{"task":"kg","question":"Do the grounded task","answer":[]}',
                 encoding="utf-8",
             )
-            (sample_dir / "parsed_answer.json").write_text('{"answer":["done"]}', encoding="utf-8")
+            (sample_dir / "parsed_answer.json").write_text(
+                '{"answer":["A grounded molecular result"]}',
+                encoding="utf-8",
+            )
             (sample_dir / "run_meta.json").write_text('{"return_code":0}', encoding="utf-8")
             (sample_dir / "complete_session.jsonl").write_text(
                 '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1",'
@@ -145,7 +147,10 @@ class CuratorAuthorityTest(unittest.TestCase):
                 '{"task":"kg","question":"Run the task","answer":[]}',
                 encoding="utf-8",
             )
-            (sample_dir / "parsed_answer.json").write_text('{"answer":{"result":"done"}}', encoding="utf-8")
+            (sample_dir / "parsed_answer.json").write_text(
+                '{"answer":{"result":"A grounded molecular result"}}',
+                encoding="utf-8",
+            )
             (sample_dir / "run_meta.json").write_text('{"return_code":0}', encoding="utf-8")
             (sample_dir / "complete_session.jsonl").write_text(
                 '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1",'

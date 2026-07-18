@@ -186,10 +186,6 @@ def curate_sample(
                 if isinstance(question.get("task_contract"), dict)
                 else {}
             ),
-            execution_evidence={
-                "molclaw_usage_count": trace_stats["molclaw_usage_count"],
-                "observation_count": trace_stats["observed_tool_call_count"],
-            },
         )
     except RuntimeError as exc:
         evaluator_error = str(exc)

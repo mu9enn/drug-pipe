@@ -54,7 +54,6 @@ class TaskEvaluatorTest(unittest.TestCase):
             ground_truth=[],
             chemistry=ExplodingChemistry(),
             task_contract={"required_final_fields": ["summary", "result"]},
-            execution_evidence={"tool_call_count": 1, "observation_count": 1},
         )
         self.assertTrue(result["task_answer_valid"])
         self.assertFalse(result["audit"]["chemistry_canonicalization"])
