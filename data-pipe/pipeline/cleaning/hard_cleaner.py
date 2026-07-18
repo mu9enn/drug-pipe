@@ -7,19 +7,14 @@ from collections import Counter, deque
 from typing import Any
 
 try:
-    from pipeline.postprocess.react_constructor import sanitize_artifacts
+    from pipeline.cleaning.primitives import ARTIFACT_RE, inspect_observation_status, sanitize_artifact_paths
 except ImportError:
-    from postprocess.react_constructor import sanitize_artifacts
+    from cleaning.primitives import ARTIFACT_RE, inspect_observation_status, sanitize_artifact_paths
 
 
 TOOL_CALL_RE = re.compile(r"<tool_call>([\s\S]*?)</tool_call>")
 OBSERVATION_RE = re.compile(r'<observation\s+tool_name="([^"]+)">([\s\S]*?)</observation>')
 FINAL_RE = re.compile(r"<final_answer>([\s\S]*?)</final_answer>")
-ARTIFACT_RE = re.compile(r"<artifact:[^>]+>")
-RELATIVE_PATH_RE = re.compile(
-    r"(?<![:/A-Za-z0-9])(?P<path>(?:\.\.?/)+(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+"
-    r"\.(?:json|pdb|cif|mmcif|sdf|mol2|pdbqt|csv|tsv|txt|npy|npz|pt|pkl))"
-)
 DEBUG_KEYS = {
     "metadata",
     "pointers",
@@ -31,8 +26,6 @@ DEBUG_KEYS = {
     "raw_event_index",
     "fence_wrapper_stripped",
 }
-ERROR_STATUSES = {"error", "failed", "failure", "timeout", "timed_out", "invalid"}
-SUCCESS_STATUSES = {"ok", "success", "succeeded", "complete", "completed", "partial_success"}
 SUCCESS_CLAIM_RE = re.compile(r"(?i)\b(success(?:ful(?:ly)?)?|completed|produced|saved|written)\b")
 MOLECULE_KEYS = ("smiles", "ligand", "molecule", "candidate")
 
@@ -46,28 +39,6 @@ def _parse_json(text: str) -> Any:
 
 def _serialize(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-
-
-def _sanitize_relative_paths(text: str, report: dict[str, Any]) -> str:
-    protected: list[str] = []
-
-    def protect(match: re.Match[str]) -> str:
-        protected.append(match.group(0))
-        return f"__HARD_CLEAN_ARTIFACT_{len(protected) - 1}__"
-
-    value = ARTIFACT_RE.sub(protect, text)
-
-    def replace(match: re.Match[str]) -> str:
-        raw = match.group("path")
-        name = raw.replace("\\", "/").split("/")[-1]
-        artifact = f"<artifact:local/{name}>"
-        report["actions"].append({"type": "sanitize_relative_path", "before": raw, "after": artifact})
-        return artifact
-
-    value = RELATIVE_PATH_RE.sub(replace, value)
-    for index, artifact in enumerate(protected):
-        value = value.replace(f"__HARD_CLEAN_ARTIFACT_{index}__", artifact)
-    return value
 
 
 def _strip_debug_keys(value: Any, removed: Counter[str]) -> None:
@@ -84,19 +55,8 @@ def _strip_debug_keys(value: Any, removed: Counter[str]) -> None:
 
 
 def _payload_error(payload: dict[str, Any]) -> tuple[bool, str]:
-    status = str(payload.get("status") or "").strip().lower()
-    content = payload.get("content")
-    content_status = (
-        str(content.get("status") or "").strip().lower() if isinstance(content, dict) else ""
-    )
-    error_value = content.get("error") if isinstance(content, dict) else None
-    is_error = (
-        payload.get("is_error") is True
-        or status in ERROR_STATUSES
-        or content_status in ERROR_STATUSES
-        or error_value not in (None, "", False, [], {})
-    )
-    return is_error, content_status or status
+    inspection = inspect_observation_status(payload)
+    return bool(inspection["is_error"]), str(inspection["content_status"] or inspection["outer_status"] or "")
 
 
 def _clean_protocol_messages(
@@ -108,8 +68,12 @@ def _clean_protocol_messages(
     path_map: dict[str, str] = {}
     for message_index, message in enumerate(messages):
         content = str(message.get("content") or "")
-        content = str(sanitize_artifacts(content, path_map))
-        content = _sanitize_relative_paths(content, report)
+        before_paths = set(path_map)
+        content = str(sanitize_artifact_paths(content, path_map))
+        for raw in sorted(set(path_map) - before_paths):
+            report["actions"].append(
+                {"type": "sanitize_artifact_path", "before": raw, "after": path_map[raw]}
+            )
 
         def clean_call(match: re.Match[str]) -> str:
             payload = _parse_json(match.group(1))
@@ -125,7 +89,6 @@ def _clean_protocol_messages(
             if not isinstance(payload, dict):
                 report["errors"].append(f"message_{message_index}_observation_json_invalid")
                 return match.group(0)
-            payload = sanitize_artifacts(payload, path_map)
             removed: Counter[str] = Counter()
             _strip_debug_keys(payload, removed)
             if removed:
@@ -137,20 +100,18 @@ def _clean_protocol_messages(
                         "keys": dict(removed),
                     }
                 )
-            is_error, semantic_status = _payload_error(payload)
-            outer_status = str(payload.get("status") or "").strip().lower()
-            if (
-                payload.get("is_error") is False
-                and semantic_status in ERROR_STATUSES
-                or payload.get("is_error") is True
-                and outer_status in SUCCESS_STATUSES
-            ):
+            inspection = inspect_observation_status(payload)
+            if inspection["conflict"]:
                 report["errors"].append("observation_status_conflict")
                 report["status_conflicts"].append(
-                    {"message_index": message_index, "tool_name": tool_name, "payload": payload}
+                    {
+                        "message_index": message_index,
+                        "tool_name": tool_name,
+                        "outer_status": inspection["outer_status"],
+                        "content_status": inspection["content_status"],
+                        "payload_is_error": inspection["payload_is_error"],
+                    }
                 )
-            payload["is_error"] = is_error
-            payload["status"] = "error" if is_error else outer_status or semantic_status or "success"
             observations.append({"tool_name": tool_name, "payload": payload})
             return f'<observation tool_name="{tool_name}">{_serialize(payload)}</observation>'
 

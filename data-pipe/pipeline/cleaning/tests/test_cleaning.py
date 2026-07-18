@@ -161,7 +161,7 @@ class HardCleanerTest(unittest.TestCase):
             },
         )
         cleaned, report = hard_clean(copy.deepcopy(sample))
-        self.assertIn("<artifact:local/result.pdb>", cleaned["messages"][2]["content"])
+        self.assertIn("<artifact:structure/result.pdb>", cleaned["messages"][2]["content"])
         self.assertEqual(report["counts"]["tool_calls"], 1)
         self.assertEqual(report["counts"]["observations"], 1)
 

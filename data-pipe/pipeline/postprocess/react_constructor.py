@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
-from pathlib import Path
 from typing import Any
+
+try:
+    from pipeline.cleaning.primitives import inspect_observation_status, sanitize_artifact_paths
+except ImportError:
+    from cleaning.primitives import inspect_observation_status, sanitize_artifact_paths
 
 
 MOLCLAW_PREFIXES = ("mcp__molclaw-scp__", "mcp__molclaw-vs__")
@@ -14,11 +17,6 @@ Use only real MolClaw calls from the recorded execution. Write scientific reason
 <observation>...</observation>, and the grounded result inside <final_answer>...</final_answer>.
 Never invent a tool result. Observations must come from execution history, and the final answer
 must be supported by the task result and recorded observations."""
-ABSOLUTE_PATH_RE = re.compile(
-    r"(?<![\w<])(?:/root|/home|/tmp|/mnt|/workspace)(?:/[^\s<>\"'{}\[\],)]*)?"
-)
-ERROR_STATUSES = {"error", "failed", "failure", "timeout", "timed_out", "invalid"}
-SUCCESS_STATUSES = {"ok", "success", "succeeded", "complete", "completed", "partial_success"}
 IMPORTANT_OBSERVATION_KEYS = (
     "status",
     "ok",
@@ -49,53 +47,6 @@ def bare_tool_name(raw_name: str) -> str | None:
     return None
 
 
-def _artifact_reference(raw_path: str) -> str:
-    path = str(raw_path).rstrip(".,;:")
-    name = Path(path).name or "result"
-    lowered = path.lower()
-    if "fpocket" in lowered:
-        namespace = "fpocket"
-    elif "dock" in lowered:
-        namespace = "docking"
-    elif "boltz" in lowered:
-        namespace = "boltz"
-    elif "pdbfix" in lowered:
-        namespace = "pdbfixer"
-    elif Path(name).suffix.lower() in {".pdb", ".cif", ".mmcif", ".pdbqt", ".mol", ".mol2", ".sdf"}:
-        namespace = "structure"
-    else:
-        namespace = "local"
-    return f"<artifact:{namespace}/{name}>"
-
-
-def sanitize_artifacts(value: Any, path_map: dict[str, str]) -> Any:
-    if isinstance(value, str):
-        protected: list[str] = []
-
-        def protect(match: re.Match[str]) -> str:
-            protected.append(match.group(0))
-            return f"__DRUG_PIPE_ARTIFACT_{len(protected) - 1}__"
-
-        text = re.sub(r"<artifact:[^>]+>", protect, value)
-
-        def replace(match: re.Match[str]) -> str:
-            raw = match.group(0)
-            path_map.setdefault(raw, _artifact_reference(raw))
-            return path_map[raw]
-
-        text = ABSOLUTE_PATH_RE.sub(replace, text)
-        for index, artifact in enumerate(protected):
-            text = text.replace(f"__DRUG_PIPE_ARTIFACT_{index}__", artifact)
-        return text
-    if isinstance(value, list):
-        return [sanitize_artifacts(item, path_map) for item in value]
-    if isinstance(value, tuple):
-        return [sanitize_artifacts(item, path_map) for item in value]
-    if isinstance(value, dict):
-        return {str(key): sanitize_artifacts(item, path_map) for key, item in value.items()}
-    return value
-
-
 def _parse_content(value: Any) -> Any:
     if not isinstance(value, str):
         return value
@@ -110,18 +61,6 @@ def _parse_content(value: Any) -> Any:
         return json.loads(text)
     except (TypeError, ValueError):
         return text
-
-
-def _semantic_status(value: Any) -> str | None:
-    if not isinstance(value, dict):
-        return None
-    for key in ("status", "state", "result_status"):
-        status = str(value.get(key) or "").strip().lower()
-        if status:
-            return status
-    if value.get("error") not in (None, "", False, [], {}):
-        return "error"
-    return None
 
 
 def _compact_observation(value: Any, max_chars: int) -> tuple[Any, bool, int]:
@@ -260,8 +199,8 @@ def reconstruct_react_messages(
     path_map: dict[str, str] = {}
     system_prompt = _raw_system_prompt(events) or CANONICAL_SYSTEM_PROMPT
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": sanitize_artifacts(system_prompt, path_map), "step_loss_mask": 0},
-        {"role": "user", "content": sanitize_artifacts(question_text, path_map), "step_loss_mask": 0},
+        {"role": "system", "content": sanitize_artifact_paths(system_prompt, path_map), "step_loss_mask": 0},
+        {"role": "user", "content": sanitize_artifact_paths(question_text, path_map), "step_loss_mask": 0},
     ]
     retained_calls: dict[str, dict[str, str]] = {}
     observed_calls: set[str] = set()
@@ -293,7 +232,7 @@ def reconstruct_react_messages(
                 if item_type in {"thinking", "text"}:
                     text = item.get("thinking") if item_type == "thinking" else item.get("text")
                     if isinstance(text, str) and text.strip():
-                        clean = sanitize_artifacts(text.strip(), path_map)
+                        clean = sanitize_artifact_paths(text.strip(), path_map)
                         event_texts.append(clean)
                         rendered.append(f"<thought>{clean}</thought>")
                 elif item_type == "tool_use":
@@ -304,7 +243,7 @@ def reconstruct_react_messages(
                         dropped_non_molclaw_calls += 1
                         continue
                     arguments = item.get("input") if isinstance(item.get("input"), dict) else {}
-                    arguments = sanitize_artifacts(arguments, path_map)
+                    arguments = sanitize_artifact_paths(arguments, path_map)
                     retained_calls[call_id] = {"name": name, "raw_name": raw_name}
                     raw_tool_names[raw_name] = name
                     tool_hist[name] += 1
@@ -325,29 +264,25 @@ def reconstruct_react_messages(
                 if not call:
                     orphan_observations += 1
                     continue
-                parsed = sanitize_artifacts(_parse_content(item.get("content")), path_map)
-                semantic_status = _semantic_status(parsed)
+                parsed = sanitize_artifact_paths(_parse_content(item.get("content")), path_map)
                 raw_is_error = bool(item.get("is_error"))
-                semantic_error = semantic_status in ERROR_STATUSES
-                semantic_success = semantic_status in SUCCESS_STATUSES
-                if (raw_is_error and semantic_success) or (not raw_is_error and semantic_error):
+                status_inspection = inspect_observation_status(parsed, event_is_error=raw_is_error)
+                if status_inspection["conflict"]:
                     error_status_conflicts.append(
                         {
                             "event_index": event_index,
                             "tool_use_id": call_id,
                             "tool_name": call["name"],
                             "event_is_error": raw_is_error,
-                            "content_status": semantic_status,
+                            "content_status": status_inspection["content_status"],
                         }
                     )
-                effective_error = raw_is_error or semantic_error
                 compacted, changed, original_chars = _compact_observation(parsed, max_observation_chars)
                 compacted_observations += int(changed)
-                status = "error" if effective_error else semantic_status or "success"
                 observation = {
                     "tool_name": call["name"],
-                    "status": status,
-                    "is_error": effective_error,
+                    "status": status_inspection["status"],
+                    "is_error": status_inspection["is_error"],
                     "content": compacted,
                 }
                 if changed:
@@ -366,10 +301,10 @@ def reconstruct_react_messages(
         elif event_type == "result":
             result_text = str(event.get("result") or "").strip()
             if result_text:
-                assistant_text_after_last_observation.append(sanitize_artifacts(result_text, path_map))
+                assistant_text_after_last_observation.append(sanitize_artifact_paths(result_text, path_map))
 
     final_text = "\n\n".join(assistant_text_after_last_observation).strip()
-    payload = sanitize_artifacts(build_final_payload(task, final_answer, final_text, observations_for_final), path_map)
+    payload = sanitize_artifact_paths(build_final_payload(task, final_answer, final_text, observations_for_final), path_map)
     messages.append(
         {
             "role": "assistant",
