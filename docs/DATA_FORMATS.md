@@ -98,7 +98,10 @@ Tool-KG Stage3 先写 `results/tasks.jsonl`（`tool_kg_task_v1`）；Data-Pipe a
 }
 ```
 
-训练文件不含 source path、return code、metrics 或 rejection reasons。它们按相同 `id` 写入 `curation_audit.jsonl`。默认最终文件是：
+训练文件不含 source path、return code、ground truth、benchmark metrics、evaluator
+validity 或 rejection reasons。rich final 只能来自 agent prediction、raw assistant final
+和真实 observation evidence。reference labels 与 evaluator 输出按相同 `id` 写入
+`curation_audit.jsonl`。默认最终文件是：
 
 ```text
 react_trajectories.jsonl
@@ -108,7 +111,10 @@ quarantine.jsonl          # 仅有内容时
 curation_summary.json
 ```
 
-`task_answer_valid` 只来自 evaluator；`execution_valid`/`training_trace_valid` 来自 curator；只有 final acceptance gate 决定 accepted/rejected/quarantine。聚合器只去重和汇总。
+`task_answer_valid` 只来自 evaluator；KG/E2E evaluator 仅接收 prediction、parse error
+与 task contract，不接收 raw session、return code、timeout 或 tool/observation counts。
+`execution_valid`/`training_trace_valid` 来自 curator；final/observation consistency 由 hard
+clean 报告；只有 final acceptance gate 决定 accepted/rejected/quarantine。聚合器只去重和汇总。
 
 ## Shared Decision State
 

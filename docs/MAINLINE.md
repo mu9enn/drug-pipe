@@ -10,9 +10,11 @@
 | directed relation status/type/mapping/evidence/confidence | Claude pair adjudication | canonical parser 只校验并写 `edge_decisions.jsonl` |
 | sampling graph | `graph.jsonl` 的确定性 projection | 只筛选可采样的 valid Claude decision，不改边语义 |
 | grounded task validity | Tool-KG sampler + Science-KB + canonical graph | Data-Pipe 只检查可读性并执行 |
-| task metrics / `task_answer_valid` | `pipeline/evaluate/task_evaluator.py` | curator 消费结果 |
+| task metrics / `task_answer_valid` | `pipeline/evaluate/task_evaluator.py` | KG/E2E 只读 final prediction 与 task contract，不读取 execution |
 | `execution_valid`、`training_trace_valid`、MolClaw usage | `trace_curator.py` | acceptance gate 消费 |
-| canonical ReAct construction | `react_constructor.py` | LLM/hard clean 只受保护地清理 |
+| canonical ReAct construction、首次 observation compaction/final construction | `react_constructor.py` | hard clean 不二次构造或压缩 |
+| artifact/path 规范和 observation status 解释 | `cleaning/primitives.py` | constructor 首次规范化；hard clean 在 LLM 后复用同一纯函数 |
+| final/observation 与跨消息 consistency findings | `cleaning/hard_cleaner.py` | 只报告 findings，不改写最终样本状态 |
 | accepted/rejected/quarantine | `cleaning/acceptance_gate.py` | evaluator、LLM clean、hard clean 只提供事实/findings |
 | decision-state slicing / assistant decision parsing | `drug_agent/decision_extractor.py` | ToolRL、GAD 只派生方法字段 |
 | ToolRL reward | `drug_agent.toolrl.molclaw_reward` | 只评价生成 action，不执行 |
@@ -60,3 +62,7 @@ SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state �
 - SFT、ToolRL、GAD 与 online replay 的默认输入都从 `$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl` 或其方法派生目录开始；`PROMPT_DATA`/`INPUT` 只用于显式覆盖。
 
 OPD、VERL bundle、legacy action-JSON SFT 和 legacy online PPO/GRPO 不属于当前主线。
+
+ReAct constructor 和 LLM clean 的输入不包含 ground truth、benchmark metrics 或 evaluator
+结果。question record 只投影推理时可见的 task input；reference labels 仅进入 audit
+sidecar，不能回流到训练 messages。
