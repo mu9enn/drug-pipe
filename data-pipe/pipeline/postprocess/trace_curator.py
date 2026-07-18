@@ -24,6 +24,26 @@ from postprocess.react_constructor import (  # noqa: E402
 SCHEMA_VERSION = "drug_agent_sft_react_json_v1"
 TASK_CHOICES = {"vs", "ac", "pf", "e2e", "kg"}
 SYSTEM_PROMPT = CANONICAL_SYSTEM_PROMPT
+PUBLIC_QUESTION_KEYS = ("question", "question_text", "prompt", "public_question_text")
+TRAINING_INPUT_DENY_KEYS = {
+    "accepted",
+    "answer",
+    "answer_hit",
+    "exact_match",
+    "f1",
+    "final_status",
+    "ground_truth",
+    "metrics",
+    "precision",
+    "recall",
+    "reference_answer",
+    "task_answer_valid",
+    "top3",
+    "top3_hit",
+    "top10",
+    "top10_hit",
+}
+SOURCE_LABEL_KEYS = TRAINING_INPUT_DENY_KEYS - {"accepted", "final_status"}
 
 
 @dataclass(frozen=True)
@@ -118,15 +138,55 @@ def infer_task(results_dir: Path, explicit_task: str | None = None) -> str:
     raise FileNotFoundError(f"unable to infer task from {results_dir}")
 
 
+def _public_task_input(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _public_task_input(item)
+            for key, item in value.items()
+            if str(key).strip().lower() not in TRAINING_INPUT_DENY_KEYS
+            and str(key) != "raw_question_json"
+        }
+    if isinstance(value, list):
+        return [_public_task_input(item) for item in value]
+    return value
+
+
+def _raw_question_value(question: dict[str, Any]) -> Any:
+    raw = question.get("raw_question_json")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
 def _question_text(question: dict[str, Any]) -> str:
-    for key in ("question", "question_text", "prompt", "public_question_text"):
+    for key in PUBLIC_QUESTION_KEYS:
         value = question.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    raw = question.get("raw_question_json")
+    raw = _raw_question_value(question)
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
-    return json.dumps(question, ensure_ascii=False, sort_keys=True)
+    projected = _public_task_input(raw if isinstance(raw, dict) else question)
+    if not isinstance(projected, dict) or not projected:
+        return ""
+    return json.dumps(projected, ensure_ascii=False, sort_keys=True)
+
+
+def _source_labels(question: dict[str, Any]) -> dict[str, Any]:
+    labels = {
+        str(key): value
+        for key, value in question.items()
+        if str(key).strip().lower() in SOURCE_LABEL_KEYS
+    }
+    raw = _raw_question_value(question)
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if str(key).strip().lower() in SOURCE_LABEL_KEYS:
+                labels.setdefault(str(key), value)
+    return labels
 
 
 def _candidate_values(question: dict[str, Any]) -> Any:
@@ -162,10 +222,11 @@ def curate_sample(
     final_answer = parsed.get("answer")
     if final_answer in (None, "", []):
         final_answer = parsed.get("answer_block")
+    question_text = _question_text(question)
 
     messages, trace_stats = reconstruct_react_messages(
         events,
-        question_text=_question_text(question),
+        question_text=question_text,
         final_answer=final_answer,
         task=task,
     )
@@ -220,6 +281,8 @@ def curate_sample(
         training_reasons.append(f"missing_tool_observations:{trace_stats['missing_observation_count']}")
     if resolved_final_answer in (None, "", []):
         training_reasons.append("missing_final_answer")
+    if not question_text:
+        training_reasons.append("missing_task_prompt")
     training_trace_valid = not training_reasons
     sample_key = f"{task}:{sample.row_number}:{sample.dataset_index}:{sample.rollout_index}:{session_path.resolve()}"
     record_id = f"react_{task}_{hashlib.sha256(sample_key.encode()).hexdigest()[:16]}"
@@ -265,6 +328,8 @@ def curate_sample(
             "timed_out": timed_out,
             "task_metrics": evaluation["metrics"],
             "task_evaluator_audit": evaluation.get("audit", {}),
+            "task_evaluator_canonical": evaluation.get("canonical", {}),
+            "source_labels": _source_labels(question),
             "task_evaluator_error": evaluator_error,
             "llm_clean": llm_report,
             "hard_clean": hard_report,
