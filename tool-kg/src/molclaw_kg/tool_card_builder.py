@@ -18,112 +18,53 @@ except ImportError:  # pragma: no cover
 
 from .adjudicators.claude_code_runtime import ClaudeCodeRuntime, extract_json_object, safe_name
 from .io_utils import append_jsonl, atomic_write_jsonl, read_jsonl, sha256_text, stable_hash_obj, write_json, write_jsonl
-from .models import Slot, ToolCard
+from .models import Slot, ToolAnnotationPatch, ToolCard
 from .settings import ProjectConfig
 from .runtime_state import next_attempt_dir
 from .stage_taxonomy import load_stage_taxonomy
 
 
-def _infer_format(text: str) -> str:
-    t = text.lower()
-    if "pdbqt" in t:
-        return "pdbqt"
-    if "pdb" in t:
-        return "pdb"
-    if "sdf" in t:
-        return "sdf"
-    if "mol2" in t:
-        return "mol2"
-    if "smiles" in t or "smi" in t:
-        return "smiles"
-    if "csv" in t:
-        return "csv"
-    if "json" in t:
-        return "json"
-    if "base64" in t:
-        return "base64"
-    return "unknown"
-
-
-def _infer_semantic(name: str, desc: str) -> str:
-    s = f"{name} {desc}".lower()
-    if "sequence" in s:
-        return "protein_sequence"
-    if "admet" in s:
-        return "admet_profile"
-    if "smiles" in s and "list" in s:
-        return "ligand_smiles_list"
-    if "smiles" in s:
-        return "ligand_smiles"
-    if "pocket" in s and ("center" in s or "box" in s):
-        return "pocket_box"
-    if "docking" in s and ("pose" in s or "pdbqt" in s):
-        return "docking_pose"
-    if "score" in s or "affinity" in s:
-        return "docking_score"
-    if "pdb" in s and ("fix" in s or "repair" in s):
-        return "repaired_pdb"
-    if "pdb" in s:
-        return "protein_structure_pdb"
-    if "candidate" in s or "filter" in s:
-        return "candidate_set"
-    if "rank" in s:
-        return "ranking_table"
-    if "visual" in s or "image" in s or "plot" in s:
-        return "image_plot"
-    return "unknown"
-
-
-def _infer_parameter_kind(name: str, semantic_type: str, raw_type: str) -> str:
-    n = name.lower()
-    if n in {"dry_run", "overwrite", "force", "verbose"}:
-        return "control"
-    if n in {"mode", "samples", "num_samples", "batch_size", "seed", "temperature", "top_k"}:
-        return "config"
-    if semantic_type not in {"unknown", "image_plot"}:
-        return "data"
-    if raw_type in {"string", "array", "object"} and any(
-        kw in n for kw in ("path", "file", "pdb", "cif", "smiles", "sequence", "ligand", "protein", "pocket")
-    ):
-        return "data"
-    return "unknown"
-
-
-def _slot_from_schema(name: str, spec: dict[str, Any], required: bool, source: str) -> Slot:
+def _slot_from_schema(
+    name: str,
+    spec: dict[str, Any],
+    required: bool,
+    source: str,
+    direction: str,
+) -> Slot:
     raw_type = str(spec.get("type", "unknown"))
     desc = str(spec.get("description", ""))
     enum_vals = spec.get("enum")
     default_val = spec.get("default")
-    extra_parts: list[str] = []
-    if isinstance(enum_vals, list) and enum_vals:
-        extra_parts.append(f"enum={enum_vals[:20]}")
-    if default_val is not None:
-        extra_parts.append(f"default={default_val}")
-    if extra_parts:
-        desc = f"{desc} [{' ; '.join(extra_parts)}]".strip()
-
-    semantic = _infer_semantic(name, desc)
-    fmt = _infer_format(f"{name} {desc}")
     card = "list" if raw_type == "array" else "single" if raw_type in {"string", "number", "integer", "boolean"} else "unknown"
-    kind = _infer_parameter_kind(name, semantic, raw_type)
     requirement_status = "required" if required else "optional"
     return Slot(
         name=name,
+        slot_path=f"{direction}.{name}",
+        direction=direction,  # type: ignore[arg-type]
         raw_type=raw_type,
-        semantic_type=semantic,
-        format=fmt,
-        parameter_kind=kind,  # type: ignore[arg-type]
+        default=default_val,
+        enum=list(enum_vals) if isinstance(enum_vals, list) else None,
+        semantic_type="unknown",
+        format="unknown",
+        parameter_kind="unknown",
         requirement_status=requirement_status,  # type: ignore[arg-type]
         required=required,
         description=desc,
         source=source,  # type: ignore[arg-type]
-        confidence=0.9 if source.endswith("schema") else 0.55,
+        confidence=1.0,
         cardinality=card,  # type: ignore[arg-type]
+        connectable_state="unknown",
     )
 
 
-def _flatten_schema_slots(name: str, spec: dict[str, Any], required: bool, source: str) -> list[Slot]:
-    out = [_slot_from_schema(name, spec, required, source)]
+def _flatten_schema_slots(
+    name: str,
+    spec: dict[str, Any],
+    required: bool,
+    source: str,
+    direction: str,
+) -> list[Slot]:
+    out = [_slot_from_schema(name, spec, required, source, direction)]
     typ = str(spec.get("type", "unknown"))
     if typ == "object":
         props = spec.get("properties") or {}
@@ -133,7 +74,7 @@ def _flatten_schema_slots(name: str, spec: dict[str, Any], required: bool, sourc
                 if not isinstance(child_spec, dict):
                     continue
                 full = f"{name}.{child_name}"
-                out.extend(_flatten_schema_slots(full, child_spec, child_name in req, source))
+                out.extend(_flatten_schema_slots(full, child_spec, child_name in req, source, direction))
     elif typ == "array":
         items = spec.get("items")
         if isinstance(items, dict) and items.get("type") == "object":
@@ -144,7 +85,7 @@ def _flatten_schema_slots(name: str, spec: dict[str, Any], required: bool, sourc
                     if not isinstance(child_spec, dict):
                         continue
                     full = f"{name}[*].{child_name}"
-                    out.extend(_flatten_schema_slots(full, child_spec, child_name in req, source))
+                    out.extend(_flatten_schema_slots(full, child_spec, child_name in req, source, direction))
     return out
 
 
@@ -156,7 +97,7 @@ def _deterministic_outputs(row: dict[str, Any]) -> list[Slot]:
         required = set(out_schema.get("required") or [])
         for name, spec in props.items():
             if isinstance(spec, dict):
-                out.extend(_flatten_schema_slots(name, spec, name in required, "output_schema"))
+                out.extend(_flatten_schema_slots(name, spec, name in required, "output_schema", "output"))
     return out
 
 
@@ -165,7 +106,7 @@ def _build_connectable_inputs(inputs: list[Slot], preconditions: list[Slot]) -> 
     for s in [*inputs, *preconditions]:
         if s.parameter_kind == "control":
             continue
-        if s.semantic_type == "unknown" and s.format == "unknown":
+        if s.connectable_state == "no":
             continue
         out.append(Slot.model_validate(s.model_dump()))
     return out
@@ -174,13 +115,41 @@ def _build_connectable_inputs(inputs: list[Slot], preconditions: list[Slot]) -> 
 def _build_connectable_outputs(outputs: list[Slot], side_effects: list[Slot]) -> list[Slot]:
     out: list[Slot] = []
     for s in [*outputs, *side_effects]:
-        if s.semantic_type == "unknown" and s.format == "unknown":
+        if s.connectable_state == "no":
             continue
         out.append(Slot.model_validate(s.model_dump()))
     return out
 
 
-def _default_input_requirement_sets(inputs: list[Slot]) -> list[dict[str, Any]]:
+def _default_input_requirement_sets(
+    inputs: list[Slot],
+    input_schema: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    schema = input_schema or {}
+    variants = schema.get("oneOf") or schema.get("anyOf")
+    if isinstance(variants, list) and variants:
+        out: list[dict[str, Any]] = []
+        for index, variant in enumerate(variants, start=1):
+            if not isinstance(variant, dict):
+                continue
+            required = [str(value) for value in variant.get("required") or []]
+            out.append(
+                {
+                    "set_id": f"schema_variant_{index:02d}",
+                    "condition": "oneOf" if schema.get("oneOf") is variants else "anyOf",
+                    "required_slots": required,
+                    "optional_slots": [
+                        slot.name for slot in inputs if slot.name not in required and not slot.required
+                    ],
+                    "defaulted_slots": [
+                        slot.name for slot in inputs if slot.default is not None
+                    ],
+                    "execution_meaning": "json_schema",
+                    "source": "mcp_input_schema",
+                }
+            )
+        if out:
+            return out
     required_data = [x.name for x in inputs if x.required and x.parameter_kind in {"data", "unknown"}]
     optional_data = [x.name for x in inputs if (not x.required) and x.parameter_kind in {"data", "unknown"}]
     defaulted = [x.name for x in inputs if x.parameter_kind in {"config", "control"}]
@@ -192,11 +161,12 @@ def _default_input_requirement_sets(inputs: list[Slot]) -> list[dict[str, Any]]:
             "optional_slots": optional_data,
             "defaulted_slots": defaulted,
             "execution_meaning": "default",
+            "source": "mcp_input_schema",
         }
     ]
 
 
-def _base_tool_card(row: dict[str, Any], primary_stage: str, secondary_stages: list[str]) -> ToolCard:
+def _base_tool_card(row: dict[str, Any], primary_stage: str, scheduling_stages: list[str]) -> ToolCard:
     tool_id = row.get("tool_id") or row.get("name")
     if not tool_id:
         raise ValueError("snapshot row missing tool_id/name")
@@ -209,7 +179,7 @@ def _base_tool_card(row: dict[str, Any], primary_stage: str, secondary_stages: l
     inputs: list[Slot] = []
     for name, spec in props.items():
         if isinstance(spec, dict):
-            inputs.append(_slot_from_schema(name, spec, name in required, "input_schema"))
+            inputs.extend(_flatten_schema_slots(name, spec, name in required, "input_schema", "input"))
 
     output_slots = _deterministic_outputs(row)
     preconditions: list[Slot] = []
@@ -222,13 +192,16 @@ def _base_tool_card(row: dict[str, Any], primary_stage: str, secondary_stages: l
         title=str(title),
         description_summary=desc.strip()[:1000],
         primary_stage=primary_stage,
-        secondary_stages=secondary_stages,
+        scheduling_stages=scheduling_stages,
         aliases=[],
+        schema_slots=[*inputs, *output_slots],
+        slot_annotations={},
+        skill_derived_slots=[],
         inputs=inputs,
         outputs=output_slots,
         connectable_inputs=connectable_inputs,
         connectable_outputs=connectable_outputs,
-        input_requirement_sets=_default_input_requirement_sets(inputs),
+        input_requirement_sets=_default_input_requirement_sets(inputs, input_schema),
         preconditions=preconditions,
         side_effects=side_effects,
         needs_review=False,
@@ -284,7 +257,7 @@ def _load_prompt_template(config: ProjectConfig) -> str:
     )
 
 
-def _build_tool_card_prompt(template: str, *, fixed_primary_stage: str) -> str:
+def _build_tool_card_prompt(template: str) -> str:
     return (
         f"{template.strip()}\n\n"
         "You are running inside one isolated workdir for exactly one tool-card task.\n"
@@ -293,9 +266,9 @@ def _build_tool_card_prompt(template: str, *, fixed_primary_stage: str) -> str:
         "- task_context.json\n"
         "- tool_snapshot_row.json\n"
         "- deterministic_base_tool_card.json\n"
-        "- stage_taxonomy.json\n"
-        "- doc_context.jsonl\n\n"
-        f"Hard constraint: primary_stage must equal fixed_primary_stage in task_context.json (expected: {fixed_primary_stage}).\n"
+        "- source_manifest.json\n"
+        "- output_schema.json\n\n"
+        "Return an annotation patch only. Taxonomy stages and MCP schema facts are not output fields.\n"
     )
 
 
@@ -305,9 +278,6 @@ def _prepare_toolcard_workdir(
     workdir: Path,
     base_card: ToolCard,
     row: dict[str, Any],
-    fixed_primary_stage: str,
-    allowed_stages: list[str],
-    doc_context: list[dict[str, Any]],
     prompt: str,
 ) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
@@ -321,31 +291,35 @@ def _prepare_toolcard_workdir(
 
     write_json(workdir / "tool_snapshot_row.json", row)
     write_json(workdir / "deterministic_base_tool_card.json", base_card.model_dump())
-    write_json(workdir / "stage_taxonomy.json", config.stage_taxonomy)
+    source_manifest = {
+        "candidate_sources": [
+            {
+                "path_glob": f".claude/skills/L1_tools/**/*{base_card.tool_id}*",
+                "reason": "canonical tool skill",
+            },
+            {
+                "path_glob": ".claude/skills/L2_workflows/**/*",
+                "reason": "workflow context",
+            },
+            {
+                "path_glob": ".claude/skills/L3_methodology/**/*",
+                "reason": "methodology constraints",
+            },
+        ]
+    }
+    write_json(workdir / "source_manifest.json", source_manifest)
+    write_json(workdir / "output_schema.json", ToolAnnotationPatch.model_json_schema())
     write_json(
         workdir / "task_context.json",
         {
             "tool_id": base_card.tool_id,
-            "fixed_primary_stage": fixed_primary_stage,
-            "allowed_stages": allowed_stages,
-            "doc_context_file": "doc_context.jsonl",
-            "taxonomy_file": "stage_taxonomy.json",
             "snapshot_file": "tool_snapshot_row.json",
             "base_card_file": "deterministic_base_tool_card.json",
+            "source_manifest_file": "source_manifest.json",
+            "output_schema_file": "output_schema.json",
+            "schema_fact_policy": "immutable",
+            "taxonomy_stage_policy": "not_agent_output",
         },
-    )
-    write_jsonl(
-        workdir / "doc_context.jsonl",
-        [
-            {
-                "chunk_id": x.get("chunk_id"),
-                "doc_id": x.get("doc_id"),
-                "path": x.get("path"),
-                "heading_path": x.get("heading_path", []),
-                "text": str(x.get("text", "")),
-            }
-            for x in doc_context
-        ],
     )
     (workdir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
@@ -356,8 +330,7 @@ def _run_toolcard_attempt(
     base: ToolCard,
     row: dict[str, Any],
     fixed_primary: str,
-    allowed_stages: set[str],
-    doc_hits: list[dict[str, Any]],
+    scheduling_stages: list[str],
     template: str,
     progress_path: Path,
     progress_lock: threading.Lock,
@@ -376,15 +349,12 @@ def _run_toolcard_attempt(
     try:
         unit_dir = _toolcard_unit_dir(config, tool_id)
         attempt_dir = next_attempt_dir(unit_dir)
-        prompt = _build_tool_card_prompt(template, fixed_primary_stage=fixed_primary)
+        prompt = _build_tool_card_prompt(template)
         _prepare_toolcard_workdir(
             config=config,
             workdir=attempt_dir,
             base_card=base,
             row=row,
-            fixed_primary_stage=fixed_primary,
-            allowed_stages=sorted(allowed_stages),
-            doc_context=doc_hits,
             prompt=prompt,
         )
         payload_for_cache = {
@@ -426,38 +396,16 @@ def _run_toolcard_attempt(
             status = "parse_failed"
             err_msg = "agent output parse failed"
         else:
-            parsed_primary_stage = str(parsed.get("primary_stage", fixed_primary)).strip()
-            parsed_secondary_stages = parsed.get("secondary_stages", list(base.secondary_stages))
-            invalid_secondary_stage = None
-            if isinstance(parsed_secondary_stages, list):
-                for x in parsed_secondary_stages:
-                    sx = str(x).strip()
-                    if sx and sx not in allowed_stages:
-                        invalid_secondary_stage = sx
-                        break
-
-            main_payload, debug_extra = _extract_toolcard_model_payload(parsed, base)
-
             try:
-                built = ToolCard.model_validate(main_payload)
-                if parsed_primary_stage != fixed_primary:
-                    status = "stage_mismatch"
-                    err_msg = f"primary_stage mismatch: parsed={parsed_primary_stage}, fixed={fixed_primary}"
-                    built = None
-                elif invalid_secondary_stage is not None:
-                    status = "secondary_stage_invalid"
-                    err_msg = f"invalid secondary_stage: {invalid_secondary_stage}"
-                    built = None
-                else:
-                    built.primary_stage = fixed_primary
-                    built.secondary_stages = _normalize_secondary_stages(built.secondary_stages or list(base.secondary_stages), allowed_stages, fixed_primary)
-                    if not built.connectable_inputs:
-                        built.connectable_inputs = _build_connectable_inputs(built.inputs, built.preconditions)
-                    if not built.connectable_outputs:
-                        built.connectable_outputs = _build_connectable_outputs(built.outputs, built.side_effects)
-                    if not built.input_requirement_sets:
-                        built.input_requirement_sets = _default_input_requirement_sets(built.inputs)
-            except ValidationError as e:
+                patch = ToolAnnotationPatch.model_validate(parsed)
+                built = _merge_annotation_patch(
+                    base,
+                    patch,
+                    fixed_primary=fixed_primary,
+                    scheduling_stages=scheduling_stages,
+                )
+                debug_extra = {"annotation_patch": patch.model_dump()}
+            except (ValidationError, ValueError) as e:
                 status = "validation_failed"
                 err_msg = str(e)
     except Exception as e:  # pragma: no cover - safety net for worker failures
@@ -486,7 +434,7 @@ def _run_toolcard_attempt(
         "workdir": workdir_str,
         "session_file": session_file_str,
         "prompt_file": str(Path(attempt_dir_str) / "prompt.txt"),
-        "doc_context_hits": len(doc_hits),
+        "candidate_source_count": 3,
         "agent_extra": debug_extra,
         "created_at_utc": created_at,
         "rerun_round": int(rerun_round or 0),
@@ -517,7 +465,7 @@ def _run_toolcard_attempt(
         "workdir": workdir_str,
         "session_file": session_file_str,
         "prompt_file": str(Path(attempt_dir_str) / "prompt.txt"),
-        "doc_context_hits": len(doc_hits),
+        "candidate_source_count": 3,
         "agent_extra": debug_extra,
         "created_at_utc": created_at,
         "rerun_round": int(rerun_round or 0),
@@ -546,7 +494,7 @@ def _run_toolcard_attempt(
     }
 
 
-def _normalize_secondary_stages(stages: list[str], allowed: set[str], primary: str) -> list[str]:
+def _normalize_scheduling_stages(stages: list[str], allowed: set[str], primary: str) -> list[str]:
     out: list[str] = []
     for x in stages:
         s = str(x).strip()
@@ -586,13 +534,6 @@ def _to_str_list(value: Any) -> list[str]:
         return []
     s = str(value).strip()
     return [s] if s else []
-
-
-def _normalize_parsed_tool_card_payload(parsed: dict[str, Any]) -> dict[str, Any]:
-    fixed = dict(parsed)
-    fixed["aliases"] = _to_str_list(fixed.get("aliases"))
-    fixed["secondary_stages"] = _to_str_list(fixed.get("secondary_stages"))
-    return fixed
 
 
 def _build_parse_repair_prompt() -> str:
@@ -746,28 +687,107 @@ def _merge_debug_rows_with_existing(*, out_path: Path, updated_rows: list[dict[s
     return [existing_map[k] for k in sorted(existing_map.keys())]
 
 
-def _extract_toolcard_model_payload(parsed: dict[str, Any], base: ToolCard) -> tuple[dict[str, Any], dict[str, Any]]:
-    p = _normalize_parsed_tool_card_payload(parsed)
-    main = {
-        "tool_id": p.get("tool_id", base.tool_id),
-        "title": p.get("title", base.title),
-        "description_summary": p.get("description_summary", base.description_summary),
-        "primary_stage": p.get("primary_stage", base.primary_stage),
-        "secondary_stages": p.get("secondary_stages", list(base.secondary_stages)),
-        "aliases": p.get("aliases", []),
-        "inputs": p.get("inputs", base.inputs),
-        "outputs": p.get("outputs", base.outputs),
-        "connectable_inputs": p.get("connectable_inputs", base.connectable_inputs),
-        "connectable_outputs": p.get("connectable_outputs", base.connectable_outputs),
-        "input_requirement_sets": p.get("input_requirement_sets", base.input_requirement_sets),
-        "preconditions": p.get("preconditions", base.preconditions),
-        "side_effects": p.get("side_effects", base.side_effects),
-        "needs_review": bool(p.get("needs_review", False)),
-    }
+def _merge_annotation_patch(
+    base: ToolCard,
+    patch: ToolAnnotationPatch,
+    *,
+    fixed_primary: str,
+    scheduling_stages: list[str],
+) -> ToolCard:
+    if patch.tool_id != base.tool_id:
+        raise ValueError(
+            f"tool_id mismatch: expected={base.tool_id!r}, actual={patch.tool_id!r}"
+        )
+    base_by_path = {slot.slot_path: slot for slot in base.schema_slots}
+    unknown_paths = sorted(set(patch.slot_annotations) - set(base_by_path))
+    if unknown_paths:
+        raise ValueError(f"annotations reference unknown schema slots: {unknown_paths}")
 
-    known = set(main.keys())
-    extras = {k: v for k, v in p.items() if k not in known}
-    return main, extras
+    merged_schema_slots: list[Slot] = []
+    for base_slot in base.schema_slots:
+        slot = Slot.model_validate(base_slot.model_dump())
+        annotation = patch.slot_annotations.get(slot.slot_path)
+        if annotation is not None:
+            changed_semantics = (
+                annotation.semantic_type != "unknown"
+                or annotation.format != "unknown"
+                or annotation.parameter_kind != "unknown"
+                or annotation.connectable is not None
+            )
+            if changed_semantics and not annotation.evidence_refs:
+                raise ValueError(
+                    f"semantic annotation requires evidence_refs: {slot.slot_path}"
+                )
+            slot.semantic_type = annotation.semantic_type
+            slot.format = annotation.format
+            slot.parameter_kind = annotation.parameter_kind
+            slot.connectable_state = (
+                "unknown"
+                if annotation.connectable is None
+                else "yes"
+                if annotation.connectable
+                else "no"
+            )
+            slot.evidence_refs = list(annotation.evidence_refs)
+            slot.confidence = annotation.confidence
+        merged_schema_slots.append(slot)
+
+    derived_slots: list[Slot] = []
+    for derived in patch.skill_derived_slots:
+        derived_slots.append(
+            Slot(
+                name=derived.name,
+                slot_path=derived.slot_path,
+                direction=derived.direction,
+                raw_type=derived.raw_type,
+                semantic_type=derived.semantic_type,
+                format=derived.format,
+                cardinality=derived.cardinality,
+                parameter_kind=derived.parameter_kind,
+                requirement_status="optional",
+                required=False,
+                description=derived.description,
+                source="doc",
+                confidence=derived.confidence,
+                connectable_state=(
+                    "unknown"
+                    if derived.connectable is None
+                    else "yes"
+                    if derived.connectable
+                    else "no"
+                ),
+                evidence_refs=list(derived.evidence_refs),
+            )
+        )
+
+    inputs = [slot for slot in merged_schema_slots if slot.direction == "input"]
+    outputs = [slot for slot in merged_schema_slots if slot.direction == "output"]
+    preconditions = [slot for slot in derived_slots if slot.direction == "precondition"]
+    side_effects = [slot for slot in derived_slots if slot.direction == "side_effect"]
+    skill_outputs = [slot for slot in derived_slots if slot.direction == "output"]
+    requirement_sets = [
+        *base.input_requirement_sets,
+        *patch.skill_derived_requirement_sets,
+    ]
+    return ToolCard(
+        tool_id=base.tool_id,
+        title=base.title,
+        description_summary=patch.description_summary or base.description_summary,
+        primary_stage=fixed_primary,
+        scheduling_stages=list(scheduling_stages),
+        aliases=_to_str_list(patch.aliases),
+        schema_slots=merged_schema_slots,
+        slot_annotations=dict(patch.slot_annotations),
+        skill_derived_slots=derived_slots,
+        inputs=inputs,
+        outputs=outputs,
+        connectable_inputs=_build_connectable_inputs(inputs, preconditions),
+        connectable_outputs=_build_connectable_outputs(outputs, [*skill_outputs, *side_effects]),
+        input_requirement_sets=requirement_sets,
+        preconditions=preconditions,
+        side_effects=side_effects,
+        needs_review=patch.needs_review,
+    )
 
 
 def build_tool_cards(
@@ -797,8 +817,6 @@ def build_tool_cards(
     tool_ids = [str((r.get("tool_id") or r.get("name") or "")).strip() for r in rows]
     if tool_ids_filter is None:
         taxonomy.validate_tool_coverage(tool_ids)
-    allowed_stages = taxonomy.allowed_stages()
-
     base_cards: list[ToolCard] = []
     by_tool_row: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -806,13 +824,15 @@ def build_tool_cards(
         if not tool_id:
             continue
         primary = taxonomy.get_primary_stage(tool_id)
-        secondaries = taxonomy.get_secondary_stages(tool_id)
-        base = _base_tool_card(row, primary_stage=primary, secondary_stages=secondaries)
+        scheduling_stages = taxonomy.get_scheduling_stages(tool_id)
+        base = _base_tool_card(
+            row,
+            primary_stage=primary,
+            scheduling_stages=scheduling_stages,
+        )
         base_cards.append(base)
         by_tool_row[tool_id] = row
 
-    chunks = read_jsonl(config.paths.run_dir / "doc_chunks.jsonl")
-    doc_index = _build_doc_index(base_cards, chunks)
     template = _load_prompt_template(config)
     tool_rows = sorted(base_cards, key=lambda x: x.tool_id)
     progress_path = _toolcard_progress_path(config)
@@ -844,7 +864,7 @@ def build_tool_cards(
                 tool_id = base.tool_id
                 row = by_tool_row[tool_id]
                 fixed_primary = taxonomy.get_primary_stage(tool_id)
-                doc_hits = doc_index.get(tool_id, [])
+                scheduling_stages = taxonomy.get_scheduling_stages(tool_id)
                 futures.append(
                     executor.submit(
                         _run_toolcard_attempt,
@@ -852,8 +872,7 @@ def build_tool_cards(
                         base=base,
                         row=row,
                         fixed_primary=fixed_primary,
-                        allowed_stages=allowed_stages,
-                        doc_hits=doc_hits,
+                        scheduling_stages=scheduling_stages,
                         template=template,
                         progress_path=progress_path,
                         progress_lock=progress_lock,

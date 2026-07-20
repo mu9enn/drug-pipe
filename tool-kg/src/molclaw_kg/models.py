@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Slot(BaseModel):
     name: str
+    slot_path: str = ""
+    direction: Literal["input", "output", "precondition", "side_effect"] | None = None
     raw_type: str = "unknown"
+    default: Any = None
+    enum: list[Any] | None = None
     semantic_type: str = "unknown"
     format: str = "unknown"
     unit: str | None = None
@@ -17,6 +21,45 @@ class Slot(BaseModel):
     description: str = ""
     source: Literal["input_schema", "output_schema", "description", "inferred", "doc"] = "inferred"
     confidence: float = 0.5
+    connectable_state: Literal["yes", "no", "unknown"] = "unknown"
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class SlotAnnotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    semantic_type: str = "unknown"
+    format: str = "unknown"
+    parameter_kind: Literal["data", "config", "control", "unknown"] = "unknown"
+    connectable: bool | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class SkillDerivedSlot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slot_path: str
+    name: str
+    direction: Literal["output", "precondition", "side_effect"]
+    raw_type: str = "unknown"
+    semantic_type: str = "unknown"
+    format: str = "unknown"
+    cardinality: Literal["single", "list", "map", "unknown"] = "unknown"
+    parameter_kind: Literal["data", "config", "control", "unknown"] = "unknown"
+    description: str = ""
+    connectable: bool | None = None
+    evidence_refs: list[str] = Field(min_length=1)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ToolAnnotationPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tool_id: str
+    description_summary: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    slot_annotations: dict[str, SlotAnnotation] = Field(default_factory=dict)
+    skill_derived_slots: list[SkillDerivedSlot] = Field(default_factory=list)
+    skill_derived_requirement_sets: list[dict[str, Any]] = Field(default_factory=list)
+    needs_review: bool = False
 
 
 class ToolCard(BaseModel):
@@ -25,8 +68,11 @@ class ToolCard(BaseModel):
     title: str
     description_summary: str
     primary_stage: str = "simulation_prediction"
-    secondary_stages: list[str] = Field(default_factory=list)
+    scheduling_stages: list[str] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
+    schema_slots: list[Slot] = Field(default_factory=list)
+    slot_annotations: dict[str, SlotAnnotation] = Field(default_factory=dict)
+    skill_derived_slots: list[Slot] = Field(default_factory=list)
     inputs: list[Slot] = Field(default_factory=list)
     outputs: list[Slot] = Field(default_factory=list)
     connectable_inputs: list[Slot] = Field(default_factory=list)

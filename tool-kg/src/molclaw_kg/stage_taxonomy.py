@@ -42,19 +42,19 @@ class StageTaxonomy:
             raise ValueError(f"invalid primary_stage={stage} for tool_id={tool_id}")
         return stage
 
-    def get_secondary_stages(self, tool_id: str) -> list[str]:
+    def get_scheduling_stages(self, tool_id: str) -> list[str]:
         info = self.tool_stage_map.get(tool_id)
         if isinstance(info, str):
             return []
         if not isinstance(info, dict):
             raise KeyError(f"tool_id is not mapped in stage taxonomy: {tool_id}")
-        values = info.get("secondary_stages", []) or []
+        values = info.get("scheduling_stages", info.get("secondary_stages", [])) or []
         out: list[str] = []
         for x in values:
             s = str(x).strip()
             if s:
                 if s not in self.allowed_stages():
-                    raise ValueError(f"invalid secondary_stage={s} for tool_id={tool_id}")
+                    raise ValueError(f"invalid scheduling_stage={s} for tool_id={tool_id}")
                 if s not in out:
                     out.append(s)
         return out
@@ -222,7 +222,12 @@ def get_primary_stage(tool_id: str, taxonomy: StageTaxonomy | None = None) -> st
 
 def get_secondary_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
     t = taxonomy or get_default_stage_taxonomy()
-    return t.get_secondary_stages(tool_id)
+    return t.get_scheduling_stages(tool_id)
+
+
+def get_scheduling_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
+    t = taxonomy or get_default_stage_taxonomy()
+    return t.get_scheduling_stages(tool_id)
 
 
 def validate_tool_coverage(tool_ids: Iterable[str], taxonomy: StageTaxonomy | None = None) -> None:
