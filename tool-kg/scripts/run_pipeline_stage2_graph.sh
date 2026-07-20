@@ -62,7 +62,7 @@ if [[ -z "$API_KEY" ]]; then
 fi
 
 RUN_DIR="$PROJECT_ROOT/runs/$RUN_ID"
-for f in tool_snapshot.jsonl doc_chunks.jsonl tool_cards.jsonl; do
+for f in tool_snapshot.jsonl tool_cards.jsonl; do
   if [[ ! -f "$RUN_DIR/$f" ]]; then
     echo "ERROR: missing stage1 artifact: $RUN_DIR/$f" >&2
     exit 2

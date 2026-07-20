@@ -130,12 +130,6 @@ else
   run_cli snapshot
 fi
 
-if [[ "$RESUME" -eq 1 && -f "$RUN_DIR/doc_chunks.jsonl" ]]; then
-  echo "[stage1-resume] doc-chunks already exists, skipping"
-else
-  run_cli doc-chunks
-fi
-
 if [[ -n "$TOOL_IDS_FILE" ]]; then
   run_cli tool-cards --tool-ids-file "$TOOL_IDS_FILE"
 else

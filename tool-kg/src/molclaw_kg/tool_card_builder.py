@@ -208,45 +208,6 @@ def _base_tool_card(row: dict[str, Any], primary_stage: str, scheduling_stages: 
     )
 
 
-def _tool_terms(card: ToolCard) -> list[str]:
-    terms = {
-        card.tool_id.lower(),
-        card.tool_id.lower().replace("-", "_"),
-        card.title.lower().strip(),
-    }
-    for a in card.aliases:
-        x = a.strip().lower()
-        if x:
-            terms.add(x)
-    return sorted(t for t in terms if len(t) >= 3)
-
-
-def _build_doc_index(cards: list[ToolCard], chunks: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    cleaned_chunks = []
-    for c in chunks:
-        text = str(c.get("text", ""))
-        cleaned_chunks.append(
-            {
-                "chunk_id": c.get("chunk_id"),
-                "doc_id": c.get("doc_id"),
-                "path": c.get("path"),
-                "heading_path": c.get("heading_path", []),
-                "text": text,
-                "text_l": text.lower(),
-            }
-        )
-    out: dict[str, list[dict[str, Any]]] = {}
-    for card in cards:
-        terms = _tool_terms(card)
-        hits = []
-        for c in cleaned_chunks:
-            txt = c["text_l"]
-            if any(t in txt for t in terms):
-                hits.append(c)
-        out[card.tool_id] = hits
-    return out
-
-
 def _load_prompt_template(config: ProjectConfig) -> str:
     prompt_path = config.paths.configs / "prompts" / "tool_card_agent_v1.md"
     if prompt_path.exists():

@@ -6,7 +6,6 @@ from typing import Any
 from .candidate_generation import generate_candidates
 from .canonical_edges import build_canonical_edges
 from .canonical_outputs import publish_canonical_outputs
-from .doc_chunker import chunk_skills
 from .io_utils import write_json
 from .mcp_snapshot import run_snapshot
 from .pairwise_runner import run_pairwise_adjudication
@@ -42,7 +41,6 @@ def run_all(
     }
 
     status["steps"]["snapshot"] = run_snapshot(config)
-    status["steps"]["doc_chunks"] = chunk_skills(config)
     status["steps"]["tool_cards"] = build_tool_cards(config, max_workers=max_workers, resume=resume)
     status["steps"]["candidates"] = generate_candidates(config)
     status["steps"]["pairwise_adjudication"] = run_pairwise_adjudication(
