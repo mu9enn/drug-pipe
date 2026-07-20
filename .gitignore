@@ -69,3 +69,4 @@ tool-kg/runs/
 *.bak
 tmp/
 tmp_test_claude/
+minitest_*/

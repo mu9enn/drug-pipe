@@ -48,7 +48,7 @@ GRPO 至少需要同一 prompt 的 2 个 responses，所以 ToolRL/GAD GPU smoke
 
 ```bash
 export DRUG_PIPE_ROOT=/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe
-export MINI_ROOT=${MINI_ROOT:-/tmp/drug_pipe_minitest_$(date +%Y%m%d_%H%M%S)}
+export MINI_ROOT="$DRUG_PIPE_ROOT/minitest_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$MINI_ROOT"
 echo "$MINI_ROOT"
 ```
