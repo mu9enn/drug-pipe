@@ -36,8 +36,8 @@
 
 MCP schema 的参数名、raw type、required/default/enum 是不可覆盖的确定性事实；skills
 语义由 tool-card agent 以 annotation patch 补充。真实但暂时无法解释的 schema slot
-仍以 `connectable_state=unknown` 保留。`doc_chunks` 不属于默认构建依赖，只能显式用于
-debug/index。
+仍以 `connectable_state=unknown` 保留。旧 `doc_chunks` 索引及其模型已删除；Tool Card
+agent 直接读取 canonical skills。
 
 ## Edge Decisions 与 Graph
 
@@ -70,7 +70,7 @@ debug/index。
 }
 ```
 
-`legacy_scored_supplement` 默认 `eligible_for_sampling=false`。`results/graph.jsonl` 只投影 `valid + eligible_for_sampling` 的边，不修改 relation/type/confidence。旧 core/expanded/negative/uncertain、CSV、GraphML 都是按需 compatibility export，不是默认正式产物。
+`legacy_scored_supplement` 默认 `eligible_for_sampling=false`。`results/graph.jsonl` 只投影 `valid + eligible_for_sampling` 的边，不修改 relation/type/confidence；其中 `confidence` 直接复制 Claude decision 的 `confidence_raw`，主线没有第二个 calibration authority。旧 core/expanded/negative/uncertain、CSV、GraphML 都是按需 compatibility export，不是默认正式产物。
 
 ## Canonical Task
 
@@ -97,7 +97,7 @@ Tool-KG Stage3 先写 `results/tasks.jsonl`（`tool_kg_task_v1`）；Data-Pipe a
 每个 workflow transition 必须引用 canonical ToolKG `pair_id`。skills 可帮助理解工具，但不能独立创建关系。
 Stage3 只读取 `graph.jsonl`、`edge_decisions.jsonl` 与 `tool_catalog.jsonl`，并按
 `pair_id` join mapping/evidence；不读取 debug sidecar、legacy graph view 或 Claude
-intermediate。采样使用 `question_sampling_v2.yaml` 的 named profile，resolved values、
+intermediate。采样使用 `question_sampling.yaml` 的 named profile，resolved values、
 profile/config hash 与 prompt hash 写入 manifest。
 
 ## Raw Trace

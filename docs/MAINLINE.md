@@ -7,10 +7,10 @@
 | MCP 明确的工具字段 | MCP schema 的确定性 snapshot | Tool Catalog 合并时保持 immutable |
 | skills 中的工具语义摘要 | Tool-card Claude annotation patch | 只能注解已有 schema slot；skill-derived slot 必须独立并带 evidence |
 | 是否调度 directed candidate | stage taxonomy 的 transition/alternative 规则 | Tool Card 字段只用于上下文、优先级与 audit |
-| relation status/type 的受控词汇与结构约束 | `edge_ontology_v1.yaml` | 运行时生成 pair prompt 片段与 output schema |
+| relation status/type 的受控词汇与结构约束 | `edge_ontology.yaml` | 运行时生成 pair prompt 片段与 output schema |
 | directed relation status/type/mapping/evidence/confidence | Claude pair adjudication | Python 只拒绝结构/跨字段非法结果，不猜测或修复语义 |
 | sampling graph | `graph.jsonl` 的确定性 projection | 只筛选可采样的 valid Claude decision，不改边语义 |
-| Stage3 默认参数与 prompt | `question_sampling_v2.yaml` 的 named profile | CLI 显式 flag 才覆盖 resolved profile，并记录 hash |
+| Stage3 默认参数与 prompt | `question_sampling.yaml` 的 named profile | CLI 显式 flag 才覆盖 resolved profile，并记录 hash |
 | grounded task validity | Tool-KG sampler + Science-KB + canonical graph | Data-Pipe 只检查可读性并执行 |
 | task metrics / `task_answer_valid` | `pipeline/evaluate/task_evaluator.py` | KG/E2E 只读 final prediction 与 task contract，不读取 execution |
 | `execution_valid`、`training_trace_valid`、MolClaw usage | `trace_curator.py` | acceptance gate 消费 |
@@ -58,10 +58,10 @@ SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state �
 
 真实工具交互只允许在 Data-Pipe 执行层和显式 online debug 中发生。`debug_mcp_tools.py`、`debug_one_task.py` 与 `debug_replay_trajectory.py` 必须设置 `DRUG_AGENT_ALLOW_TOOL_ENV=1`。
 
-## 兼容层
+## 显式兼容层
 
-- Tool-KG `score` 命令委托 canonical edge builder；旧 graph views/CSV/GraphML 只按需导出。
-- `doc-chunks` 仅保留为显式 debug/index 命令，不属于 Stage1 或默认 `run-all`。
+- Tool-KG 旧 graph views 与 CSV/GraphML 只通过 `legacy-views`、`legacy-export` 按需生成。
+- 旧 `score`、`doc-chunks`、provenance/audit/log-evaluation/repro-manifest CLI 已删除；它们依赖重复或退役的 graph/debug 产物。
 - Stage3 默认使用 `simple_default` profile 和 simple prompt；复杂 DAG/semantic repair prompt 位于 `prompts/legacy/`，必须显式选择 `dag_legacy`。
 - `trajectory_exporter.py`、`scan_molclaw_usage.py`、`post_process_sft.py` 保留旧入口形状，但 authority 都在 evaluator/curator。
 - Data-Pipe KG adapter 默认只读 `results/tasks.jsonl`；历史 `sample_success*` 必须显式加 `--legacy-sample-results`。

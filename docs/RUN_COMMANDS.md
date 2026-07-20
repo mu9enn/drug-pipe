@@ -26,7 +26,7 @@ PYTHONPATH=src python -m molclaw_kg.cli \
   --target-successes 10 --max-attempts 40 --seed 42
 ```
 
-未显式提供的参数来自 `configs/question_sampling_v2.yaml`；需要旧 DAG 路径时必须使用
+未显式提供的参数来自 `configs/question_sampling.yaml`；需要旧 DAG 路径时必须使用
 `--sampling-profile dag_legacy`。Stage3 只依赖 canonical
 `graph.jsonl + edge_decisions.jsonl + tool_catalog.jsonl`。
 
