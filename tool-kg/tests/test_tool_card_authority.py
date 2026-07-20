@@ -152,6 +152,44 @@ class ToolCardAuthorityTest(unittest.TestCase):
         self.assertEqual(sets[1]["required_slots"], ["mode", "input_file"])
         self.assertIn('"const": "from_file"', sets[1]["condition"])
 
+    def test_json_schema_if_then_else_keeps_both_branches(self) -> None:
+        schema = {
+            "required": ["mode"],
+            "if": {"properties": {"mode": {"const": "from_file"}}},
+            "then": {"required": ["input_file"]},
+            "else": {"required": ["inline_value"]},
+        }
+        sets = _default_input_requirement_sets(self.base.inputs, schema)
+        self.assertEqual(
+            [item["set_id"] for item in sets],
+            ["schema_if_then", "schema_if_else"],
+        )
+        self.assertEqual(sets[0]["required_slots"], ["mode", "input_file"])
+        self.assertEqual(sets[1]["required_slots"], ["mode", "inline_value"])
+
+    def test_skill_requirement_set_cannot_reference_an_invented_slot(self) -> None:
+        patch = ToolAnnotationPatch.model_validate(
+            {
+                "tool_id": "example_tool",
+                "skill_derived_requirement_sets": [
+                    {
+                        "set_id": "skill::alternate_mode",
+                        "condition": "documented alternate mode",
+                        "required_slots": ["invented_input"],
+                        "execution_meaning": "skill_documented",
+                        "evidence_refs": [".claude/skills/L1_tools/example/SKILL.md"],
+                    }
+                ],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "unknown input/precondition slots"):
+            _merge_annotation_patch(
+                self.base,
+                patch,
+                fixed_primary="stage_a",
+                scheduling_stages=["stage_a"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

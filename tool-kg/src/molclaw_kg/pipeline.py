@@ -19,7 +19,6 @@ def run_all(
     api_key: str,
     server_url: str | None = None,
     skills_root: str | None = None,
-    logs_root: str | None = None,
     adjudication_mode: str = "claude_cc",
     max_workers: int = 1,
     resume: bool = False,
@@ -30,7 +29,6 @@ def run_all(
         server_url=server_url,
         api_key=api_key,
         skills_root=skills_root,
-        logs_root=logs_root,
         model_name=adjudication_mode,
     )
 

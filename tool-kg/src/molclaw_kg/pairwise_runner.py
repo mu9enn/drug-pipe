@@ -65,7 +65,7 @@ def _build_pair_prompt(template: str, ontology: EdgeOntology) -> str:
         "- task_context.json\n"
         "- pair_spec.json\n"
         "- stage_taxonomy.json\n"
-        "- edge_ontology.json\n"
+        "- edge_contract.json\n"
         "- source_manifest.json\n"
         "- output_schema.json\n"
     )
@@ -184,7 +184,7 @@ def _prepare_pair_workdir(
     write_json(workdir / "target_tool_card.json", target_card)
     write_json(workdir / "stage_taxonomy.json", taxonomy_raw)
     write_json(
-        workdir / "edge_ontology.json",
+        workdir / "edge_contract.json",
         {
             "version": ontology.version,
             "relation_statuses": list(ontology.relation_statuses),
@@ -199,7 +199,7 @@ def _prepare_pair_workdir(
             "pair_id": pair_spec.get("pair_id"),
             "pair_spec_file": "pair_spec.json",
             "taxonomy_file": "stage_taxonomy.json",
-            "edge_ontology_file": "edge_ontology.json",
+            "edge_contract_file": "edge_contract.json",
             "source_manifest_file": "source_manifest.json",
             "output_schema_file": "output_schema.json",
             "canonical_skill_root": ".claude/skills",
@@ -518,7 +518,7 @@ def run_pairwise_adjudication(
     final_map: dict[str, dict[str, Any]] = latest_jsonl_by_key(out_path, "pair_id") if reuse_existing else {}
 
     taxonomy = load_stage_taxonomy(resolve_stage_taxonomy_path(config.paths.root))
-    ontology = load_edge_ontology(config.paths.configs / "edge_ontology_v1.yaml")
+    ontology = load_edge_ontology(config.paths.configs / "edge_ontology.yaml")
     adjudication_schema = build_adjudication_schema(ontology)
     pruned: list[dict[str, Any]] = []
     stage_kept = list(pairs)

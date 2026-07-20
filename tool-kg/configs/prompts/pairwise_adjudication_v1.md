@@ -8,8 +8,9 @@ Return strict JSON only. No Markdown. No comments. No extra text.
 1. `task_context.json`
 2. `pair_spec.json`
 3. `stage_taxonomy.json`
-4. `source_manifest.json` then search canonical skills under `.claude/skills`
-5. `source_tool_card.json` and `target_tool_card.json` (structured aid only)
+4. `edge_contract.json`
+5. `source_manifest.json` then search canonical skills under `.claude/skills`
+6. `source_tool_card.json` and `target_tool_card.json` (structured aid only)
 
 Tool cards and task files are supporting context, not primary evidence.
 Primary evidence must come from canonical skills (`L1/L2/L3`) and/or schema facts.
@@ -23,8 +24,6 @@ Record missing requirements in `unsatisfied_required_inputs`.
 
 ## Runtime Edge Ontology
 {{EDGE_ONTOLOGY}}
-
-Do not output `requires_intermediate` as edge type. If needed, express it as `relation_status=negative` and `negative_reason=requires_intermediate`.
 
 ## Evidence Requirements
 For `valid` and `alternative`, include evidence refs in canonical form whenever possible:

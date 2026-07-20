@@ -7,18 +7,12 @@ from pathlib import Path
 
 from .settings import build_config
 from .tool_card_builder import build_tool_cards
-from .doc_chunker import chunk_skills
 from .candidate_generation import generate_candidates
 from .pairwise_runner import run_pairwise_adjudication
-from .confidence import score_edges
 from .canonical_edges import build_canonical_edges
 from .graph_views import build_graph_views
 from .migration import migrate_historical_kg
-from .provenance import build_provenance_sidecar
 from .exporters import export_artifacts
-from .audit_sampler import sample_for_audit
-from .evaluate_logs import evaluate_against_logs
-from .manifest import write_repro_manifest
 from .canonical_outputs import publish_canonical_outputs
 from .question_sampling import sample_questions, sample_simple_questions
 from .question_sampling.config import resolve_sampling_profile
@@ -31,7 +25,6 @@ def _base_parser() -> argparse.ArgumentParser:
     p.add_argument("--api-key", default="")
     p.add_argument("--server-url", default=None)
     p.add_argument("--skills-root", default=None)
-    p.add_argument("--logs-root", default=None)
     p.add_argument("--mode", default="claude_cc", choices=["claude_cc"])
     p.add_argument("--max-workers", type=int, default=1, help="Parallel worker count for tool-card/adjudication stages.")
     p.add_argument("--resume", action="store_true", help="Resume an existing run_dir instead of starting from scratch.")
@@ -46,17 +39,11 @@ def main() -> None:
     for name in [
         "snapshot",
         "tool-cards",
-        "doc-chunks",
         "candidates",
         "adjudicate",
-        "score",
         "canonical-edges",
-        "views",
-        "provenance",
-        "export",
-        "audit",
-        "eval-logs",
-        "manifest",
+        "legacy-views",
+        "legacy-export",
         "finalize",
         "sample-questions",
         "run-all",
@@ -108,7 +95,7 @@ def main() -> None:
     subparsers["sample-questions"].add_argument(
         "--sampling-profile",
         default="simple_default",
-        help="Named profile from configs/question_sampling_v2.yaml.",
+        help="Named profile from configs/question_sampling.yaml.",
     )
     subparsers["sample-questions"].add_argument("--target-successes", type=int, default=None)
     subparsers["sample-questions"].add_argument("--max-attempts", type=int, default=None)
@@ -124,12 +111,6 @@ def main() -> None:
     subparsers["sample-questions"].add_argument("--min-hops", type=int, default=None)
     subparsers["sample-questions"].add_argument("--max-hops", type=int, default=None)
     subparsers["sample-questions"].add_argument("--seed", type=int, default=None)
-    subparsers["sample-questions"].add_argument(
-        "--sampling-mode",
-        type=str,
-        default=None,
-        choices=["dag_closure", "linear_debug", "simple_toolchain_question"],
-    )
     subparsers["sample-questions"].add_argument(
         "--partial-policy",
         default=None,
@@ -160,7 +141,6 @@ def main() -> None:
             api_key=args.api_key,
             server_url=args.server_url,
             skills_root=args.skills_root,
-            logs_root=args.logs_root,
             adjudication_mode=args.mode,
             max_workers=max(1, int(args.max_workers or 1)),
             resume=bool(args.resume),
@@ -174,7 +154,6 @@ def main() -> None:
         server_url=args.server_url,
         api_key=args.api_key,
         skills_root=args.skills_root,
-        logs_root=args.logs_root,
         model_name=args.mode,
     )
 
@@ -191,8 +170,6 @@ def main() -> None:
             resume=bool(args.resume),
             rerun_round=int(args.rerun_round or 0),
         )
-    elif args.cmd == "doc-chunks":
-        out = chunk_skills(config)
     elif args.cmd == "candidates":
         out = generate_candidates(config)
     elif args.cmd == "adjudicate":
@@ -206,22 +183,12 @@ def main() -> None:
             resume=bool(args.resume),
             rerun_round=int(args.rerun_round or 0),
         )
-    elif args.cmd == "score":
-        out = score_edges(config)
     elif args.cmd == "canonical-edges":
         out = build_canonical_edges(config)
-    elif args.cmd == "views":
+    elif args.cmd == "legacy-views":
         out = build_graph_views(config)
-    elif args.cmd == "provenance":
-        out = build_provenance_sidecar(config)
-    elif args.cmd == "export":
+    elif args.cmd == "legacy-export":
         out = export_artifacts(config)
-    elif args.cmd == "audit":
-        out = sample_for_audit(config)
-    elif args.cmd == "eval-logs":
-        out = evaluate_against_logs(config)
-    elif args.cmd == "manifest":
-        out = write_repro_manifest(config)
     elif args.cmd == "finalize":
         out = publish_canonical_outputs(config)
     elif args.cmd == "sample-questions":
@@ -229,7 +196,6 @@ def main() -> None:
             config,
             str(args.sampling_profile),
             overrides={
-                "mode": args.sampling_mode,
                 "sample_size": args.sample_size,
                 "target_successes": args.target_successes,
                 "max_attempts": args.max_attempts,

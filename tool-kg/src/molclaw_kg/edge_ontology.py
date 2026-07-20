@@ -21,11 +21,18 @@ class EdgeOntology:
 
 
 def default_edge_ontology_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "configs" / "edge_ontology_v1.yaml"
+    return Path(__file__).resolve().parents[2] / "configs" / "edge_ontology.yaml"
 
 
 def load_edge_ontology(path: Path) -> EdgeOntology:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ValueError("edge ontology must be an object")
+    extra_top_level = sorted(
+        set(raw) - {"version", "relation_statuses", "edge_types"}
+    )
+    if extra_top_level:
+        raise ValueError(f"unsupported edge ontology fields: {extra_top_level}")
     version = str(raw.get("version") or "").strip()
     statuses = raw.get("relation_statuses")
     edge_types = raw.get("edge_types")
@@ -33,6 +40,8 @@ def load_edge_ontology(path: Path) -> EdgeOntology:
         raise ValueError("edge ontology version is required")
     if not isinstance(statuses, list) or not statuses:
         raise ValueError("edge ontology relation_statuses must be a non-empty list")
+    if len(statuses) != len(set(statuses)):
+        raise ValueError("edge ontology relation_statuses contains duplicates")
     if not isinstance(edge_types, dict) or not edge_types:
         raise ValueError("edge ontology edge_types must be a non-empty mapping")
     allowed_statuses = {str(status) for status in statuses}
@@ -41,9 +50,22 @@ def load_edge_ontology(path: Path) -> EdgeOntology:
         edge_name = str(edge_id).strip()
         if not edge_name or not isinstance(spec, dict):
             raise ValueError(f"invalid edge ontology entry: {edge_id!r}")
+        extra_fields = sorted(
+            set(spec) - {"definition", "allowed_statuses", "requires_slot_mapping"}
+        )
+        if extra_fields:
+            raise ValueError(
+                f"unsupported fields for edge type {edge_name}: {extra_fields}"
+            )
         allowed = [str(status) for status in spec.get("allowed_statuses") or []]
         if not allowed or any(status not in allowed_statuses for status in allowed):
             raise ValueError(f"invalid allowed_statuses for edge type {edge_name}")
+        if len(allowed) != len(set(allowed)):
+            raise ValueError(f"duplicate allowed_statuses for edge type {edge_name}")
+        if not isinstance(spec.get("requires_slot_mapping"), bool):
+            raise ValueError(
+                f"requires_slot_mapping must be boolean for edge type {edge_name}"
+            )
         definition = str(spec.get("definition") or "").strip()
         if not definition:
             raise ValueError(f"missing definition for edge type {edge_name}")
@@ -89,6 +111,22 @@ def build_adjudication_schema(ontology: EdgeOntology) -> dict[str, Any]:
             "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "evidence_ids": {"type": "array", "items": {"type": "string"}},
         },
+        "allOf": [
+            {
+                "if": {"properties": {"type": {"const": edge_id}}},
+                "then": {
+                    "properties": {
+                        "source_slot": {"type": "string", "minLength": 1},
+                        "target_slot_or_precondition": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                    }
+                },
+            }
+            for edge_id, spec in ontology.edge_types.items()
+            if spec["requires_slot_mapping"]
+        ],
     }
     satisfied_mapping_item = {
         "type": "object",

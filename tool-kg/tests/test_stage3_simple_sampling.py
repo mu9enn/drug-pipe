@@ -50,6 +50,13 @@ class SimpleSamplingTests(unittest.TestCase):
         self.assertEqual(len(set(result["hidden_toolchain_nodes"])), 3)
         self.assertTrue(all(x["relation_status"] == "valid" for x in result["hidden_toolchain_edges"]))
 
+    def test_hidden_toolchain_is_reproducible_for_same_seed_and_inputs(self) -> None:
+        cards = {name: {"tool_id": name} for name in ["a", "b", "c", "d"]}
+        edges = [edge("a", "b"), edge("a", "c"), edge("b", "d"), edge("c", "d")]
+        first = sample_hidden_toolchain(edges, cards, 2, 2, random.Random(42))
+        second = sample_hidden_toolchain(edges, cards, 2, 2, random.Random(42))
+        self.assertEqual(first, second)
+
     def test_simple_output_parser_contract(self) -> None:
         success = {
             "status": "success",

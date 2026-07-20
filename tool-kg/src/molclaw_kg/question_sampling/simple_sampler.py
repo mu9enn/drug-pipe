@@ -106,7 +106,7 @@ def _edge_context(edge: dict[str, Any]) -> dict[str, Any]:
         "edge_type": edge.get("edge_type"),
         "relation_status": edge.get("relation_status"),
         "pair_id": edge.get("pair_id", ""),
-        "confidence": edge.get("confidence_calibrated", edge.get("confidence")),
+        "confidence": edge.get("confidence", edge.get("confidence_calibrated")),
         "view": edge.get("view"),
     }
 
@@ -571,7 +571,10 @@ def sample_simple_questions(
         "sampling_profile": (sampling_profile_meta or {}).get("sampling_profile"),
         "resolved_sampling_config": (sampling_profile_meta or {}).get("resolved_sampling_config"),
         "config_sha256": (sampling_profile_meta or {}).get("config_sha256"),
+        "profile_sha256": (sampling_profile_meta or {}).get("profile_sha256"),
+        "cli_overrides": (sampling_profile_meta or {}).get("cli_overrides"),
         "prompt_sha256": (sampling_profile_meta or {}).get("prompt_sha256"),
+        "prompt_hashes": (sampling_profile_meta or {}).get("prompt_hashes"),
     }
     write_json(intermediate / "sampling_meta.json", meta)
     update_manifest_tasks(run_dir, len(tasks), sampling_profile_meta)

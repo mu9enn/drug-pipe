@@ -93,7 +93,7 @@ def _git_commit(root: Path) -> str:
 def _config_hashes(config: ProjectConfig) -> dict[str, str]:
     paths = {
         "taxonomy": resolve_stage_taxonomy_path(config.paths.root),
-        "edge_ontology": config.paths.configs / "edge_ontology_v1.yaml",
+        "edge_ontology": config.paths.configs / "edge_ontology.yaml",
     }
     return {name: sha256_file(path) for name, path in paths.items() if path.is_file()}
 

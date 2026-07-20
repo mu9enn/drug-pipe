@@ -25,8 +25,6 @@ class StageTaxonomy:
 
     def _tool_info(self, tool_id: str) -> dict[str, Any]:
         info = self.tool_stage_map.get(tool_id)
-        if isinstance(info, str):
-            return {"primary_stage": info, "scheduling_stages": [info]}
         if not isinstance(info, dict):
             raise KeyError(f"tool_id is not mapped in stage taxonomy: {tool_id}")
         return info
@@ -57,12 +55,6 @@ class StageTaxonomy:
             if stage not in out:
                 out.append(stage)
         return out
-
-    def stage_order_index(self, stage: str) -> int:
-        try:
-            return self.display_order.index(stage)
-        except ValueError as exc:
-            raise KeyError(f"unknown stage={stage}") from exc
 
     def validate_tool_coverage(self, tool_ids: Iterable[str]) -> None:
         expected = {str(value).strip() for value in tool_ids if str(value).strip()}
@@ -104,16 +96,26 @@ class StageTaxonomy:
 
 def load_stage_taxonomy(path: Path) -> StageTaxonomy:
     raw = read_json(path)
-    version = str(raw.get("version") or raw.get("schema_version") or "").strip()
-    display_order = raw.get("display_order") or raw.get("stage_order")
-    stages = raw.get("stages") or raw.get("pruning_stages")
-    tool_stage_map = raw.get("tool_stage_map") or raw.get("tool_pruning_stage_map")
+    allowed_top_level = {
+        "version",
+        "description",
+        "stages",
+        "display_order",
+        "tool_stage_map",
+        "allowed_transitions",
+        "alternative_clusters",
+    }
+    extra_top_level = sorted(set(raw) - allowed_top_level)
+    if extra_top_level:
+        raise ValueError(f"unsupported stage taxonomy fields: {extra_top_level}")
+    version = str(raw.get("version") or "").strip()
+    display_order = raw.get("display_order")
+    stages = raw.get("stages")
+    tool_stage_map = raw.get("tool_stage_map")
     allowed_transitions = raw.get("allowed_transitions")
-    if allowed_transitions is None:
-        allowed_transitions = raw.get("allowed_stage_transitions", {})
     alternative_clusters = raw.get("alternative_clusters", {}) or {}
-    if not version:
-        raise ValueError("taxonomy version is required")
+    if version != "stage_taxonomy_v2":
+        raise ValueError(f"unsupported stage taxonomy version: {version!r}")
     if not isinstance(display_order, list) or not display_order:
         raise ValueError("display_order must be a non-empty list")
     if not isinstance(stages, dict) or not stages:
@@ -126,9 +128,29 @@ def load_stage_taxonomy(path: Path) -> StageTaxonomy:
         raise ValueError("alternative_clusters must be a mapping")
 
     allowed = set(stages)
+    if len(display_order) != len(set(display_order)):
+        raise ValueError("display_order contains duplicate stages")
     unknown_display = [stage for stage in display_order if stage not in allowed]
     if unknown_display:
         raise ValueError(f"display_order contains unknown stages: {unknown_display}")
+    missing_display = sorted(allowed - set(display_order))
+    if missing_display:
+        raise ValueError(f"display_order omits stages: {missing_display}")
+    for stage, spec in stages.items():
+        if not isinstance(spec, dict) or set(spec) != {"definition"}:
+            raise ValueError(f"stages[{stage}] must contain only definition")
+        if not str(spec.get("definition") or "").strip():
+            raise ValueError(f"stages[{stage}].definition is required")
+    for source, targets in allowed_transitions.items():
+        if source not in allowed:
+            raise ValueError(f"allowed_transitions has unknown source stage={source}")
+        if not isinstance(targets, list):
+            raise ValueError(f"allowed_transitions[{source}] must be a list")
+        if len(targets) != len(set(targets)):
+            raise ValueError(f"allowed_transitions[{source}] contains duplicates")
+        for target in targets:
+            if target not in allowed:
+                raise ValueError(f"allowed_transitions has unknown target stage={source}->{target}")
     taxonomy = StageTaxonomy(
         path=path.resolve(),
         raw=raw,
@@ -142,30 +164,31 @@ def load_stage_taxonomy(path: Path) -> StageTaxonomy:
         },
         alternative_clusters=alternative_clusters,
     )
-    for tool_id in tool_stage_map:
+    for tool_id, spec in tool_stage_map.items():
+        if not isinstance(spec, dict):
+            raise ValueError(f"tool_stage_map[{tool_id}] must be an object")
+        if set(spec) != {"primary_stage", "scheduling_stages"}:
+            raise ValueError(
+                f"tool_stage_map[{tool_id}] must contain primary_stage and scheduling_stages only"
+            )
         taxonomy.get_primary_stage(str(tool_id))
         taxonomy.get_scheduling_stages(str(tool_id))
-    for source, targets in taxonomy.allowed_transitions.items():
-        if source not in allowed:
-            raise ValueError(f"allowed_transitions has unknown source stage={source}")
-        for target in targets:
-            if target not in allowed:
-                raise ValueError(f"allowed_transitions has unknown target stage={source}->{target}")
     for cluster_id, spec in alternative_clusters.items():
         if not isinstance(spec, dict):
             raise ValueError(f"alternative_clusters[{cluster_id}] must be an object")
+        if set(spec) != {"tools"}:
+            raise ValueError(f"alternative_clusters[{cluster_id}] must contain only tools")
         tools = spec.get("tools") or []
         if not isinstance(tools, list) or len(tools) < 2:
             raise ValueError(f"alternative_clusters[{cluster_id}] must include at least two tools")
+        if len(tools) != len(set(tools)):
+            raise ValueError(f"alternative_clusters[{cluster_id}] contains duplicate tools")
         for tool_id in tools:
             if str(tool_id) not in tool_stage_map:
                 raise ValueError(
                     f"alternative_clusters[{cluster_id}] references unknown tool={tool_id}"
                 )
     return taxonomy
-
-
-_DEFAULT_TAXONOMY: StageTaxonomy | None = None
 
 
 def resolve_stage_taxonomy_path(project_root: Path | None = None) -> Path:
@@ -178,30 +201,3 @@ def resolve_stage_taxonomy_path(project_root: Path | None = None) -> Path:
     if project_root is not None:
         return (project_root / "configs" / "stage_taxonomy.json").resolve()
     return Path("configs/stage_taxonomy.json").resolve()
-
-
-def get_default_stage_taxonomy() -> StageTaxonomy:
-    global _DEFAULT_TAXONOMY
-    if _DEFAULT_TAXONOMY is None:
-        _DEFAULT_TAXONOMY = load_stage_taxonomy(resolve_stage_taxonomy_path())
-    return _DEFAULT_TAXONOMY
-
-
-def allowed_stages(taxonomy: StageTaxonomy | None = None) -> set[str]:
-    return (taxonomy or get_default_stage_taxonomy()).allowed_stages()
-
-
-def get_primary_stage(tool_id: str, taxonomy: StageTaxonomy | None = None) -> str:
-    return (taxonomy or get_default_stage_taxonomy()).get_primary_stage(tool_id)
-
-
-def get_scheduling_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
-    return (taxonomy or get_default_stage_taxonomy()).get_scheduling_stages(tool_id)
-
-
-def validate_tool_coverage(tool_ids: Iterable[str], taxonomy: StageTaxonomy | None = None) -> None:
-    (taxonomy or get_default_stage_taxonomy()).validate_tool_coverage(tool_ids)
-
-
-def stage_order_index(stage: str, taxonomy: StageTaxonomy | None = None) -> int:
-    return (taxonomy or get_default_stage_taxonomy()).stage_order_index(stage)

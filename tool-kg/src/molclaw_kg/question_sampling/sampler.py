@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
         return iterable
 
 from ..adjudicators.claude_code_runtime import ClaudeCodeRuntime, extract_json_object, safe_name
-from ..constants import TRANSITION_EDGE_TYPES
+from ..edge_ontology import load_edge_ontology
 from ..io_utils import write_json, write_jsonl
 from ..science_kb import ScienceKB
 from ..settings import ProjectConfig
@@ -34,7 +34,7 @@ def _now_utc() -> str:
 
 
 def _load_sampling_config(config: ProjectConfig) -> dict[str, Any]:
-    path = config.paths.configs / "question_sampling_v2.yaml"
+    path = config.paths.configs / "question_sampling.yaml"
     if not path.is_file():
         raise FileNotFoundError(f"missing Stage3 config: {path}")
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -132,6 +132,7 @@ def _filtered_edges(
     edge_profile: str,
     partial_policy: str,
     sampling_cfg: dict[str, Any],
+    transition_edge_types: set[str],
 ) -> list[dict[str, Any]]:
     profiles = sampling_cfg.get("edge_profiles") or {}
     if edge_profile not in profiles:
@@ -146,7 +147,7 @@ def _filtered_edges(
             continue
         if r.get("relation_status") != "valid" or not bool(r.get("direct_transition", False)):
             continue
-        if edge_type not in TRANSITION_EDGE_TYPES:
+        if edge_type not in transition_edge_types:
             continue
         if partial_policy == "exclude" and edge_type == "generates_partial_input_for":
             continue
@@ -156,6 +157,10 @@ def _filtered_edges(
                 continue
         out.append(r)
     return out
+
+
+def _edge_confidence(edge: dict[str, Any]) -> float:
+    return float(edge.get("confidence", edge.get("confidence_calibrated", 0.0)))
 
 
 def _adjacency(edges: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -199,7 +204,7 @@ def _walk(
         if not options:
             return nodes, picked_edges, f"dead_end_at_{idx}"
         ew = [
-            max(0.01, float(e.get("confidence_calibrated", 0.5))) / (1.0 + usage[str(e["target_tool"])])
+            max(0.01, _edge_confidence(e)) / (1.0 + usage[str(e["target_tool"])])
             for e in options
         ]
         e = rng.choices(options, weights=ew, k=1)[0]
@@ -215,7 +220,7 @@ def _edge_public(e: dict[str, Any]) -> dict[str, Any]:
         "source_tool": e.get("source_tool"),
         "target_tool": e.get("target_tool"),
         "edge_type": e.get("edge_type"),
-        "confidence": e.get("confidence_calibrated", e.get("confidence")),
+        "confidence": _edge_confidence(e),
         "pair_id": e.get("pair_id", ""),
         "view": e.get("view", "unknown"),
         "relation_status": e.get("relation_status", "valid"),
@@ -484,12 +489,20 @@ def _validate_edge_claims(
         if support == "toolkg":
             matches = [
                 x for x in graph_index.get((a, b), [])
-                if x.get("view") == "core" and x.get("relation_status") == "valid" and bool(x.get("direct_transition"))
+                if (
+                    (
+                        x.get("schema_version") == "tool_kg_graph_edge_v1"
+                        and x.get("eligible_for_sampling") is True
+                    )
+                    or x.get("view") == "core"
+                )
+                and x.get("relation_status") == "valid"
+                and bool(x.get("direct_transition"))
             ]
             if not matches:
                 errors.append(f"unsupported_toolkg_edge:{a}->{b}")
                 continue
-            best = max(matches, key=lambda x: float(x.get("confidence_calibrated", 0)))
+            best = max(matches, key=_edge_confidence)
             support_ref = str(e.get("support_ref", ""))
             if support_ref not in {str(best.get("pair_id", "")), str(best.get("edge_id", ""))}:
                 errors.append(f"toolkg_support_ref_mismatch:{a}->{b}:{support_ref}")
@@ -608,7 +621,7 @@ def _materialize_edges(
         ]
         if not matching:
             raise ValueError(f"validated canonical edge missing during materialization: {a}->{b}")
-        best = max(matching, key=lambda x: float(x.get("confidence_calibrated", 0)))
+        best = max(matching, key=_edge_confidence)
         out.append(_edge_public(best))
     return out
 
@@ -659,9 +672,6 @@ def sample_questions(
         raise ValueError("invalid sample size or hop range")
     if partial_policy not in {"closure_required", "exclude"}:
         raise ValueError("partial_policy must be closure_required or exclude")
-    if sampling_mode == "linear_debug":
-        partial_policy = "exclude"
-
     run_dir = config.paths.run_dir
     sampling_cfg = _load_sampling_config(config)
     sqlite_path, manifest_path, kb_server_name = _science_kb_paths(config, sampling_cfg)
@@ -669,7 +679,20 @@ def sample_questions(
     graph_rows, cards_rows, debug_rows = load_canonical_sampling_inputs(run_dir)
     cards = {str(x["tool_id"]): x for x in cards_rows if x.get("tool_id")}
     debug_idx = _edge_debug_index(debug_rows)
-    edges = _filtered_edges(graph_rows, debug_idx, edge_profile, partial_policy, sampling_cfg)
+    ontology = load_edge_ontology(config.paths.configs / "edge_ontology.yaml")
+    transition_edge_types = {
+        edge_type
+        for edge_type, spec in ontology.edge_types.items()
+        if "valid" in spec["allowed_statuses"]
+    }
+    edges = _filtered_edges(
+        graph_rows,
+        debug_idx,
+        edge_profile,
+        partial_policy,
+        sampling_cfg,
+        transition_edge_types,
+    )
     graph_index: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for e in edges:
         graph_index[(str(e["source_tool"]), str(e["target_tool"]))].append(e)
@@ -902,7 +925,10 @@ def sample_questions(
         "sampling_profile": (sampling_profile_meta or {}).get("sampling_profile"),
         "resolved_sampling_config": (sampling_profile_meta or {}).get("resolved_sampling_config"),
         "config_sha256": (sampling_profile_meta or {}).get("config_sha256"),
+        "profile_sha256": (sampling_profile_meta or {}).get("profile_sha256"),
+        "cli_overrides": (sampling_profile_meta or {}).get("cli_overrides"),
         "prompt_sha256": (sampling_profile_meta or {}).get("prompt_sha256"),
+        "prompt_hashes": (sampling_profile_meta or {}).get("prompt_hashes"),
     }
     write_json(intermediate / "sampling_meta.json", meta)
     update_manifest_tasks(run_dir, len(tasks), sampling_profile_meta)

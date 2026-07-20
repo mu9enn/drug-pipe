@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -44,6 +46,44 @@ class ConfigControlPlaneTest(unittest.TestCase):
                 for spec in raw["tool_stage_map"].values()
             )
         )
+
+    def test_legacy_taxonomy_shapes_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "legacy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "stage_taxonomy_v1",
+                        "pruning_stages": {"a": {"definition": "legacy"}},
+                        "stage_order": ["a"],
+                        "tool_pruning_stage_map": {"tool": "a"},
+                        "allowed_stage_transitions": {"a": ["a"]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unsupported stage taxonomy fields"):
+                load_stage_taxonomy(path)
+
+    def test_cli_exposes_only_named_legacy_projection_commands(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "molclaw_kg.cli", "--help"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        help_text = result.stdout
+        for removed in [
+            "doc-chunks",
+            "score",
+            "provenance",
+            "audit",
+            "eval-logs",
+            "manifest",
+        ]:
+            self.assertNotIn(removed, help_text)
+        self.assertIn("legacy-views", help_text)
+        self.assertIn("legacy-export", help_text)
 
 
 if __name__ == "__main__":

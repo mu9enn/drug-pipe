@@ -45,7 +45,7 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
         t_tool = row["target_tool"]
         pair_id = str(row.get("pair_id") or f"pair::{s_tool}__to__{t_tool}")
         relation_status = str(row["relation_status"])
-        conf = float(row.get("confidence_calibrated", 0.0))
+        conf = float(row.get("confidence_raw", 0.0))
         src_stage = row.get("source_stage") or cards.get(s_tool, {}).get("primary_stage", "simulation_prediction")
         tgt_stage = row.get("target_stage") or cards.get(t_tool, {}).get("primary_stage", "simulation_prediction")
 

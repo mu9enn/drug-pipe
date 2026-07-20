@@ -68,6 +68,7 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
             canonical = read_jsonl(config.paths.run_dir / "canonical_edges.jsonl")
             graph = read_jsonl(config.paths.run_dir / "graph_all.jsonl")
             self.assertEqual(canonical[0]["edge_types"], [])
+            self.assertNotIn("confidence_calibrated", canonical[0])
             self.assertIsNone(graph[0]["edge_type"])
             self.assertEqual(graph[0]["relation_status"], "negative")
             self.assertEqual(graph[0]["confidence_raw"], 0.91)
@@ -75,8 +76,8 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
     def test_graph_projection_preserves_claude_edge_type_exactly(self) -> None:
         edge_type = {
             "type": "generates_partial_input_for",
-            "source_slot": None,
-            "target_slot_or_precondition": None,
+            "source_slot": "output.result",
+            "target_slot_or_precondition": "input.structure",
             "confidence": 0.7,
             "evidence_ids": ["snapshot::source"],
         }
@@ -84,7 +85,12 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
             config = config_for(Path(td))
             write_jsonl(
                 config.paths.run_dir / "pair_adjudications.jsonl",
-                [adjudication(relation_status="valid", edge_types=[edge_type])],
+                [
+                    {
+                        **adjudication(relation_status="valid", edge_types=[edge_type]),
+                        "direct_transition": True,
+                    }
+                ],
             )
             write_jsonl(
                 config.paths.run_dir / "tool_cards.jsonl",

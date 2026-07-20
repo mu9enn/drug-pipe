@@ -51,6 +51,17 @@ class SkillDerivedSlot(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
+class SkillDerivedRequirementSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    set_id: str = Field(pattern=r"^skill::[A-Za-z0-9_.-]+$")
+    condition: str
+    required_slots: list[str] = Field(default_factory=list)
+    optional_slots: list[str] = Field(default_factory=list)
+    defaulted_slots: list[str] = Field(default_factory=list)
+    execution_meaning: str
+    evidence_refs: list[str] = Field(min_length=1)
+
+
 class ToolAnnotationPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tool_id: str
@@ -58,7 +69,7 @@ class ToolAnnotationPatch(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     slot_annotations: dict[str, SlotAnnotation] = Field(default_factory=dict)
     skill_derived_slots: list[SkillDerivedSlot] = Field(default_factory=list)
-    skill_derived_requirement_sets: list[dict[str, Any]] = Field(default_factory=list)
+    skill_derived_requirement_sets: list[SkillDerivedRequirementSet] = Field(default_factory=list)
     needs_review: bool = False
 
 
@@ -81,46 +92,6 @@ class ToolCard(BaseModel):
     preconditions: list[Slot] = Field(default_factory=list)
     side_effects: list[Slot] = Field(default_factory=list)
     needs_review: bool = False
-
-
-class DocChunk(BaseModel):
-    doc_id: str
-    path: str
-    skill_level: str
-    section_id: str
-    heading_path: list[str]
-    block_type: Literal["paragraph", "list", "code", "mixed"] = "paragraph"
-    chunk_id: str
-    char_start: int
-    char_end: int
-    text: str
-
-
-class EvidenceUnit(BaseModel):
-    evidence_id: str
-    doc_id: str
-    chunk_id: str
-    claim_type: Literal[
-        "explicit_sequence",
-        "explicit_io",
-        "implicit_io",
-        "conditional_sequence",
-        "negative_constraint",
-        "validation_requirement",
-        "reporting",
-        "alternative_relation",
-        "weak_context",
-    ]
-    candidate_edge_type: str | None = None
-    mentioned_tools: list[str] = Field(default_factory=list)
-    source_tool: str | None = None
-    target_tool: str | None = None
-    source_output_mention: str | None = None
-    target_input_mention: str | None = None
-    negation: bool = False
-    condition_text: str | None = None
-    text_span: str
-    confidence: float = 0.5
 
 
 class CandidatePair(BaseModel):

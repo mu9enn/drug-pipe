@@ -21,9 +21,53 @@ class Stage3GroundingTests(unittest.TestCase):
     def test_partial_requires_mapping(self) -> None:
         rows = [{"source_tool": "a", "target_tool": "b", "edge_type": "generates_partial_input_for", "view": "core", "relation_status": "valid", "direct_transition": True}]
         cfg = {"edge_profiles": {"core_strict": {"allowed_views": ["core"]}}, "partial_edge_policy": {"require_satisfied_mapping": True}}
-        self.assertEqual(_filtered_edges(rows, {}, "core_strict", "closure_required", cfg), [])
+        edge_types = {"generates_partial_input_for"}
+        self.assertEqual(
+            _filtered_edges(rows, {}, "core_strict", "closure_required", cfg, edge_types),
+            [],
+        )
         dbg = {("a", "b", "generates_partial_input_for"): {"satisfied_mappings": [{"source_output_slot": "x", "target_input_slot": "y"}]}}
-        self.assertEqual(len(_filtered_edges(rows, dbg, "core_strict", "closure_required", cfg)), 1)
+        self.assertEqual(
+            len(
+                _filtered_edges(
+                    rows,
+                    dbg,
+                    "core_strict",
+                    "closure_required",
+                    cfg,
+                    edge_types,
+                )
+            ),
+            1,
+        )
+
+    def test_canonical_graph_edge_does_not_require_legacy_view(self) -> None:
+        canonical_edge = {
+            "schema_version": "tool_kg_graph_edge_v1",
+            "pair_id": "pair::a__to__b",
+            "edge_id": "pair::a__to__b::edge::01",
+            "source_tool": "a",
+            "target_tool": "b",
+            "edge_type": "generates_full_input_for",
+            "relation_status": "valid",
+            "direct_transition": True,
+            "eligible_for_sampling": True,
+            "confidence": 0.83,
+        }
+        claim = {
+            "source_tool": "a",
+            "target_tool": "b",
+            "support_source": "toolkg",
+            "support_ref": "pair::a__to__b",
+        }
+        errors, edges, edge_types = _validate_edge_claims(
+            {"a", "b"},
+            [claim],
+            {("a", "b"): [canonical_edge]},
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(edges, [("a", "b")])
+        self.assertEqual(edge_types[("a", "b")], "generates_full_input_for")
 
     def test_transitive_closure(self) -> None:
         cards = {

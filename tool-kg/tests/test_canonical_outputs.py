@@ -18,7 +18,7 @@ class CanonicalOutputsTest(unittest.TestCase):
             configs = root / "configs"
             run_dir.mkdir(parents=True)
             configs.mkdir()
-            (configs / "edge_ontology_v1.yaml").write_text("ontology", encoding="utf-8")
+            (configs / "edge_ontology.yaml").write_text("ontology", encoding="utf-8")
             taxonomy = configs / "stage_taxonomy.json"
             taxonomy.write_text("{}", encoding="utf-8")
             write_jsonl(run_dir / "tool_cards.jsonl", [{"tool_id": "a"}, {"tool_id": "b"}])

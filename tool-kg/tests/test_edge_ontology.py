@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
 
 import jsonschema
+import yaml
 
 from molclaw_kg.edge_ontology import (
     build_adjudication_schema,
@@ -13,7 +15,7 @@ from molclaw_kg.edge_ontology import (
 )
 
 
-ONTOLOGY_PATH = Path(__file__).parents[1] / "configs" / "edge_ontology_v1.yaml"
+ONTOLOGY_PATH = Path(__file__).parents[1] / "configs" / "edge_ontology.yaml"
 
 
 def adjudication(
@@ -96,6 +98,39 @@ class EdgeOntologyContractTest(unittest.TestCase):
             self.schema,
             expected_pair_id="pair::a__to__b",
         )
+
+    def test_edge_type_requiring_slot_mapping_rejects_null_slots(self) -> None:
+        value = adjudication()
+        value["edge_types"][0]["source_slot"] = None
+        with self.assertRaises(jsonschema.ValidationError):
+            validate_adjudication_output(
+                value,
+                self.schema,
+                expected_pair_id="pair::a__to__b",
+            )
+
+    def test_legacy_or_extra_ontology_policy_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "ontology.yaml"
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "version": "edge_ontology_v2",
+                        "relation_statuses": ["valid"],
+                        "edge_types": {
+                            "invented": {
+                                "definition": "test",
+                                "allowed_statuses": ["valid"],
+                                "requires_slot_mapping": False,
+                                "default_confidence": 0.5,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unsupported fields"):
+                load_edge_ontology(path)
 
 
 if __name__ == "__main__":

@@ -170,7 +170,7 @@ def _default_input_requirement_sets(
                 ]
             )
         )
-        return [
+        conditional_sets = [
             {
                 "set_id": "schema_default",
                 "condition": "default",
@@ -198,6 +198,43 @@ def _default_input_requirement_sets(
                 "source": "mcp_input_schema",
             },
         ]
+        else_schema = schema.get("else")
+        if isinstance(else_schema, dict):
+            else_required = list(
+                dict.fromkeys(
+                    [
+                        *base_required,
+                        *[str(value) for value in else_schema.get("required") or []],
+                    ]
+                )
+            )
+            conditional_sets[0] = {
+                "set_id": "schema_if_then",
+                "condition": f"if:{json.dumps(conditional, ensure_ascii=False, sort_keys=True)}",
+                "required_slots": then_required,
+                "optional_slots": [
+                    slot.name for slot in inputs if slot.name not in then_required
+                ],
+                "defaulted_slots": [
+                    slot.name for slot in inputs if slot.default is not None
+                ],
+                "execution_meaning": "json_schema",
+                "source": "mcp_input_schema",
+            }
+            conditional_sets[1] = {
+                "set_id": "schema_if_else",
+                "condition": f"else:{json.dumps(conditional, ensure_ascii=False, sort_keys=True)}",
+                "required_slots": else_required,
+                "optional_slots": [
+                    slot.name for slot in inputs if slot.name not in else_required
+                ],
+                "defaulted_slots": [
+                    slot.name for slot in inputs if slot.default is not None
+                ],
+                "execution_meaning": "json_schema",
+                "source": "mcp_input_schema",
+            }
+        return conditional_sets
     required_data = [x.name for x in inputs if x.required and x.parameter_kind in {"data", "unknown"}]
     optional_data = [x.name for x in inputs if (not x.required) and x.parameter_kind in {"data", "unknown"}]
     defaulted = [x.name for x in inputs if x.parameter_kind in {"config", "control"}]
@@ -774,9 +811,33 @@ def _merge_annotation_patch(
     preconditions = [slot for slot in derived_slots if slot.direction == "precondition"]
     side_effects = [slot for slot in derived_slots if slot.direction == "side_effect"]
     skill_outputs = [slot for slot in derived_slots if slot.direction == "output"]
+    known_requirement_slots = {
+        slot.name for slot in [*inputs, *preconditions]
+    } | {
+        slot.slot_path for slot in [*inputs, *preconditions]
+    }
+    derived_requirement_sets: list[dict[str, Any]] = []
+    for requirement_set in patch.skill_derived_requirement_sets:
+        referenced = {
+            *requirement_set.required_slots,
+            *requirement_set.optional_slots,
+            *requirement_set.defaulted_slots,
+        }
+        unknown_requirement_slots = sorted(referenced - known_requirement_slots)
+        if unknown_requirement_slots:
+            raise ValueError(
+                "skill-derived requirement set references unknown input/precondition slots: "
+                f"{unknown_requirement_slots}"
+            )
+        derived_requirement_sets.append(
+            {
+                **requirement_set.model_dump(),
+                "source": "skill_annotation",
+            }
+        )
     requirement_sets = [
         *base.input_requirement_sets,
-        *patch.skill_derived_requirement_sets,
+        *derived_requirement_sets,
     ]
     return ToolCard(
         tool_id=base.tool_id,

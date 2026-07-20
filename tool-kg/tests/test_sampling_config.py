@@ -30,6 +30,30 @@ class SamplingConfigTest(unittest.TestCase):
         self.assertEqual(overridden.values["target_successes"], 1)
         self.assertEqual(overridden.values["random_seed"], 123)
         self.assertEqual(default.config_sha256, overridden.config_sha256)
+        self.assertEqual(default.profile_sha256, overridden.profile_sha256)
+        self.assertEqual(
+            overridden.cli_overrides,
+            {"target_successes": 1, "random_seed": 123},
+        )
+        payload = overridden.manifest_payload()
+        self.assertEqual(payload["resolved_sampling_config"], overridden.values)
+        self.assertEqual(payload["cli_overrides"], overridden.cli_overrides)
+        self.assertEqual(
+            set(payload["prompt_hashes"]),
+            {"generation", "json_repair"},
+        )
+
+    def test_sampling_mode_cannot_be_changed_outside_named_profile(self) -> None:
+        tool_kg_root = Path(__file__).parents[1]
+        config = SimpleNamespace(
+            paths=SimpleNamespace(configs=tool_kg_root / "configs")
+        )
+        with self.assertRaisesRegex(ValueError, "profile-owned"):
+            resolve_sampling_profile(
+                config,
+                "simple_default",
+                overrides={"mode": "dag_closure"},
+            )
 
     def test_stage3_loads_only_canonical_outputs_without_sidecars(self) -> None:
         with tempfile.TemporaryDirectory() as td:

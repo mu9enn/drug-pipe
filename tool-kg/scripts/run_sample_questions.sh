@@ -39,15 +39,11 @@
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
 #     --target-successes 20 --max-attempts 200 --min-hops 2 --max-hops 5
 #
-# Sampling modes:
-#   - simple_toolchain_question: default success-first mode. Samples valid hidden
-#     toolchains and asks the Agent only for a compact natural-language question.
-#   - dag_closure: legacy explicit mode. Uses dependency-closure logic and
-#     trajectory_v2 graph outputs where available.
-#   - linear_debug: debug-only linear sampling mode, not recommended for final
-#     KG-sampled task generation.
+# Named profiles:
+#   - simple_default: mainline success-first sampler.
+#   - dag_legacy: explicit compatibility sampler with dependency closure.
 #
-# Quality controls:
+# Legacy DAG-only quality controls:
 #   - --edge-profile core_strict|core_expanded
 #       Default core_strict only samples high-confidence core edges.
 #   - --partial-policy closure_required|exclude
@@ -69,7 +65,6 @@ SAMPLE_SIZE=""
 MIN_HOPS=""
 MAX_HOPS=""
 SEED=""
-SAMPLING_MODE=""
 PARTIAL_POLICY=""
 EDGE_PROFILE=""
 MAX_REPAIR_ROUNDS=""
@@ -141,10 +136,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --seed)
       SEED="${2:-}"
-      shift 2
-      ;;
-    --sampling-mode)
-      SAMPLING_MODE="${2:-}"
       shift 2
       ;;
     --partial-policy)
@@ -229,7 +220,6 @@ append_override "$MAX_REPEAT_COMPOUND" --max-repeat-compound
 append_override "$MIN_HOPS" --min-hops
 append_override "$MAX_HOPS" --max-hops
 append_override "$SEED" --seed
-append_override "$SAMPLING_MODE" --sampling-mode
 append_override "$PARTIAL_POLICY" --partial-policy
 append_override "$EDGE_PROFILE" --edge-profile
 append_override "$MAX_REPAIR_ROUNDS" --max-repair-rounds

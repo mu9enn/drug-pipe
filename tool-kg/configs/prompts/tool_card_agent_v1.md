@@ -49,5 +49,10 @@ Skill-described outputs or conditions absent from MCP schemas must be placed in
 slot and every nontrivial semantic annotation must cite canonical schema or
 skill evidence such as `snapshot::<tool_id>` or `.claude/skills/...`.
 
+Skill-derived requirement sets must use a `skill::...` set ID, cite evidence,
+and reference only known schema inputs or skill-derived preconditions. They
+supplement MCP schema requirement sets; they never replace schema-declared
+required/default/oneOf/anyOf/if/then/else facts.
+
 Read `source_manifest.json` and canonical skill files as needed. The returned
 object must validate against `output_schema.json`.
