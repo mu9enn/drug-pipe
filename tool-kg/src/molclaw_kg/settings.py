@@ -3,10 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-import json
-import yaml
 
 from .constants import DEFAULT_SERVER_URL, DEFAULT_LOGS_ROOT
 
@@ -32,19 +29,7 @@ class RuntimeConfig:
 class ProjectConfig:
     paths: ProjectPaths
     runtime: RuntimeConfig
-    edge_ontology: dict[str, Any]
-    stage_taxonomy: dict[str, Any]
     stage_taxonomy_path: Path
-    semantic_types: dict[str, Any]
-    rules: dict[str, Any]
-
-
-def _load_yaml(path: Path) -> dict[str, Any]:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _resolve_project_path(project_root: Path, value: str | None, default: str) -> Path:
@@ -89,9 +74,5 @@ def build_config(project_root: Path, run_id: str | None = None, server_url: str 
     return ProjectConfig(
         paths=paths,
         runtime=runtime,
-        edge_ontology=_load_yaml(paths.configs / "edge_ontology_v1.yaml"),
-        stage_taxonomy=_load_json(stage_taxonomy_path),
         stage_taxonomy_path=stage_taxonomy_path,
-        semantic_types=_load_yaml(paths.configs / "semantic_types_v1.yaml"),
-        rules=_load_yaml(paths.configs / "rules_v1.yaml"),
     )

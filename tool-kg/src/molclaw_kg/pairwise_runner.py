@@ -165,6 +165,7 @@ def _prepare_pair_workdir(
     prompt: str,
     source_card: dict[str, Any],
     target_card: dict[str, Any],
+    taxonomy_raw: dict[str, Any],
     ontology: EdgeOntology,
     adjudication_schema: dict[str, Any],
 ) -> None:
@@ -181,7 +182,7 @@ def _prepare_pair_workdir(
     write_json(workdir / "source_manifest.json", source_manifest)
     write_json(workdir / "source_tool_card.json", source_card)
     write_json(workdir / "target_tool_card.json", target_card)
-    write_json(workdir / "stage_taxonomy.json", config.stage_taxonomy)
+    write_json(workdir / "stage_taxonomy.json", taxonomy_raw)
     write_json(
         workdir / "edge_ontology.json",
         {
@@ -274,6 +275,7 @@ def _run_pairwise_attempt(
     cache_path: Path,
     cache_lock: threading.Lock,
     rerun_round: int,
+    taxonomy_raw: dict[str, Any],
     ontology: EdgeOntology,
     adjudication_schema: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -311,6 +313,7 @@ def _run_pairwise_attempt(
             prompt=prompt,
             source_card=cards.get(source_tool, {}),
             target_card=cards.get(target_tool, {}),
+            taxonomy_raw=taxonomy_raw,
             ontology=ontology,
             adjudication_schema=adjudication_schema,
         )
@@ -525,12 +528,11 @@ def run_pairwise_adjudication(
         config.paths.run_dir / "pair_pruned_by_stage_meta.json",
         {
             "stage_pruning_mode": "disabled_semantic_authority",
-            "stage_pruning_policy": taxonomy.pruning_policy,
             "input_pair_count": len(pairs),
             "pruned_pair_count": 0,
             "kept_pair_count": len(stage_kept),
             "deterministic_alternative_count": 0,
-            "note": "Stage and alternative semantics are decided only by Claude adjudication.",
+            "note": "Candidate scheduling already applied taxonomy; edge semantics are decided only by Claude adjudication.",
         },
     )
 
@@ -556,7 +558,7 @@ def run_pairwise_adjudication(
                 "prompt": prompt,
                 "source_tool_card": cards.get(source_tool, {}),
                 "target_tool_card": cards.get(target_tool, {}),
-                "taxonomy_version": taxonomy.raw.get("schema_version"),
+                "taxonomy_version": taxonomy.version,
                 "edge_ontology_version": ontology.version,
             }
         )
@@ -587,10 +589,11 @@ def run_pairwise_adjudication(
                     pair=pair,
                     cards=cards,
                     prompt_template=prompt_template,
-                    taxonomy_version=taxonomy.raw.get("schema_version"),
+                    taxonomy_version=taxonomy.version,
                     cache_path=cache_path,
                     cache_lock=cache_lock,
                     rerun_round=rerun_round,
+                    taxonomy_raw=taxonomy.raw,
                     ontology=ontology,
                     adjudication_schema=adjudication_schema,
                 )

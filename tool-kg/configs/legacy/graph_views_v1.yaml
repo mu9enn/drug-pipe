@@ -1,0 +1,5 @@
+version: legacy_graph_views_v1
+
+thresholds:
+  core_min: 0.80
+  expanded_min: 0.55

@@ -1,320 +1,6 @@
 {
-  "schema_version": "molclaw_pruning_taxonomy_v3",
-  "description": "Pruning-oriented stage taxonomy for MolClaw-KG relation-aware pair pruning and deterministic alternative edge generation.",
-  "purpose": [
-    "stage-aware pair pruning",
-    "transition-edge candidate reduction",
-    "alternative-edge deterministic generation"
-  ],
-  "policies": {
-    "use_primary_pruning_stage_only": true,
-    "do_not_use_secondary_stage_for_pair_expansion": true,
-    "transition_edges_same_stage_allowed": false,
-    "alternative_edges_same_stage_allowed": true,
-    "alternative_edges_generated_by_cluster": true,
-    "pairwise_llm_requires_allowed_stage_transition": true
-  },
-  "stage_order": [
-    "target_identifier_acquisition",
-    "target_structure_acquisition",
-    "protein_sequence_qc_descriptor",
-    "target_structure_prediction",
-    "structure_format_conversion",
-    "structure_chain_extraction",
-    "structure_rebuild_repair",
-    "structure_sidechain_completion",
-    "receptor_docking_format_preparation",
-    "protein_structure_qc_descriptor",
-    "ligand_identity_acquisition",
-    "ligand_smiles_validation",
-    "ligand_file_preparation_conversion",
-    "ligand_descriptor_property_scoring",
-    "ligand_generation_template_acquisition",
-    "ligand_de_novo_or_template_generation",
-    "ligand_analog_optimization",
-    "binding_site_detection",
-    "pose_generation_docking",
-    "docking_pose_pocket_extraction_for_rescoring",
-    "affinity_prediction_rescoring_screening",
-    "end_to_end_docking_scoring_pipeline",
-    "static_interaction_analysis_validation",
-    "trajectory_interaction_analysis",
-    "simulation_system_preparation",
-    "simulation_or_sampling_execution",
-    "simulation_ensemble_extraction",
-    "free_energy_calculation",
-    "free_energy_result_analysis",
-    "residue_numbering_mapping",
-    "protein_backbone_or_complex_generation",
-    "protein_sequence_design",
-    "protein_design_repair_mutation_evaluation",
-    "file_import_decoding",
-    "visualization_rendering",
-    "file_export_encoding"
-  ],
-  "pruning_stages": {
-    "target_identifier_acquisition": {
-      "definition": "Retrieve target identifiers, metadata, or raw sequence records.",
-      "tools": [
-        "retrieve_protein_sequence"
-      ]
-    },
-    "target_structure_acquisition": {
-      "definition": "Retrieve experimentally resolved or database structures.",
-      "tools": [
-        "retrieve_protein_structure_by_pdb_id",
-        "retrieve_protein_structure_by_uniprot_id",
-        "retrieve_protein_structure_by_gene_name"
-      ]
-    },
-    "protein_sequence_qc_descriptor": {
-      "definition": "Validate or characterize protein sequences before structure prediction/design.",
-      "tools": [
-        "is_valid_protein_sequence",
-        "calculate_protein_sequence_properties"
-      ]
-    },
-    "target_structure_prediction": {
-      "definition": "Predict protein or complex structures from sequence.",
-      "tools": [
-        "pred_protein_structure_esmfold",
-        "chai1_predict"
-      ]
-    },
-    "structure_format_conversion": {
-      "definition": "Convert predicted or complex structures into downstream structural file formats.",
-      "tools": [
-        "convert_complex_cif_to_pdb"
-      ]
-    },
-    "structure_chain_extraction": {
-      "definition": "Extract structural chains or chain sequences from structure files.",
-      "tools": [
-        "extract_and_save_chains",
-        "extract_pdb_chains"
-      ]
-    },
-    "structure_rebuild_repair": {
-      "definition": "Repair, rebuild, protonate, or complete protein structures.",
-      "tools": [
-        "fix_pdb",
-        "pulchura_rebuild"
-      ]
-    },
-    "structure_sidechain_completion": {
-      "definition": "Complete or repack side chains from backbone structures.",
-      "tools": [
-        "pack_sidechains"
-      ]
-    },
-    "receptor_docking_format_preparation": {
-      "definition": "Convert prepared receptor structures into docking-specific receptor formats.",
-      "tools": [
-        "convert_pdb_to_pdbqt_dock"
-      ]
-    },
-    "protein_structure_qc_descriptor": {
-      "definition": "Compute PDB-level geometry, quality, composition, or structural descriptors.",
-      "tools": [
-        "calculate_pdb_basic_info",
-        "calculate_pdb_structural_geometry",
-        "calculate_pdb_quality_metrics",
-        "calculate_pdb_composition_info"
-      ]
-    },
-    "ligand_identity_acquisition": {
-      "definition": "Retrieve SMILES or compound identity from external chemistry databases.",
-      "tools": [
-        "retrieve_smiles_by_compoundname"
-      ]
-    },
-    "ligand_smiles_validation": {
-      "definition": "Validate SMILES strings before generation, property calculation, preparation, or docking.",
-      "tools": [
-        "is_valid_smiles"
-      ]
-    },
-    "ligand_file_preparation_conversion": {
-      "definition": "Convert valid SMILES or molecule lists into downstream molecular file formats.",
-      "tools": [
-        "convert_smiles_to_format"
-      ]
-    },
-    "ligand_descriptor_property_scoring": {
-      "definition": "Compute molecular descriptors, ADMET, drug-likeness, similarity, fragment, or phenotypic scores.",
-      "tools": [
-        "pred_mol_admet",
-        "calculate_dleps_score",
-        "calculate_mol_basic_info",
-        "calculate_mol_hydrophobicity",
-        "calculate_mol_hbond",
-        "calculate_mol_structure_complexity",
-        "calculate_mol_topology",
-        "calculate_mol_drug_chemistry",
-        "calculate_mol_charge",
-        "calculate_mol_complexity",
-        "calculate_morgan_fingerprint_similarity",
-        "calculate_common_fragments"
-      ]
-    },
-    "ligand_generation_template_acquisition": {
-      "definition": "Retrieve or prepare predefined peptide/template information for generators.",
-      "tools": [
-        "get_pepinvent_info"
-      ]
-    },
-    "ligand_de_novo_or_template_generation": {
-      "definition": "Generate new molecules, linkers, R-groups, scaffolds, or peptides from templates/warheads/scaffolds.",
-      "tools": [
-        "reinvent_denovo_sampling",
-        "linkinvent_linker_sampling_by_warheads",
-        "linkinvent_linker_sampling_by_warhead_pair_name",
-        "libinvent_rgroup_sampling_by_scaffold",
-        "libinvent_rgroup_sampling_by_scaffold_name",
-        "pepinvent_peptide_sampling_by_template",
-        "pepinvent_peptide_sampling_by_peptide"
-      ]
-    },
-    "ligand_analog_optimization": {
-      "definition": "Optimize or expand molecules from existing seed molecules.",
-      "tools": [
-        "reinvent_mol2mol_sampling"
-      ]
-    },
-    "binding_site_detection": {
-      "definition": "Detect, rank, or define candidate binding pockets from protein structures.",
-      "tools": [
-        "pred_pocket_prank",
-        "fpocket_toolkit"
-      ]
-    },
-    "pose_generation_docking": {
-      "definition": "Generate protein-ligand, protein-protein, peptide-protein, or complex docking poses.",
-      "tools": [
-        "molecule_docking_quickvina_fullprocess",
-        "hdock_tool"
-      ]
-    },
-    "docking_pose_pocket_extraction_for_rescoring": {
-      "definition": "Extract pockets or prepare pocket-level inputs from docking results for rescoring.",
-      "tools": [
-        "equiscore_pocket"
-      ]
-    },
-    "affinity_prediction_rescoring_screening": {
-      "definition": "Predict affinity, rescore poses, rank candidates, or perform virtual screening.",
-      "tools": [
-        "pred_binding_affinity_boltz2",
-        "equiscore_screen",
-        "karmadock_tool"
-      ]
-    },
-    "end_to_end_docking_scoring_pipeline": {
-      "definition": "One-click or wrapper pipelines that internally combine several docking/scoring steps.",
-      "tools": [
-        "equiscore_pipeline"
-      ]
-    },
-    "static_interaction_analysis_validation": {
-      "definition": "Analyze static protein-ligand, peptide-protein, or protein-protein complexes or docking poses.",
-      "tools": [
-        "prolif_docking",
-        "prolif_pdb",
-        "analyze_protein_ligand_interactions"
-      ]
-    },
-    "trajectory_interaction_analysis": {
-      "definition": "Analyze interactions from MD trajectories or dynamic complex ensembles.",
-      "tools": [
-        "prolif_md",
-        "prolif_protein_protein"
-      ]
-    },
-    "simulation_system_preparation": {
-      "definition": "Prepare protein-only or protein-ligand/protein-protein systems for MD or free-energy calculation.",
-      "tools": [
-        "prepare_complex",
-        "prepare_protein_md"
-      ]
-    },
-    "simulation_or_sampling_execution": {
-      "definition": "Run MD, coarse-grained simulation, conformational sampling, or relaxation workflows.",
-      "tools": [
-        "protein_openmm_md",
-        "run_bioemu",
-        "openawsem_sim",
-        "goca_pipeline"
-      ]
-    },
-    "simulation_ensemble_extraction": {
-      "definition": "Extract representative structures or frames from simulation/sampling outputs.",
-      "tools": [
-        "openmm_extract_frames",
-        "extract_bioemu_structures",
-        "openawsem_traj_extract"
-      ]
-    },
-    "free_energy_calculation": {
-      "definition": "Compute binding free energy using MM/PBSA, MM/GBSA, or related methods.",
-      "tools": [
-        "run_mmpbsa",
-        "gmx_mmpbsa_propro"
-      ]
-    },
-    "free_energy_result_analysis": {
-      "definition": "Analyze and summarize free-energy calculation outputs.",
-      "tools": [
-        "analyze_mmpbsa"
-      ]
-    },
-    "residue_numbering_mapping": {
-      "definition": "Map residue numbering between UniProt, PDB, predicted structures, and tool-internal schemes.",
-      "tools": [
-        "residue_mapper"
-      ]
-    },
-    "protein_backbone_or_complex_generation": {
-      "definition": "Generate protein backbones, complexes, symmetric assemblies, or binder candidates.",
-      "tools": [
-        "chroma_monomer",
-        "chroma_complex",
-        "chroma_symmetry",
-        "evobind_tool"
-      ]
-    },
-    "protein_sequence_design": {
-      "definition": "Design or score sequences conditioned on protein structures/backbones.",
-      "tools": [
-        "proteinmpnn_tool"
-      ]
-    },
-    "protein_design_repair_mutation_evaluation": {
-      "definition": "Repair, mutate, score, or evaluate designed proteins/interfaces.",
-      "tools": [
-        "foldx_tool"
-      ]
-    },
-    "file_import_decoding": {
-      "definition": "Decode external/base64 content into server-side files.",
-      "tools": [
-        "base64_to_server_file"
-      ]
-    },
-    "visualization_rendering": {
-      "definition": "Generate protein, molecule, or interaction visualization artifacts.",
-      "tools": [
-        "visualize_protein",
-        "visualize_molecule",
-        "interaction_visualizer"
-      ]
-    },
-    "file_export_encoding": {
-      "definition": "Encode server-side artifacts for transfer or reporting.",
-      "tools": [
-        "server_file_to_base64"
-      ]
-    }
-  },
+  "version": "stage_taxonomy_v2",
+  "description": "Scheduling-only taxonomy for directed candidate proposal.",
   "stages": {
     "target_identifier_acquisition": {
       "definition": "Retrieve target identifiers, metadata, or raw sequence records.",
@@ -578,821 +264,533 @@
       ]
     }
   },
-  "tool_pruning_stage_map": {
-    "retrieve_protein_sequence": {
-      "primary_stage": "target_identifier_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "retrieve_protein_structure_by_pdb_id": {
-      "primary_stage": "target_structure_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "retrieve_protein_structure_by_uniprot_id": {
-      "primary_stage": "target_structure_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "retrieve_protein_structure_by_gene_name": {
-      "primary_stage": "target_structure_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "is_valid_protein_sequence": {
-      "primary_stage": "protein_sequence_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_protein_sequence_properties": {
-      "primary_stage": "protein_sequence_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pred_protein_structure_esmfold": {
-      "primary_stage": "target_structure_prediction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "chai1_predict": {
-      "primary_stage": "target_structure_prediction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "convert_complex_cif_to_pdb": {
-      "primary_stage": "structure_format_conversion",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "extract_and_save_chains": {
-      "primary_stage": "structure_chain_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "extract_pdb_chains": {
-      "primary_stage": "structure_chain_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "fix_pdb": {
-      "primary_stage": "structure_rebuild_repair",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pulchura_rebuild": {
-      "primary_stage": "structure_rebuild_repair",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pack_sidechains": {
-      "primary_stage": "structure_sidechain_completion",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "convert_pdb_to_pdbqt_dock": {
-      "primary_stage": "receptor_docking_format_preparation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_pdb_basic_info": {
-      "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_pdb_structural_geometry": {
-      "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_pdb_quality_metrics": {
-      "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_pdb_composition_info": {
-      "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "retrieve_smiles_by_compoundname": {
-      "primary_stage": "ligand_identity_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "is_valid_smiles": {
-      "primary_stage": "ligand_smiles_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "convert_smiles_to_format": {
-      "primary_stage": "ligand_file_preparation_conversion",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pred_mol_admet": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_dleps_score": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_basic_info": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_hydrophobicity": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_hbond": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_structure_complexity": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_topology": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_drug_chemistry": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_charge": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_mol_complexity": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_morgan_fingerprint_similarity": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "calculate_common_fragments": {
-      "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "get_pepinvent_info": {
-      "primary_stage": "ligand_generation_template_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "reinvent_denovo_sampling": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "linkinvent_linker_sampling_by_warheads": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "linkinvent_linker_sampling_by_warhead_pair_name": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "libinvent_rgroup_sampling_by_scaffold": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "libinvent_rgroup_sampling_by_scaffold_name": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pepinvent_peptide_sampling_by_template": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pepinvent_peptide_sampling_by_peptide": {
-      "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "reinvent_mol2mol_sampling": {
-      "primary_stage": "ligand_analog_optimization",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pred_pocket_prank": {
-      "primary_stage": "binding_site_detection",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "fpocket_toolkit": {
-      "primary_stage": "binding_site_detection",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "molecule_docking_quickvina_fullprocess": {
-      "primary_stage": "pose_generation_docking",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "hdock_tool": {
-      "primary_stage": "pose_generation_docking",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "equiscore_pocket": {
-      "primary_stage": "docking_pose_pocket_extraction_for_rescoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "pred_binding_affinity_boltz2": {
-      "primary_stage": "affinity_prediction_rescoring_screening",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "equiscore_screen": {
-      "primary_stage": "affinity_prediction_rescoring_screening",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "karmadock_tool": {
-      "primary_stage": "affinity_prediction_rescoring_screening",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "equiscore_pipeline": {
-      "primary_stage": "end_to_end_docking_scoring_pipeline",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "prolif_docking": {
-      "primary_stage": "static_interaction_analysis_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "prolif_pdb": {
-      "primary_stage": "static_interaction_analysis_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "analyze_protein_ligand_interactions": {
-      "primary_stage": "static_interaction_analysis_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "prolif_md": {
-      "primary_stage": "trajectory_interaction_analysis",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "prolif_protein_protein": {
-      "primary_stage": "trajectory_interaction_analysis",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "prepare_complex": {
-      "primary_stage": "simulation_system_preparation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "prepare_protein_md": {
-      "primary_stage": "simulation_system_preparation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "protein_openmm_md": {
-      "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "run_bioemu": {
-      "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "openawsem_sim": {
-      "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "goca_pipeline": {
-      "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "openmm_extract_frames": {
-      "primary_stage": "simulation_ensemble_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "extract_bioemu_structures": {
-      "primary_stage": "simulation_ensemble_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "openawsem_traj_extract": {
-      "primary_stage": "simulation_ensemble_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "run_mmpbsa": {
-      "primary_stage": "free_energy_calculation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "gmx_mmpbsa_propro": {
-      "primary_stage": "free_energy_calculation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "analyze_mmpbsa": {
-      "primary_stage": "free_energy_result_analysis",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "residue_mapper": {
-      "primary_stage": "residue_numbering_mapping",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "chroma_monomer": {
-      "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "chroma_complex": {
-      "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "chroma_symmetry": {
-      "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "evobind_tool": {
-      "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "proteinmpnn_tool": {
-      "primary_stage": "protein_sequence_design",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "foldx_tool": {
-      "primary_stage": "protein_design_repair_mutation_evaluation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "base64_to_server_file": {
-      "primary_stage": "file_import_decoding",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "visualize_protein": {
-      "primary_stage": "visualization_rendering",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "visualize_molecule": {
-      "primary_stage": "visualization_rendering",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "interaction_visualizer": {
-      "primary_stage": "visualization_rendering",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    },
-    "server_file_to_base64": {
-      "primary_stage": "file_export_encoding",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
-    }
-  },
+  "display_order": [
+    "target_identifier_acquisition",
+    "target_structure_acquisition",
+    "protein_sequence_qc_descriptor",
+    "target_structure_prediction",
+    "structure_format_conversion",
+    "structure_chain_extraction",
+    "structure_rebuild_repair",
+    "structure_sidechain_completion",
+    "receptor_docking_format_preparation",
+    "protein_structure_qc_descriptor",
+    "ligand_identity_acquisition",
+    "ligand_smiles_validation",
+    "ligand_file_preparation_conversion",
+    "ligand_descriptor_property_scoring",
+    "ligand_generation_template_acquisition",
+    "ligand_de_novo_or_template_generation",
+    "ligand_analog_optimization",
+    "binding_site_detection",
+    "pose_generation_docking",
+    "docking_pose_pocket_extraction_for_rescoring",
+    "affinity_prediction_rescoring_screening",
+    "end_to_end_docking_scoring_pipeline",
+    "static_interaction_analysis_validation",
+    "trajectory_interaction_analysis",
+    "simulation_system_preparation",
+    "simulation_or_sampling_execution",
+    "simulation_ensemble_extraction",
+    "free_energy_calculation",
+    "free_energy_result_analysis",
+    "residue_numbering_mapping",
+    "protein_backbone_or_complex_generation",
+    "protein_sequence_design",
+    "protein_design_repair_mutation_evaluation",
+    "file_import_decoding",
+    "visualization_rendering",
+    "file_export_encoding"
+  ],
   "tool_stage_map": {
     "retrieve_protein_sequence": {
       "primary_stage": "target_identifier_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "target_identifier_acquisition"
+      ]
     },
     "retrieve_protein_structure_by_pdb_id": {
       "primary_stage": "target_structure_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "target_structure_acquisition"
+      ]
     },
     "retrieve_protein_structure_by_uniprot_id": {
       "primary_stage": "target_structure_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "target_structure_acquisition"
+      ]
     },
     "retrieve_protein_structure_by_gene_name": {
       "primary_stage": "target_structure_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "target_structure_acquisition"
+      ]
     },
     "is_valid_protein_sequence": {
       "primary_stage": "protein_sequence_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_sequence_qc_descriptor"
+      ]
     },
     "calculate_protein_sequence_properties": {
       "primary_stage": "protein_sequence_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_sequence_qc_descriptor"
+      ]
     },
     "pred_protein_structure_esmfold": {
       "primary_stage": "target_structure_prediction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "target_structure_prediction"
+      ]
     },
     "chai1_predict": {
       "primary_stage": "target_structure_prediction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "target_structure_prediction"
+      ]
     },
     "convert_complex_cif_to_pdb": {
       "primary_stage": "structure_format_conversion",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "structure_format_conversion"
+      ]
     },
     "extract_and_save_chains": {
       "primary_stage": "structure_chain_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "structure_chain_extraction"
+      ]
     },
     "extract_pdb_chains": {
       "primary_stage": "structure_chain_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "structure_chain_extraction"
+      ]
     },
     "fix_pdb": {
       "primary_stage": "structure_rebuild_repair",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "structure_rebuild_repair"
+      ]
     },
     "pulchura_rebuild": {
       "primary_stage": "structure_rebuild_repair",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "structure_rebuild_repair"
+      ]
     },
     "pack_sidechains": {
       "primary_stage": "structure_sidechain_completion",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "structure_sidechain_completion"
+      ]
     },
     "convert_pdb_to_pdbqt_dock": {
       "primary_stage": "receptor_docking_format_preparation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "receptor_docking_format_preparation"
+      ]
     },
     "calculate_pdb_basic_info": {
       "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
     },
     "calculate_pdb_structural_geometry": {
       "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
     },
     "calculate_pdb_quality_metrics": {
       "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
     },
     "calculate_pdb_composition_info": {
       "primary_stage": "protein_structure_qc_descriptor",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
     },
     "retrieve_smiles_by_compoundname": {
       "primary_stage": "ligand_identity_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_identity_acquisition"
+      ]
     },
     "is_valid_smiles": {
       "primary_stage": "ligand_smiles_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_smiles_validation"
+      ]
     },
     "convert_smiles_to_format": {
       "primary_stage": "ligand_file_preparation_conversion",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_file_preparation_conversion"
+      ]
     },
     "pred_mol_admet": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_dleps_score": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_basic_info": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_hydrophobicity": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_hbond": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_structure_complexity": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_topology": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_drug_chemistry": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_charge": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_mol_complexity": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_morgan_fingerprint_similarity": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "calculate_common_fragments": {
       "primary_stage": "ligand_descriptor_property_scoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
     },
     "get_pepinvent_info": {
       "primary_stage": "ligand_generation_template_acquisition",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_generation_template_acquisition"
+      ]
     },
     "reinvent_denovo_sampling": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "linkinvent_linker_sampling_by_warheads": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "linkinvent_linker_sampling_by_warhead_pair_name": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "libinvent_rgroup_sampling_by_scaffold": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "libinvent_rgroup_sampling_by_scaffold_name": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "pepinvent_peptide_sampling_by_template": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "pepinvent_peptide_sampling_by_peptide": {
       "primary_stage": "ligand_de_novo_or_template_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
     },
     "reinvent_mol2mol_sampling": {
       "primary_stage": "ligand_analog_optimization",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "ligand_analog_optimization"
+      ]
     },
     "pred_pocket_prank": {
       "primary_stage": "binding_site_detection",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "binding_site_detection"
+      ]
     },
     "fpocket_toolkit": {
       "primary_stage": "binding_site_detection",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "binding_site_detection"
+      ]
     },
     "molecule_docking_quickvina_fullprocess": {
       "primary_stage": "pose_generation_docking",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "pose_generation_docking"
+      ]
     },
     "hdock_tool": {
       "primary_stage": "pose_generation_docking",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "pose_generation_docking"
+      ]
     },
     "equiscore_pocket": {
       "primary_stage": "docking_pose_pocket_extraction_for_rescoring",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "docking_pose_pocket_extraction_for_rescoring"
+      ]
     },
     "pred_binding_affinity_boltz2": {
       "primary_stage": "affinity_prediction_rescoring_screening",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "affinity_prediction_rescoring_screening"
+      ]
     },
     "equiscore_screen": {
       "primary_stage": "affinity_prediction_rescoring_screening",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "affinity_prediction_rescoring_screening"
+      ]
     },
     "karmadock_tool": {
       "primary_stage": "affinity_prediction_rescoring_screening",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "affinity_prediction_rescoring_screening"
+      ]
     },
     "equiscore_pipeline": {
       "primary_stage": "end_to_end_docking_scoring_pipeline",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "end_to_end_docking_scoring_pipeline"
+      ]
     },
     "prolif_docking": {
       "primary_stage": "static_interaction_analysis_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "static_interaction_analysis_validation"
+      ]
     },
     "prolif_pdb": {
       "primary_stage": "static_interaction_analysis_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "static_interaction_analysis_validation"
+      ]
     },
     "analyze_protein_ligand_interactions": {
       "primary_stage": "static_interaction_analysis_validation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "static_interaction_analysis_validation"
+      ]
     },
     "prolif_md": {
       "primary_stage": "trajectory_interaction_analysis",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "trajectory_interaction_analysis"
+      ]
     },
     "prolif_protein_protein": {
       "primary_stage": "trajectory_interaction_analysis",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "trajectory_interaction_analysis"
+      ]
     },
     "prepare_complex": {
       "primary_stage": "simulation_system_preparation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_system_preparation"
+      ]
     },
     "prepare_protein_md": {
       "primary_stage": "simulation_system_preparation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_system_preparation"
+      ]
     },
     "protein_openmm_md": {
       "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
     },
     "run_bioemu": {
       "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
     },
     "openawsem_sim": {
       "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
     },
     "goca_pipeline": {
       "primary_stage": "simulation_or_sampling_execution",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
     },
     "openmm_extract_frames": {
       "primary_stage": "simulation_ensemble_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_ensemble_extraction"
+      ]
     },
     "extract_bioemu_structures": {
       "primary_stage": "simulation_ensemble_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_ensemble_extraction"
+      ]
     },
     "openawsem_traj_extract": {
       "primary_stage": "simulation_ensemble_extraction",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "simulation_ensemble_extraction"
+      ]
     },
     "run_mmpbsa": {
       "primary_stage": "free_energy_calculation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "free_energy_calculation"
+      ]
     },
     "gmx_mmpbsa_propro": {
       "primary_stage": "free_energy_calculation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "free_energy_calculation"
+      ]
     },
     "analyze_mmpbsa": {
       "primary_stage": "free_energy_result_analysis",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "free_energy_result_analysis"
+      ]
     },
     "residue_mapper": {
       "primary_stage": "residue_numbering_mapping",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "residue_numbering_mapping"
+      ]
     },
     "chroma_monomer": {
       "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
     },
     "chroma_complex": {
       "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
     },
     "chroma_symmetry": {
       "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
     },
     "evobind_tool": {
       "primary_stage": "protein_backbone_or_complex_generation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
     },
     "proteinmpnn_tool": {
       "primary_stage": "protein_sequence_design",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_sequence_design"
+      ]
     },
     "foldx_tool": {
       "primary_stage": "protein_design_repair_mutation_evaluation",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "protein_design_repair_mutation_evaluation"
+      ]
     },
     "base64_to_server_file": {
       "primary_stage": "file_import_decoding",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "file_import_decoding"
+      ]
     },
     "visualize_protein": {
       "primary_stage": "visualization_rendering",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "visualization_rendering"
+      ]
     },
     "visualize_molecule": {
       "primary_stage": "visualization_rendering",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "visualization_rendering"
+      ]
     },
     "interaction_visualizer": {
       "primary_stage": "visualization_rendering",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "visualization_rendering"
+      ]
     },
     "server_file_to_base64": {
       "primary_stage": "file_export_encoding",
-      "secondary_stages": [],
-      "rationale": "mapped by pruning taxonomy v3"
+      "scheduling_stages": [
+        "file_export_encoding"
+      ]
     }
   },
-  "allowed_stage_transitions": {
+  "allowed_transitions": {
     "target_identifier_acquisition": [
       "protein_sequence_qc_descriptor",
       "target_structure_prediction",
@@ -1608,30 +1006,18 @@
       "file_export_encoding"
     ]
   },
-  "same_pruning_stage_transition_policy": {
-    "transition_edges": "forbid",
-    "alternative_edges": "generate_by_cluster",
-    "cross_check_edges": "generate_by_cluster_or_explicit_evidence_only",
-    "validation_edges": "only_if_allowed_by_relation_specific_rule"
-  },
   "alternative_clusters": {
     "structure_prediction": {
       "tools": [
         "pred_protein_structure_esmfold",
         "chai1_predict"
-      ],
-      "relation": "alternative_to",
-      "condition_notes": [
-        "ESMFold is faster for single-chain proteins under certain settings.",
-        "Chai-1 supports multi-chain complex prediction."
       ]
     },
     "pocket_detection": {
       "tools": [
         "pred_pocket_prank",
         "fpocket_toolkit"
-      ],
-      "relation": "alternative_to"
+      ]
     },
     "molecular_generation": {
       "tools": [
@@ -1639,16 +1025,14 @@
         "linkinvent_linker_sampling_by_warheads",
         "libinvent_rgroup_sampling_by_scaffold",
         "pepinvent_peptide_sampling_by_template"
-      ],
-      "relation": "alternative_family"
+      ]
     },
     "interaction_analysis_static": {
       "tools": [
         "prolif_docking",
         "prolif_pdb",
         "analyze_protein_ligand_interactions"
-      ],
-      "relation": "alternative_or_complementary_analysis"
+      ]
     },
     "simulation_sampling": {
       "tools": [
@@ -1656,73 +1040,7 @@
         "run_bioemu",
         "openawsem_sim",
         "goca_pipeline"
-      ],
-      "relation": "alternative_or_method_family"
+      ]
     }
-  },
-  "edge_type_stage_policy": {
-    "generates_full_input_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "generates_partial_input_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "preprocesses_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "converts_format_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "parameterizes_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "filters_candidates_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "ranks_or_scores_for": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "validates_output_of": {
-      "requires_allowed_stage_transition": false,
-      "allow_same_stage_if_explicit_evidence": true
-    },
-    "refines_output_of": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "reports_or_summarizes": {
-      "requires_allowed_stage_transition": true,
-      "allow_same_stage": false
-    },
-    "alternative_to": {
-      "generated_by_cluster": true,
-      "pairwise_llm_optional": true
-    }
-  },
-  "stage_pruning_policy": {
-    "default_mode": "relation_aware",
-    "allowed_modes": [
-      "relation_aware",
-      "cross_stage_only",
-      "all"
-    ],
-    "recommended_mode": "relation_aware",
-    "notes": "relation_aware uses allowed_stage_transitions and same-stage policy; cross_stage_only/all are compatibility modes."
-  },
-  "coverage_policy": {
-    "expected_tool_count": 81,
-    "on_unmapped_tool": "fail_fast",
-    "on_unknown_stage": "fail_fast",
-    "agent_may_assign_stage": false,
-    "agent_must_use_tool_stage_map": true,
-    "agent_may_assign_secondary_stage_from_allowed_taxonomy": true,
-    "agent_may_not_create_new_stage": true
   }
 }

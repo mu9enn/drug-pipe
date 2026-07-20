@@ -937,7 +937,7 @@ def build_tool_cards(
             "progress_path": str(progress_path),
             "stages": stages,
             "stage_taxonomy_path": str(config.stage_taxonomy_path),
-            "stage_taxonomy_schema_version": taxonomy.raw.get("schema_version"),
+            "stage_taxonomy_version": taxonomy.version,
             "mapped_tool_count": len(taxonomy.tool_stage_map),
             "agent_success_count": agent_success_count,
             "agent_failure_count": agent_failure_count,

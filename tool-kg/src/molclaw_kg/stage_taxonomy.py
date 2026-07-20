@@ -13,29 +13,26 @@ from .io_utils import read_json
 class StageTaxonomy:
     path: Path
     raw: dict[str, Any]
-    stage_order: list[str]
+    version: str
+    display_order: list[str]
     stages: dict[str, Any]
     tool_stage_map: dict[str, Any]
-    allowed_stage_transitions: dict[str, list[str]]
-    same_stage_policy: dict[str, Any]
+    allowed_transitions: dict[str, list[str]]
     alternative_clusters: dict[str, Any]
-    edge_type_stage_policy: dict[str, Any]
-    pruning_policy: dict[str, Any]
-    coverage_policy: dict[str, Any]
 
     def allowed_stages(self) -> set[str]:
-        return set(self.stages.keys())
+        return set(self.stages)
 
-    def get_primary_stage(self, tool_id: str) -> str:
+    def _tool_info(self, tool_id: str) -> dict[str, Any]:
         info = self.tool_stage_map.get(tool_id)
         if isinstance(info, str):
-            stage = info.strip()
-            if stage not in self.allowed_stages():
-                raise ValueError(f"invalid primary_stage={stage} for tool_id={tool_id}")
-            return stage
+            return {"primary_stage": info, "scheduling_stages": [info]}
         if not isinstance(info, dict):
             raise KeyError(f"tool_id is not mapped in stage taxonomy: {tool_id}")
-        stage = str(info.get("primary_stage", "")).strip()
+        return info
+
+    def get_primary_stage(self, tool_id: str) -> str:
+        stage = str(self._tool_info(tool_id).get("primary_stage") or "").strip()
         if not stage:
             raise ValueError(f"primary_stage is missing for tool_id={tool_id}")
         if stage not in self.allowed_stages():
@@ -43,31 +40,33 @@ class StageTaxonomy:
         return stage
 
     def get_scheduling_stages(self, tool_id: str) -> list[str]:
-        info = self.tool_stage_map.get(tool_id)
-        if isinstance(info, str):
-            return []
-        if not isinstance(info, dict):
-            raise KeyError(f"tool_id is not mapped in stage taxonomy: {tool_id}")
-        values = info.get("scheduling_stages", info.get("secondary_stages", [])) or []
+        info = self._tool_info(tool_id)
+        primary = self.get_primary_stage(tool_id)
+        values = info.get("scheduling_stages")
+        if values is None:
+            values = [primary, *(info.get("secondary_stages") or [])]
+        if not isinstance(values, list):
+            raise ValueError(f"scheduling_stages must be a list for tool_id={tool_id}")
         out: list[str] = []
-        for x in values:
-            s = str(x).strip()
-            if s:
-                if s not in self.allowed_stages():
-                    raise ValueError(f"invalid scheduling_stage={s} for tool_id={tool_id}")
-                if s not in out:
-                    out.append(s)
+        for value in [primary, *values]:
+            stage = str(value).strip()
+            if not stage:
+                continue
+            if stage not in self.allowed_stages():
+                raise ValueError(f"invalid scheduling_stage={stage} for tool_id={tool_id}")
+            if stage not in out:
+                out.append(stage)
         return out
 
     def stage_order_index(self, stage: str) -> int:
         try:
-            return self.stage_order.index(stage)
+            return self.display_order.index(stage)
         except ValueError as exc:
             raise KeyError(f"unknown stage={stage}") from exc
 
     def validate_tool_coverage(self, tool_ids: Iterable[str]) -> None:
-        expected = {str(x).strip() for x in tool_ids if str(x).strip()}
-        mapped = set(self.tool_stage_map.keys())
+        expected = {str(value).strip() for value in tool_ids if str(value).strip()}
+        mapped = set(self.tool_stage_map)
         missing = sorted(expected - mapped)
         extra = sorted(mapped - expected)
         if missing:
@@ -75,125 +74,95 @@ class StageTaxonomy:
         if extra:
             raise ValueError(f"stage taxonomy contains extra mappings not in snapshot: {extra}")
 
-        exp_count = self.coverage_policy.get("expected_tool_count")
-        if exp_count is not None:
-            try:
-                exp_n = int(exp_count)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"coverage_policy.expected_tool_count must be int: {exp_count}") from exc
-            if exp_n != len(expected):
-                raise ValueError(f"expected_tool_count={exp_n} but snapshot has {len(expected)} tools")
-
     def is_transition_allowed(self, source_stage: str, target_stage: str) -> bool:
-        if source_stage == target_stage:
-            transition_policy = str(
-                (self.same_stage_policy or {}).get("transition_edges", "forbid")
-            ).strip()
-            return transition_policy not in {"forbid", "deny", "false", "0"}
-        allowed = self.allowed_stage_transitions.get(source_stage, [])
-        return target_stage in allowed
+        return target_stage in self.allowed_transitions.get(source_stage, [])
 
-    def alternative_pairs(self) -> list[tuple[str, str, str, str]]:
-        pairs: list[tuple[str, str, str, str]] = []
+    def supporting_stage_pairs(
+        self,
+        source_tool: str,
+        target_tool: str,
+    ) -> list[list[str]]:
+        return [
+            [source_stage, target_stage]
+            for source_stage in self.get_scheduling_stages(source_tool)
+            for target_stage in self.get_scheduling_stages(target_tool)
+            if self.is_transition_allowed(source_stage, target_stage)
+        ]
+
+    def alternative_pairs(self) -> list[tuple[str, str, str]]:
+        pairs: list[tuple[str, str, str]] = []
         for cluster_id, spec in self.alternative_clusters.items():
             if not isinstance(spec, dict):
                 continue
-            relation = str(spec.get("relation", "alternative_to")).strip() or "alternative_to"
-            tools = [str(x).strip() for x in (spec.get("tools") or []) if str(x).strip()]
-            for i in range(len(tools)):
-                for j in range(len(tools)):
-                    if i == j:
-                        continue
-                    pairs.append((tools[i], tools[j], relation, str(cluster_id)))
+            tools = [str(value).strip() for value in spec.get("tools") or [] if str(value).strip()]
+            for source in tools:
+                for target in tools:
+                    if source != target:
+                        pairs.append((source, target, str(cluster_id)))
         return pairs
 
 
 def load_stage_taxonomy(path: Path) -> StageTaxonomy:
     raw = read_json(path)
-    stage_order = raw.get("stage_order")
-    stages = raw.get("pruning_stages") or raw.get("stages")
-    tool_stage_map = raw.get("tool_pruning_stage_map") or raw.get("tool_stage_map")
-    allowed_stage_transitions = raw.get("allowed_stage_transitions", {}) or {}
-    same_stage_policy = raw.get("same_pruning_stage_transition_policy", {}) or {}
+    version = str(raw.get("version") or raw.get("schema_version") or "").strip()
+    display_order = raw.get("display_order") or raw.get("stage_order")
+    stages = raw.get("stages") or raw.get("pruning_stages")
+    tool_stage_map = raw.get("tool_stage_map") or raw.get("tool_pruning_stage_map")
+    allowed_transitions = raw.get("allowed_transitions")
+    if allowed_transitions is None:
+        allowed_transitions = raw.get("allowed_stage_transitions", {})
     alternative_clusters = raw.get("alternative_clusters", {}) or {}
-    edge_type_stage_policy = raw.get("edge_type_stage_policy", {}) or {}
-    pruning_policy = raw.get("stage_pruning_policy", {}) or {}
-    coverage_policy = raw.get("coverage_policy", {}) or {}
-
-    if not isinstance(stage_order, list) or not stage_order:
-        raise ValueError("stage_order must be a non-empty list")
+    if not version:
+        raise ValueError("taxonomy version is required")
+    if not isinstance(display_order, list) or not display_order:
+        raise ValueError("display_order must be a non-empty list")
     if not isinstance(stages, dict) or not stages:
         raise ValueError("stages must be a non-empty mapping")
     if not isinstance(tool_stage_map, dict):
         raise ValueError("tool_stage_map must be a mapping")
-    if not isinstance(allowed_stage_transitions, dict):
-        raise ValueError("allowed_stage_transitions must be a mapping")
-    if not isinstance(same_stage_policy, dict):
-        raise ValueError("same_pruning_stage_transition_policy must be a mapping")
+    if not isinstance(allowed_transitions, dict):
+        raise ValueError("allowed_transitions must be a mapping")
     if not isinstance(alternative_clusters, dict):
         raise ValueError("alternative_clusters must be a mapping")
-    if not isinstance(edge_type_stage_policy, dict):
-        raise ValueError("edge_type_stage_policy must be a mapping")
 
-    allowed = set(stages.keys())
-    missing_stage_defs = [s for s in stage_order if s not in allowed]
-    if missing_stage_defs:
-        raise ValueError(f"stage_order contains unknown stages: {missing_stage_defs}")
-
-    for tool_id, info in tool_stage_map.items():
-        if isinstance(info, str):
-            if info not in allowed:
-                raise ValueError(f"tool_stage_map[{tool_id}] has unknown primary_stage={info}")
-            continue
-        if not isinstance(info, dict):
-            raise ValueError(f"tool_stage_map[{tool_id}] must be an object")
-        primary = str(info.get("primary_stage", "")).strip()
-        if not primary:
-            raise ValueError(f"tool_stage_map[{tool_id}] missing primary_stage")
-        if primary not in allowed:
-            raise ValueError(f"tool_stage_map[{tool_id}] has unknown primary_stage={primary}")
-        secondaries = info.get("secondary_stages", []) or []
-        if not isinstance(secondaries, list):
-            raise ValueError(f"tool_stage_map[{tool_id}].secondary_stages must be a list")
-        for s in secondaries:
-            ss = str(s).strip()
-            if ss and ss not in allowed:
-                raise ValueError(f"tool_stage_map[{tool_id}] has unknown secondary_stage={ss}")
-
-    for src, targets in allowed_stage_transitions.items():
-        if src not in allowed:
-            raise ValueError(f"allowed_stage_transitions has unknown source stage={src}")
-        if not isinstance(targets, list):
-            raise ValueError(f"allowed_stage_transitions[{src}] must be a list")
-        for tgt in targets:
-            tt = str(tgt).strip()
-            if tt not in allowed:
-                raise ValueError(f"allowed_stage_transitions has unknown target stage={src}->{tt}")
-
+    allowed = set(stages)
+    unknown_display = [stage for stage in display_order if stage not in allowed]
+    if unknown_display:
+        raise ValueError(f"display_order contains unknown stages: {unknown_display}")
+    taxonomy = StageTaxonomy(
+        path=path.resolve(),
+        raw=raw,
+        version=version,
+        display_order=[str(stage) for stage in display_order],
+        stages=stages,
+        tool_stage_map=tool_stage_map,
+        allowed_transitions={
+            str(source): [str(target) for target in targets or []]
+            for source, targets in allowed_transitions.items()
+        },
+        alternative_clusters=alternative_clusters,
+    )
+    for tool_id in tool_stage_map:
+        taxonomy.get_primary_stage(str(tool_id))
+        taxonomy.get_scheduling_stages(str(tool_id))
+    for source, targets in taxonomy.allowed_transitions.items():
+        if source not in allowed:
+            raise ValueError(f"allowed_transitions has unknown source stage={source}")
+        for target in targets:
+            if target not in allowed:
+                raise ValueError(f"allowed_transitions has unknown target stage={source}->{target}")
     for cluster_id, spec in alternative_clusters.items():
         if not isinstance(spec, dict):
             raise ValueError(f"alternative_clusters[{cluster_id}] must be an object")
-        tools = spec.get("tools", []) or []
+        tools = spec.get("tools") or []
         if not isinstance(tools, list) or len(tools) < 2:
             raise ValueError(f"alternative_clusters[{cluster_id}] must include at least two tools")
         for tool_id in tools:
-            t = str(tool_id).strip()
-            if t not in tool_stage_map:
-                raise ValueError(f"alternative_clusters[{cluster_id}] references unknown tool={t}")
-
-    return StageTaxonomy(
-        path=path.resolve(),
-        raw=raw,
-        stage_order=[str(s) for s in stage_order],
-        stages=stages,
-        tool_stage_map=tool_stage_map,
-        allowed_stage_transitions={str(k): [str(x) for x in (v or [])] for k, v in allowed_stage_transitions.items()},
-        same_stage_policy=same_stage_policy,
-        alternative_clusters=alternative_clusters,
-        edge_type_stage_policy=edge_type_stage_policy,
-        pruning_policy=pruning_policy,
-        coverage_policy=coverage_policy,
-    )
+            if str(tool_id) not in tool_stage_map:
+                raise ValueError(
+                    f"alternative_clusters[{cluster_id}] references unknown tool={tool_id}"
+                )
+    return taxonomy
 
 
 _DEFAULT_TAXONOMY: StageTaxonomy | None = None
@@ -211,30 +180,24 @@ def get_default_stage_taxonomy() -> StageTaxonomy:
 
 
 def allowed_stages(taxonomy: StageTaxonomy | None = None) -> set[str]:
-    t = taxonomy or get_default_stage_taxonomy()
-    return t.allowed_stages()
+    return (taxonomy or get_default_stage_taxonomy()).allowed_stages()
 
 
 def get_primary_stage(tool_id: str, taxonomy: StageTaxonomy | None = None) -> str:
-    t = taxonomy or get_default_stage_taxonomy()
-    return t.get_primary_stage(tool_id)
-
-
-def get_secondary_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
-    t = taxonomy or get_default_stage_taxonomy()
-    return t.get_scheduling_stages(tool_id)
+    return (taxonomy or get_default_stage_taxonomy()).get_primary_stage(tool_id)
 
 
 def get_scheduling_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
-    t = taxonomy or get_default_stage_taxonomy()
-    return t.get_scheduling_stages(tool_id)
+    return (taxonomy or get_default_stage_taxonomy()).get_scheduling_stages(tool_id)
+
+
+def get_secondary_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
+    return get_scheduling_stages(tool_id, taxonomy)
 
 
 def validate_tool_coverage(tool_ids: Iterable[str], taxonomy: StageTaxonomy | None = None) -> None:
-    t = taxonomy or get_default_stage_taxonomy()
-    t.validate_tool_coverage(tool_ids)
+    (taxonomy or get_default_stage_taxonomy()).validate_tool_coverage(tool_ids)
 
 
 def stage_order_index(stage: str, taxonomy: StageTaxonomy | None = None) -> int:
-    t = taxonomy or get_default_stage_taxonomy()
-    return t.stage_order_index(stage)
+    return (taxonomy or get_default_stage_taxonomy()).stage_order_index(stage)

@@ -129,6 +129,7 @@ class CandidatePair(BaseModel):
     target_tool: str
     source_stage: str
     target_stage: str
+    taxonomy_supporting_stage_pairs: list[list[str]] = Field(default_factory=list)
     proposal_reasons: list[str] = Field(default_factory=list)
     recall_risk: str | None = None
 

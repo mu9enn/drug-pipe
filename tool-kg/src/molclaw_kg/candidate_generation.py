@@ -31,8 +31,8 @@ def generate_candidates(config: ProjectConfig) -> dict[str, Any]:
     tools = sorted(tool_map.keys())
     all_pairs = list(itertools.permutations(tools, 2))
     alternative_pairs = {
-        (src, tgt): (relation, cluster_id)
-        for src, tgt, relation, cluster_id in taxonomy.alternative_pairs()
+        (src, tgt): cluster_id
+        for src, tgt, cluster_id in taxonomy.alternative_pairs()
         if src in tool_map and tgt in tool_map
     }
 
@@ -41,17 +41,17 @@ def generate_candidates(config: ProjectConfig) -> dict[str, Any]:
     taxonomy_allowed_count = 0
     for a, b in all_pairs:
         src_card, tgt_card = tool_map[a], tool_map[b]
-        source_stage = str(src_card["primary_stage"])
-        target_stage = str(tgt_card["primary_stage"])
-        taxonomy_allowed = taxonomy.is_transition_allowed(source_stage, target_stage)
+        source_stage = taxonomy.get_primary_stage(a)
+        target_stage = taxonomy.get_primary_stage(b)
+        supporting_stage_pairs = taxonomy.supporting_stage_pairs(a, b)
+        taxonomy_allowed = bool(supporting_stage_pairs)
         alternative = alternative_pairs.get((a, b))
         reasons: list[str] = []
         if taxonomy_allowed:
             reasons.append("taxonomy_allowed_transition")
             taxonomy_allowed_count += 1
         if alternative is not None:
-            relation, cluster_id = alternative
-            reasons.append(f"taxonomy_alternative:{relation}:{cluster_id}")
+            reasons.append(f"taxonomy_alternative_cluster:{alternative}")
         if not reasons:
             excluded.append(
                 {
@@ -72,6 +72,7 @@ def generate_candidates(config: ProjectConfig) -> dict[str, Any]:
                 target_tool=b,
                 source_stage=source_stage,
                 target_stage=target_stage,
+                taxonomy_supporting_stage_pairs=supporting_stage_pairs,
                 proposal_reasons=reasons,
                 recall_risk=None,
             )

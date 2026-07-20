@@ -38,16 +38,15 @@ def build_provenance_sidecar(config: ProjectConfig) -> dict[str, Any]:
                     "label": "MolClawKGPipeline",
                 },
                 "plan": {
-                    "id": "plan::edge_ontology_v1",
+                    "id": "plan::edge_ontology_v2",
                     "type": "prov:Plan",
-                    "label": "edge_type_v1 + rules_v1",
+                    "label": "edge_ontology_v2",
                 },
                 "wasGeneratedBy": f"activity::{pair_id}",
                 "wasAttributedTo": "agent::molclaw_kg_pipeline",
                 "used": [
                     "entity::tool_snapshot",
                     "entity::tool_cards",
-                    "entity::doc_chunks",
                     "entity::candidate_pairs",
                 ],
                 "specialization": {

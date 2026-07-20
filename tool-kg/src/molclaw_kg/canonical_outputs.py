@@ -93,7 +93,6 @@ def _config_hashes(config: ProjectConfig) -> dict[str, str]:
     paths = {
         "taxonomy": config.stage_taxonomy_path,
         "edge_ontology": config.paths.configs / "edge_ontology_v1.yaml",
-        "rules": config.paths.configs / "rules_v1.yaml",
     }
     return {name: sha256_file(path) for name, path in paths.items() if path.is_file()}
 

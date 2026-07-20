@@ -46,7 +46,6 @@ def config_for(root: Path) -> SimpleNamespace:
     run_dir.mkdir(parents=True)
     return SimpleNamespace(
         paths=SimpleNamespace(run_dir=run_dir),
-        rules={"thresholds": {"core_min": 0.8, "expanded_min": 0.55}},
     )
 
 

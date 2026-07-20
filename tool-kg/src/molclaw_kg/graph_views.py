@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from .io_utils import read_jsonl, write_json, write_jsonl
 from .models import FinalEdge
@@ -24,7 +27,14 @@ def build_graph_views(config: ProjectConfig) -> dict[str, Any]:
     canonical = read_jsonl(config.paths.run_dir / "canonical_edges.jsonl")
     cards = {x["tool_id"]: x for x in read_jsonl(config.paths.run_dir / "tool_cards.jsonl")}
 
-    th = config.rules.get("thresholds", {})
+    configs_dir = getattr(config.paths, "configs", None)
+    profile_path = (
+        Path(configs_dir) / "legacy" / "graph_views_v1.yaml"
+        if configs_dir is not None
+        else Path()
+    )
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) if profile_path.is_file() else {}
+    th = (profile or {}).get("thresholds", {})
     core_min = float(th.get("core_min", 0.80))
     expanded_min = float(th.get("expanded_min", 0.55))
     final_edges: list[FinalEdge] = []
