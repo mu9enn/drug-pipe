@@ -56,7 +56,10 @@ flowchart TD
 
 SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state 上生成下一步 action。生成 action 不会被执行，也不会取得新 observation。正式训练入口在启动 Ray 前加载 `offline_training_env.sh`，清除 MolClaw credentials，并由 MCP client/executor fail closed。
 
-真实工具交互只允许在 Data-Pipe 执行层和显式 online debug 中发生。`debug_mcp_tools.py`、`debug_one_task.py` 与 `debug_replay_trajectory.py` 必须设置 `DRUG_AGENT_ALLOW_TOOL_ENV=1`。
+真实工具交互只允许在 Data-Pipe 执行层和显式 online debug 中发生。VS、AC、PF、E2E、KG
+统一连接固定命名的 `molclaw-scp`，不保留 task-specific MCP server。
+`debug_mcp_tools.py`、`debug_one_task.py` 与 `debug_replay_trajectory.py` 必须设置
+`DRUG_AGENT_ALLOW_TOOL_ENV=1`。
 
 ## 显式兼容层
 

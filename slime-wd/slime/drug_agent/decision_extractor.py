@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 TOOL_CALL_RE = re.compile(r"<tool_call>([\s\S]*?)</tool_call>")
 FINAL_ANSWER_RE = re.compile(r"<final_answer>([\s\S]*?)</final_answer>")
-MOLCLAW_PREFIX_RE = re.compile(r"^mcp__molclaw-(?:scp|vs)__")
+MOLCLAW_PREFIX_RE = re.compile(r"^mcp__molclaw-scp__")
 
 
 def normalize_tool_call(call: dict[str, Any]) -> dict[str, Any]:

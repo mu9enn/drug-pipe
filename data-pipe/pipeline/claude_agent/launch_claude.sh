@@ -25,11 +25,11 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 SKIP_PROVIDER_SWITCH=0
 SKIP_MCP_VERIFY=0
 
-# Allow env override; task defaults are filled later if empty.
-MCP_SERVER_NAME="${MCP_SERVER_NAME:-}"
-MCP_SERVER_URL="${MCP_SERVER_URL:-}"
-MCP_SERVER_AUTH="${MCP_SERVER_AUTH:-}"
-MCP_SERVER_AUTH_HEADER="${MCP_SERVER_AUTH_HEADER:-}"
+# Every task uses the same canonical MCP server.
+MCP_SERVER_NAME="molclaw-scp"
+MCP_SERVER_URL="${MOLCLAW_SCP_MCP_URL:-}"
+MCP_SERVER_AUTH="${MOLCLAW_SCP_MCP_AUTH:-}"
+MCP_SERVER_AUTH_HEADER="${MOLCLAW_SCP_MCP_AUTH_HEADER:-SCP-HUB-API-KEY}"
 MCP_SERVER_SCOPE="${MCP_SERVER_SCOPE:-project}"
 
 # Single-sample mode options
@@ -132,33 +132,17 @@ if [[ "$TASK" == "vs" ]]; then
   : "${SKILLS_ROOT:=skills/skills_vs}"
   : "${SYSTEM_PROMPT_FILE:=system_prompt_result.md}"
   : "${DATASET_CSV:=$REPO_DIR/molbench/molbench-vs-900.csv}"
-  : "${MCP_SERVER_NAME:=${MOLCLAW_VS_MCP_SERVER_NAME:-molclaw-vs}}"
-  : "${MCP_SERVER_URL:=${MOLCLAW_VS_MCP_URL:-}}"
-  : "${MCP_SERVER_AUTH:=${MOLCLAW_VS_MCP_AUTH:-}}"
-  : "${MCP_SERVER_AUTH_HEADER:=${MOLCLAW_VS_MCP_AUTH_HEADER:-X-MCP-AUTH}}"
 elif [[ "$TASK" == "e2e" ]]; then
   : "${SKILLS_ROOT:=skills/skills_full}"
   : "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
   : "${DATASET_CSV:=$REPO_DIR/molbench/MolBench-E2E/e2e_dataset.csv}"
-  : "${MCP_SERVER_NAME:=${MOLCLAW_SCP_MCP_SERVER_NAME:-molclaw-scp}}"
-  : "${MCP_SERVER_URL:=${MOLCLAW_SCP_MCP_URL:-}}"
-  : "${MCP_SERVER_AUTH:=${MOLCLAW_SCP_MCP_AUTH:-}}"
-  : "${MCP_SERVER_AUTH_HEADER:=${MOLCLAW_SCP_MCP_AUTH_HEADER:-SCP-HUB-API-KEY}}"
 elif [[ "$TASK" == "kg" ]]; then
   : "${SKILLS_ROOT:=skills/skills_full}"
   : "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
-  : "${MCP_SERVER_NAME:=${MOLCLAW_SCP_MCP_SERVER_NAME:-molclaw-scp}}"
-  : "${MCP_SERVER_URL:=${MOLCLAW_SCP_MCP_URL:-}}"
-  : "${MCP_SERVER_AUTH:=${MOLCLAW_SCP_MCP_AUTH:-}}"
-  : "${MCP_SERVER_AUTH_HEADER:=${MOLCLAW_SCP_MCP_AUTH_HEADER:-SCP-HUB-API-KEY}}"
 else
   : "${SKILLS_ROOT:=skills/skills_full}"
   : "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
   : "${DATASET_CSV:=$REPO_DIR/molbench/molbench-${TASK}-900.csv}"
-  : "${MCP_SERVER_NAME:=${MOLCLAW_SCP_MCP_SERVER_NAME:-molclaw-scp}}"
-  : "${MCP_SERVER_URL:=${MOLCLAW_SCP_MCP_URL:-}}"
-  : "${MCP_SERVER_AUTH:=${MOLCLAW_SCP_MCP_AUTH:-}}"
-  : "${MCP_SERVER_AUTH_HEADER:=${MOLCLAW_SCP_MCP_AUTH_HEADER:-SCP-HUB-API-KEY}}"
 fi
 
 if [[ "$TASK" == "kg" && -z "${DATASET_CSV:-}" ]]; then
@@ -169,16 +153,14 @@ fi
 if [[ -z "${MCP_SERVER_URL:-}" ]]; then
   cat >&2 <<'EOF'
 [error] MCP server URL is empty.
-Please set task-specific MCP env vars, e.g.:
-  export MOLCLAW_VS_MCP_URL='https://.../mcp'
-  export MOLCLAW_VS_MCP_AUTH='...'
+Please configure the canonical MolClaw MCP endpoint:
   export MOLCLAW_SCP_MCP_URL='http://.../mcp'
   export MOLCLAW_SCP_MCP_AUTH='...'
 EOF
   exit 1
 fi
 if [[ -z "${MCP_SERVER_AUTH:-}" ]]; then
-  echo "[error] MCP auth token is empty. Please set auth env for current task server." >&2
+  echo "[error] MCP auth token is empty. Please set MOLCLAW_SCP_MCP_AUTH." >&2
   exit 1
 fi
 

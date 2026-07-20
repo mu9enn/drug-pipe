@@ -39,7 +39,7 @@ def _partition_cleaned_tool_calls(tool_info: dict[str, Any]) -> tuple[list[dict[
     for call in tool_info.get("tool_calls") or []:
         raw = str(call.get("tool_name_raw") or "")
         bare = str(call.get("tool_name") or "").strip().lower()
-        is_molclaw_mcp = raw.startswith(("mcp__molclaw-scp__", "mcp__molclaw-vs__"))
+        is_molclaw_mcp = raw.startswith("mcp__molclaw-scp__")
         is_other_mcp = raw.startswith("mcp__") and not is_molclaw_mcp
         if is_other_mcp or bare in NON_MOLCLAW_LOCAL_TOOLS:
             rejected.append(call)

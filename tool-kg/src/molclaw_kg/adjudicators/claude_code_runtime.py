@@ -155,14 +155,14 @@ class ClaudeCodeRuntime:
         self.config = config
         self.provider = os.getenv("MOLCLAW_AGENT_PROVIDER", os.getenv("CC_SWITCH_PROVIDER", "manual"))
         self.claude_bin = "claude"
-        self.mcp_server_name = os.getenv("MOLCLAW_SCP_MCP_SERVER_NAME", os.getenv("MOLCLAW_AGENT_MCP_SERVER_NAME", "molclaw-scp"))
+        self.mcp_server_name = "molclaw-scp"
         self.mcp_server_url = (
-            os.getenv("MOLCLAW_SCP_MCP_URL", os.getenv("MOLCLAW_AGENT_MCP_SERVER_URL", ""))
+            os.getenv("MOLCLAW_SCP_MCP_URL", "")
             or config.runtime.server_url
         )
-        self.mcp_auth_header = os.getenv("MOLCLAW_SCP_MCP_AUTH_HEADER", os.getenv("MOLCLAW_AGENT_MCP_AUTH_HEADER", "SCP-HUB-API-KEY"))
+        self.mcp_auth_header = os.getenv("MOLCLAW_SCP_MCP_AUTH_HEADER", "SCP-HUB-API-KEY")
         self.mcp_auth_token = (
-            os.getenv("MOLCLAW_SCP_MCP_AUTH", os.getenv("MOLCLAW_AGENT_MCP_AUTH_TOKEN", ""))
+            os.getenv("MOLCLAW_SCP_MCP_AUTH", "")
             or config.runtime.api_key
         )
 

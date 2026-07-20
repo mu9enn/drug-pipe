@@ -5,7 +5,6 @@ from pathlib import Path
 
 from drug_agent.decision_extractor import (
     iter_react_decisions,
-    normalize_tool_call,
     parse_assistant_decision,
 )
 from drug_agent.gad.data import convert_records
@@ -34,10 +33,6 @@ class TestSharedDecisionExtractor(unittest.TestCase):
         parsed = parse_assistant_decision(TOOL)
         self.assertTrue(parsed["ok"])
         self.assertEqual(parsed["tool_calls"][0]["tool_name"], "is_valid_smiles")
-        self.assertEqual(
-            normalize_tool_call({"tool_name": "mcp__molclaw-vs__dock", "arguments": {}})["tool_name"],
-            "dock",
-        )
 
     def test_current_state_never_contains_future_observation(self):
         decisions = list(iter_react_decisions(self.messages))

@@ -1,12 +1,5 @@
 {
   "mcpServers": {
-    "molclaw-vs": {
-      "type": "http",
-      "url": "https://<your-vs-mcp>/mcp",
-      "headers": {
-        "Authorization": "<MOLCLAW_VS_MCP_AUTH>"
-      }
-    },
     "molclaw-scp": {
       "type": "http",
       "url": "https://<your-scp-mcp>/mcp",

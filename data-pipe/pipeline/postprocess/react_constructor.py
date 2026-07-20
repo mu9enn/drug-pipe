@@ -10,7 +10,7 @@ except ImportError:
     from cleaning.primitives import inspect_observation_status, sanitize_artifact_paths
 
 
-MOLCLAW_PREFIXES = ("mcp__molclaw-scp__", "mcp__molclaw-vs__")
+MOLCLAW_PREFIX = "mcp__molclaw-scp__"
 CANONICAL_SYSTEM_PROMPT = """You are a scientific agent operating under the canonical ReAct protocol.
 Use only real MolClaw calls from the recorded execution. Write scientific reasoning inside
 <thought>...</thought>, calls inside <tool_call>...</tool_call>, recorded results inside
@@ -41,9 +41,8 @@ IMPORTANT_OBSERVATION_KEYS = (
 
 def bare_tool_name(raw_name: str) -> str | None:
     name = str(raw_name or "").strip()
-    for prefix in MOLCLAW_PREFIXES:
-        if name.startswith(prefix):
-            return name[len(prefix) :].strip() or None
+    if name.startswith(MOLCLAW_PREFIX):
+        return name[len(MOLCLAW_PREFIX) :].strip() or None
     return None
 
 
