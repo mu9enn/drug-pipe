@@ -62,7 +62,7 @@ class CandidateSchedulingTest(unittest.TestCase):
                 run_dir / "pair_adjudications.jsonl",
                 [{"pair_id": "pair::source_tool__to__target_tool"}],
             )
-            config = SimpleNamespace(paths=SimpleNamespace(run_dir=run_dir), stage_taxonomy_path=run_dir / "taxonomy.json")
+            config = SimpleNamespace(paths=SimpleNamespace(run_dir=run_dir, root=run_dir))
 
             with patch("molclaw_kg.candidate_generation.load_stage_taxonomy", return_value=FakeTaxonomy()):
                 result = generate_candidates(config)

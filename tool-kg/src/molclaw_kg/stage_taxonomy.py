@@ -44,7 +44,7 @@ class StageTaxonomy:
         primary = self.get_primary_stage(tool_id)
         values = info.get("scheduling_stages")
         if values is None:
-            values = [primary, *(info.get("secondary_stages") or [])]
+            values = [primary]
         if not isinstance(values, list):
             raise ValueError(f"scheduling_stages must be a list for tool_id={tool_id}")
         out: list[str] = []
@@ -168,14 +168,22 @@ def load_stage_taxonomy(path: Path) -> StageTaxonomy:
 _DEFAULT_TAXONOMY: StageTaxonomy | None = None
 
 
-def _default_taxonomy_path() -> Path:
-    return Path(os.getenv("MOLCLAW_STAGE_TAXONOMY_JSON", "configs/stage_taxonomy.json")).resolve()
+def resolve_stage_taxonomy_path(project_root: Path | None = None) -> Path:
+    configured = os.getenv("MOLCLAW_STAGE_TAXONOMY_JSON")
+    if configured:
+        path = Path(configured)
+        if not path.is_absolute() and project_root is not None:
+            path = project_root / path
+        return path.resolve()
+    if project_root is not None:
+        return (project_root / "configs" / "stage_taxonomy.json").resolve()
+    return Path("configs/stage_taxonomy.json").resolve()
 
 
 def get_default_stage_taxonomy() -> StageTaxonomy:
     global _DEFAULT_TAXONOMY
     if _DEFAULT_TAXONOMY is None:
-        _DEFAULT_TAXONOMY = load_stage_taxonomy(_default_taxonomy_path())
+        _DEFAULT_TAXONOMY = load_stage_taxonomy(resolve_stage_taxonomy_path())
     return _DEFAULT_TAXONOMY
 
 
@@ -189,10 +197,6 @@ def get_primary_stage(tool_id: str, taxonomy: StageTaxonomy | None = None) -> st
 
 def get_scheduling_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
     return (taxonomy or get_default_stage_taxonomy()).get_scheduling_stages(tool_id)
-
-
-def get_secondary_stages(tool_id: str, taxonomy: StageTaxonomy | None = None) -> list[str]:
-    return get_scheduling_stages(tool_id, taxonomy)
 
 
 def validate_tool_coverage(tool_ids: Iterable[str], taxonomy: StageTaxonomy | None = None) -> None:

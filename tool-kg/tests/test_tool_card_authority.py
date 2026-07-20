@@ -5,7 +5,11 @@ import unittest
 from pydantic import ValidationError
 
 from molclaw_kg.models import ToolAnnotationPatch
-from molclaw_kg.tool_card_builder import _base_tool_card, _merge_annotation_patch
+from molclaw_kg.tool_card_builder import (
+    _base_tool_card,
+    _default_input_requirement_sets,
+    _merge_annotation_patch,
+)
 
 
 class ToolCardAuthorityTest(unittest.TestCase):
@@ -117,6 +121,36 @@ class ToolCardAuthorityTest(unittest.TestCase):
                 fixed_primary="stage_a",
                 scheduling_stages=["stage_a"],
             )
+
+    def test_json_schema_variants_preserve_base_requirements(self) -> None:
+        schema = {
+            "required": ["base_input"],
+            "oneOf": [
+                {"required": ["input_a"]},
+                {"required": ["input_b"]},
+            ],
+        }
+        sets = _default_input_requirement_sets(self.base.inputs, schema)
+        self.assertEqual(len(sets), 2)
+        self.assertEqual(sets[0]["condition"], "oneOf")
+        self.assertEqual(sets[0]["required_slots"], ["base_input", "input_a"])
+        self.assertEqual(sets[1]["required_slots"], ["base_input", "input_b"])
+
+    def test_json_schema_if_then_is_kept_as_deterministic_requirement(self) -> None:
+        schema = {
+            "required": ["mode"],
+            "if": {
+                "properties": {
+                    "mode": {"const": "from_file"},
+                }
+            },
+            "then": {"required": ["input_file"]},
+        }
+        sets = _default_input_requirement_sets(self.base.inputs, schema)
+        self.assertEqual([item["set_id"] for item in sets], ["schema_default", "schema_if_then"])
+        self.assertEqual(sets[0]["required_slots"], ["mode"])
+        self.assertEqual(sets[1]["required_slots"], ["mode", "input_file"])
+        self.assertIn('"const": "from_file"', sets[1]["condition"])
 
 
 if __name__ == "__main__":

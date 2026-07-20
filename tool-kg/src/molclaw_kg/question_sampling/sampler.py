@@ -41,14 +41,6 @@ def _load_sampling_config(config: ProjectConfig) -> dict[str, Any]:
     return raw.get("legacy_policies") or {}
 
 
-def _load_template(config: ProjectConfig, repair: bool = False) -> str:
-    name = "toolchain_question_repair_v1.md" if repair else "toolchain_question_sampler_v1.md"
-    path = config.paths.configs / "prompts" / "legacy" / name
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    return path.read_text(encoding="utf-8").strip()
-
-
 def _copy_skills_bundle(skills_root: Path, workdir: Path) -> None:
     src_claude = skills_root / ".claude"
     src_md = skills_root / "CLAUDE.md"
@@ -901,7 +893,7 @@ def sample_questions(
         "partial_edge_count_in_successes": sum(int(x.get("partial_edge_count") or 0) for x in successes),
         "created_at_utc": _now_utc(),
     }
-    write_json(results / "workflow_quality_report.json", quality)
+    write_json(intermediate / "workflow_quality_report.json", quality)
     meta = {
         **quality, "sample_size_requested": sample_size, "seed": seed,
         "hop_range": {"min_hops": min_hops, "max_hops": max_hops},

@@ -21,7 +21,7 @@ from .io_utils import append_jsonl, atomic_write_jsonl, read_jsonl, sha256_text,
 from .models import Slot, ToolAnnotationPatch, ToolCard
 from .settings import ProjectConfig
 from .runtime_state import next_attempt_dir
-from .stage_taxonomy import load_stage_taxonomy
+from .stage_taxonomy import load_stage_taxonomy, resolve_stage_taxonomy_path
 
 
 def _slot_from_schema(
@@ -126,17 +126,26 @@ def _default_input_requirement_sets(
     input_schema: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     schema = input_schema or {}
-    variants = schema.get("oneOf") or schema.get("anyOf")
+    base_required = [str(value) for value in schema.get("required") or []]
+    variant_kind = "oneOf" if isinstance(schema.get("oneOf"), list) else "anyOf"
+    variants = schema.get(variant_kind)
     if isinstance(variants, list) and variants:
         out: list[dict[str, Any]] = []
         for index, variant in enumerate(variants, start=1):
             if not isinstance(variant, dict):
                 continue
-            required = [str(value) for value in variant.get("required") or []]
+            required = list(
+                dict.fromkeys(
+                    [
+                        *base_required,
+                        *[str(value) for value in variant.get("required") or []],
+                    ]
+                )
+            )
             out.append(
                 {
                     "set_id": f"schema_variant_{index:02d}",
-                    "condition": "oneOf" if schema.get("oneOf") is variants else "anyOf",
+                    "condition": variant_kind,
                     "required_slots": required,
                     "optional_slots": [
                         slot.name for slot in inputs if slot.name not in required and not slot.required
@@ -150,6 +159,45 @@ def _default_input_requirement_sets(
             )
         if out:
             return out
+    conditional = schema.get("if")
+    then_schema = schema.get("then")
+    if isinstance(conditional, dict) and isinstance(then_schema, dict):
+        then_required = list(
+            dict.fromkeys(
+                [
+                    *base_required,
+                    *[str(value) for value in then_schema.get("required") or []],
+                ]
+            )
+        )
+        return [
+            {
+                "set_id": "schema_default",
+                "condition": "default",
+                "required_slots": base_required,
+                "optional_slots": [
+                    slot.name for slot in inputs if slot.name not in base_required
+                ],
+                "defaulted_slots": [
+                    slot.name for slot in inputs if slot.default is not None
+                ],
+                "execution_meaning": "json_schema",
+                "source": "mcp_input_schema",
+            },
+            {
+                "set_id": "schema_if_then",
+                "condition": f"if:{json.dumps(conditional, ensure_ascii=False, sort_keys=True)}",
+                "required_slots": then_required,
+                "optional_slots": [
+                    slot.name for slot in inputs if slot.name not in then_required
+                ],
+                "defaulted_slots": [
+                    slot.name for slot in inputs if slot.default is not None
+                ],
+                "execution_meaning": "json_schema",
+                "source": "mcp_input_schema",
+            },
+        ]
     required_data = [x.name for x in inputs if x.required and x.parameter_kind in {"data", "unknown"}]
     optional_data = [x.name for x in inputs if (not x.required) and x.parameter_kind in {"data", "unknown"}]
     defaulted = [x.name for x in inputs if x.parameter_kind in {"config", "control"}]
@@ -774,7 +822,8 @@ def build_tool_cards(
         if missing:
             raise ValueError(f"requested tool_ids missing in snapshot: {missing}")
 
-    taxonomy = load_stage_taxonomy(config.stage_taxonomy_path)
+    taxonomy_path = resolve_stage_taxonomy_path(config.paths.root)
+    taxonomy = load_stage_taxonomy(taxonomy_path)
     tool_ids = [str((r.get("tool_id") or r.get("name") or "")).strip() for r in rows]
     if tool_ids_filter is None:
         taxonomy.validate_tool_coverage(tool_ids)
@@ -897,7 +946,7 @@ def build_tool_cards(
             "debug_path": str(debug_path),
             "progress_path": str(progress_path),
             "stages": stages,
-            "stage_taxonomy_path": str(config.stage_taxonomy_path),
+            "stage_taxonomy_path": str(taxonomy_path),
             "stage_taxonomy_version": taxonomy.version,
             "mapped_tool_count": len(taxonomy.tool_stage_map),
             "agent_success_count": agent_success_count,
@@ -920,7 +969,7 @@ def build_tool_cards(
         "output": str(out_path),
         "debug_output": str(debug_path),
         "progress_path": str(progress_path),
-        "stage_taxonomy_path": str(config.stage_taxonomy_path),
+        "stage_taxonomy_path": str(taxonomy_path),
         "alert_count": len(alerts),
         "alerts_path": str(alerts_path),
         "rerun_targets_path": str(rerun_path),

@@ -41,7 +41,6 @@ class CanonicalOutputsTest(unittest.TestCase):
             )
             config = SimpleNamespace(
                 paths=SimpleNamespace(root=root, run_dir=run_dir, configs=configs),
-                stage_taxonomy_path=taxonomy,
                 runtime=SimpleNamespace(skills_root=root / "skills", model_name="claude", server_url="test"),
             )
 

@@ -3,265 +3,112 @@
   "description": "Scheduling-only taxonomy for directed candidate proposal.",
   "stages": {
     "target_identifier_acquisition": {
-      "definition": "Retrieve target identifiers, metadata, or raw sequence records.",
-      "tools": [
-        "retrieve_protein_sequence"
-      ]
+      "definition": "Retrieve target identifiers, metadata, or raw sequence records."
     },
     "target_structure_acquisition": {
-      "definition": "Retrieve experimentally resolved or database structures.",
-      "tools": [
-        "retrieve_protein_structure_by_pdb_id",
-        "retrieve_protein_structure_by_uniprot_id",
-        "retrieve_protein_structure_by_gene_name"
-      ]
+      "definition": "Retrieve experimentally resolved or database structures."
     },
     "protein_sequence_qc_descriptor": {
-      "definition": "Validate or characterize protein sequences before structure prediction/design.",
-      "tools": [
-        "is_valid_protein_sequence",
-        "calculate_protein_sequence_properties"
-      ]
+      "definition": "Validate or characterize protein sequences before structure prediction/design."
     },
     "target_structure_prediction": {
-      "definition": "Predict protein or complex structures from sequence.",
-      "tools": [
-        "pred_protein_structure_esmfold",
-        "chai1_predict"
-      ]
+      "definition": "Predict protein or complex structures from sequence."
     },
     "structure_format_conversion": {
-      "definition": "Convert predicted or complex structures into downstream structural file formats.",
-      "tools": [
-        "convert_complex_cif_to_pdb"
-      ]
+      "definition": "Convert predicted or complex structures into downstream structural file formats."
     },
     "structure_chain_extraction": {
-      "definition": "Extract structural chains or chain sequences from structure files.",
-      "tools": [
-        "extract_and_save_chains",
-        "extract_pdb_chains"
-      ]
+      "definition": "Extract structural chains or chain sequences from structure files."
     },
     "structure_rebuild_repair": {
-      "definition": "Repair, rebuild, protonate, or complete protein structures.",
-      "tools": [
-        "fix_pdb",
-        "pulchura_rebuild"
-      ]
+      "definition": "Repair, rebuild, protonate, or complete protein structures."
     },
     "structure_sidechain_completion": {
-      "definition": "Complete or repack side chains from backbone structures.",
-      "tools": [
-        "pack_sidechains"
-      ]
+      "definition": "Complete or repack side chains from backbone structures."
     },
     "receptor_docking_format_preparation": {
-      "definition": "Convert prepared receptor structures into docking-specific receptor formats.",
-      "tools": [
-        "convert_pdb_to_pdbqt_dock"
-      ]
+      "definition": "Convert prepared receptor structures into docking-specific receptor formats."
     },
     "protein_structure_qc_descriptor": {
-      "definition": "Compute PDB-level geometry, quality, composition, or structural descriptors.",
-      "tools": [
-        "calculate_pdb_basic_info",
-        "calculate_pdb_structural_geometry",
-        "calculate_pdb_quality_metrics",
-        "calculate_pdb_composition_info"
-      ]
+      "definition": "Compute PDB-level geometry, quality, composition, or structural descriptors."
     },
     "ligand_identity_acquisition": {
-      "definition": "Retrieve SMILES or compound identity from external chemistry databases.",
-      "tools": [
-        "retrieve_smiles_by_compoundname"
-      ]
+      "definition": "Retrieve SMILES or compound identity from external chemistry databases."
     },
     "ligand_smiles_validation": {
-      "definition": "Validate SMILES strings before generation, property calculation, preparation, or docking.",
-      "tools": [
-        "is_valid_smiles"
-      ]
+      "definition": "Validate SMILES strings before generation, property calculation, preparation, or docking."
     },
     "ligand_file_preparation_conversion": {
-      "definition": "Convert valid SMILES or molecule lists into downstream molecular file formats.",
-      "tools": [
-        "convert_smiles_to_format"
-      ]
+      "definition": "Convert valid SMILES or molecule lists into downstream molecular file formats."
     },
     "ligand_descriptor_property_scoring": {
-      "definition": "Compute molecular descriptors, ADMET, drug-likeness, similarity, fragment, or phenotypic scores.",
-      "tools": [
-        "pred_mol_admet",
-        "calculate_dleps_score",
-        "calculate_mol_basic_info",
-        "calculate_mol_hydrophobicity",
-        "calculate_mol_hbond",
-        "calculate_mol_structure_complexity",
-        "calculate_mol_topology",
-        "calculate_mol_drug_chemistry",
-        "calculate_mol_charge",
-        "calculate_mol_complexity",
-        "calculate_morgan_fingerprint_similarity",
-        "calculate_common_fragments"
-      ]
+      "definition": "Compute molecular descriptors, ADMET, drug-likeness, similarity, fragment, or phenotypic scores."
     },
     "ligand_generation_template_acquisition": {
-      "definition": "Retrieve or prepare predefined peptide/template information for generators.",
-      "tools": [
-        "get_pepinvent_info"
-      ]
+      "definition": "Retrieve or prepare predefined peptide/template information for generators."
     },
     "ligand_de_novo_or_template_generation": {
-      "definition": "Generate new molecules, linkers, R-groups, scaffolds, or peptides from templates/warheads/scaffolds.",
-      "tools": [
-        "reinvent_denovo_sampling",
-        "linkinvent_linker_sampling_by_warheads",
-        "linkinvent_linker_sampling_by_warhead_pair_name",
-        "libinvent_rgroup_sampling_by_scaffold",
-        "libinvent_rgroup_sampling_by_scaffold_name",
-        "pepinvent_peptide_sampling_by_template",
-        "pepinvent_peptide_sampling_by_peptide"
-      ]
+      "definition": "Generate new molecules, linkers, R-groups, scaffolds, or peptides from templates/warheads/scaffolds."
     },
     "ligand_analog_optimization": {
-      "definition": "Optimize or expand molecules from existing seed molecules.",
-      "tools": [
-        "reinvent_mol2mol_sampling"
-      ]
+      "definition": "Optimize or expand molecules from existing seed molecules."
     },
     "binding_site_detection": {
-      "definition": "Detect, rank, or define candidate binding pockets from protein structures.",
-      "tools": [
-        "pred_pocket_prank",
-        "fpocket_toolkit"
-      ]
+      "definition": "Detect, rank, or define candidate binding pockets from protein structures."
     },
     "pose_generation_docking": {
-      "definition": "Generate protein-ligand, protein-protein, peptide-protein, or complex docking poses.",
-      "tools": [
-        "molecule_docking_quickvina_fullprocess",
-        "hdock_tool"
-      ]
+      "definition": "Generate protein-ligand, protein-protein, peptide-protein, or complex docking poses."
     },
     "docking_pose_pocket_extraction_for_rescoring": {
-      "definition": "Extract pockets or prepare pocket-level inputs from docking results for rescoring.",
-      "tools": [
-        "equiscore_pocket"
-      ]
+      "definition": "Extract pockets or prepare pocket-level inputs from docking results for rescoring."
     },
     "affinity_prediction_rescoring_screening": {
-      "definition": "Predict affinity, rescore poses, rank candidates, or perform virtual screening.",
-      "tools": [
-        "pred_binding_affinity_boltz2",
-        "equiscore_screen",
-        "karmadock_tool"
-      ]
+      "definition": "Predict affinity, rescore poses, rank candidates, or perform virtual screening."
     },
     "end_to_end_docking_scoring_pipeline": {
-      "definition": "One-click or wrapper pipelines that internally combine several docking/scoring steps.",
-      "tools": [
-        "equiscore_pipeline"
-      ]
+      "definition": "One-click or wrapper pipelines that internally combine several docking/scoring steps."
     },
     "static_interaction_analysis_validation": {
-      "definition": "Analyze static protein-ligand, peptide-protein, or protein-protein complexes or docking poses.",
-      "tools": [
-        "prolif_docking",
-        "prolif_pdb",
-        "analyze_protein_ligand_interactions"
-      ]
+      "definition": "Analyze static protein-ligand, peptide-protein, or protein-protein complexes or docking poses."
     },
     "trajectory_interaction_analysis": {
-      "definition": "Analyze interactions from MD trajectories or dynamic complex ensembles.",
-      "tools": [
-        "prolif_md",
-        "prolif_protein_protein"
-      ]
+      "definition": "Analyze interactions from MD trajectories or dynamic complex ensembles."
     },
     "simulation_system_preparation": {
-      "definition": "Prepare protein-only or protein-ligand/protein-protein systems for MD or free-energy calculation.",
-      "tools": [
-        "prepare_complex",
-        "prepare_protein_md"
-      ]
+      "definition": "Prepare protein-only or protein-ligand/protein-protein systems for MD or free-energy calculation."
     },
     "simulation_or_sampling_execution": {
-      "definition": "Run MD, coarse-grained simulation, conformational sampling, or relaxation workflows.",
-      "tools": [
-        "protein_openmm_md",
-        "run_bioemu",
-        "openawsem_sim",
-        "goca_pipeline"
-      ]
+      "definition": "Run MD, coarse-grained simulation, conformational sampling, or relaxation workflows."
     },
     "simulation_ensemble_extraction": {
-      "definition": "Extract representative structures or frames from simulation/sampling outputs.",
-      "tools": [
-        "openmm_extract_frames",
-        "extract_bioemu_structures",
-        "openawsem_traj_extract"
-      ]
+      "definition": "Extract representative structures or frames from simulation/sampling outputs."
     },
     "free_energy_calculation": {
-      "definition": "Compute binding free energy using MM/PBSA, MM/GBSA, or related methods.",
-      "tools": [
-        "run_mmpbsa",
-        "gmx_mmpbsa_propro"
-      ]
+      "definition": "Compute binding free energy using MM/PBSA, MM/GBSA, or related methods."
     },
     "free_energy_result_analysis": {
-      "definition": "Analyze and summarize free-energy calculation outputs.",
-      "tools": [
-        "analyze_mmpbsa"
-      ]
+      "definition": "Analyze and summarize free-energy calculation outputs."
     },
     "residue_numbering_mapping": {
-      "definition": "Map residue numbering between UniProt, PDB, predicted structures, and tool-internal schemes.",
-      "tools": [
-        "residue_mapper"
-      ]
+      "definition": "Map residue numbering between UniProt, PDB, predicted structures, and tool-internal schemes."
     },
     "protein_backbone_or_complex_generation": {
-      "definition": "Generate protein backbones, complexes, symmetric assemblies, or binder candidates.",
-      "tools": [
-        "chroma_monomer",
-        "chroma_complex",
-        "chroma_symmetry",
-        "evobind_tool"
-      ]
+      "definition": "Generate protein backbones, complexes, symmetric assemblies, or binder candidates."
     },
     "protein_sequence_design": {
-      "definition": "Design or score sequences conditioned on protein structures/backbones.",
-      "tools": [
-        "proteinmpnn_tool"
-      ]
+      "definition": "Design or score sequences conditioned on protein structures/backbones."
     },
     "protein_design_repair_mutation_evaluation": {
-      "definition": "Repair, mutate, score, or evaluate designed proteins/interfaces.",
-      "tools": [
-        "foldx_tool"
-      ]
+      "definition": "Repair, mutate, score, or evaluate designed proteins/interfaces."
     },
     "file_import_decoding": {
-      "definition": "Decode external/base64 content into server-side files.",
-      "tools": [
-        "base64_to_server_file"
-      ]
+      "definition": "Decode external/base64 content into server-side files."
     },
     "visualization_rendering": {
-      "definition": "Generate protein, molecule, or interaction visualization artifacts.",
-      "tools": [
-        "visualize_protein",
-        "visualize_molecule",
-        "interaction_visualizer"
-      ]
+      "definition": "Generate protein, molecule, or interaction visualization artifacts."
     },
     "file_export_encoding": {
-      "definition": "Encode server-side artifacts for transfer or reporting.",
-      "tools": [
-        "server_file_to_base64"
-      ]
+      "definition": "Encode server-side artifacts for transfer or reporting."
     }
   },
   "display_order": [

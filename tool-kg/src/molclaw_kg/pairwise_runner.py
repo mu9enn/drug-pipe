@@ -27,7 +27,7 @@ from .edge_ontology import (
 from .io_utils import append_jsonl, atomic_write_jsonl, read_jsonl, stable_hash_obj, write_json, write_jsonl
 from .settings import ProjectConfig
 from .runtime_state import latest_jsonl_by_key, next_attempt_dir
-from .stage_taxonomy import load_stage_taxonomy
+from .stage_taxonomy import load_stage_taxonomy, resolve_stage_taxonomy_path
 
 
 def _select_adjudicator(config: ProjectConfig, mode: str):
@@ -517,7 +517,7 @@ def run_pairwise_adjudication(
     reuse_existing = bool(resume or merge_into_existing)
     final_map: dict[str, dict[str, Any]] = latest_jsonl_by_key(out_path, "pair_id") if reuse_existing else {}
 
-    taxonomy = load_stage_taxonomy(config.stage_taxonomy_path)
+    taxonomy = load_stage_taxonomy(resolve_stage_taxonomy_path(config.paths.root))
     ontology = load_edge_ontology(config.paths.configs / "edge_ontology_v1.yaml")
     adjudication_schema = build_adjudication_schema(ontology)
     pruned: list[dict[str, Any]] = []

@@ -8,6 +8,7 @@ from typing import Any
 
 from .io_utils import read_jsonl, sha256_file, write_json, write_jsonl
 from .settings import ProjectConfig
+from .stage_taxonomy import resolve_stage_taxonomy_path
 
 
 def canonical_edge_to_decision(row: dict[str, Any]) -> dict[str, Any]:
@@ -91,7 +92,7 @@ def _git_commit(root: Path) -> str:
 
 def _config_hashes(config: ProjectConfig) -> dict[str, str]:
     paths = {
-        "taxonomy": config.stage_taxonomy_path,
+        "taxonomy": resolve_stage_taxonomy_path(config.paths.root),
         "edge_ontology": config.paths.configs / "edge_ontology_v1.yaml",
     }
     return {name: sha256_file(path) for name, path in paths.items() if path.is_file()}
@@ -142,7 +143,7 @@ def publish_canonical_outputs(config: ProjectConfig) -> dict[str, Any]:
         "run_id": run_dir.name,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": _git_commit(config.paths.root),
-        "taxonomy_path": str(config.stage_taxonomy_path),
+        "taxonomy_path": str(resolve_stage_taxonomy_path(config.paths.root)),
         "config_hashes": _config_hashes(config),
         "inputs": {
             "tool_snapshot": str(run_dir / "tool_snapshot.jsonl"),

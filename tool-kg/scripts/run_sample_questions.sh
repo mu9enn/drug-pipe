@@ -16,24 +16,24 @@
 #   - Writes canonical tasks to runs/<run_id>/results/tasks.jsonl.
 #   - Writes retry/workdir/audit state under runs/<run_id>/intermediate/stage3/.
 #
-# Main usage (simple_toolchain_question is the default mode):
-#   bash scripts/run_sample_questions.sh <run_id> \
-#     --target-successes <N> --max-attempts <N>
+# Main usage (simple_default is the default named profile):
+#   bash scripts/run_sample_questions.sh <run_id>
 #
 # Examples:
 #   # Simple success-first mode: stop at 20 usable questions or 200 attempts.
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
+#     --sampling-profile simple_default \
 #     --target-successes 20 --max-attempts 200 \
 #     --grounding-selection random_seeded \
 #     --max-repeat-target 2 --max-repeat-compound 2
 #
 #   # Simple-mode smoke test: generate one usable question.
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
-#     --target-successes 1 --max-attempts 10
+#     --sampling-profile simple_default --target-successes 1 --max-attempts 10
 #
 #   # Legacy closure mode must now be selected explicitly.
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
-#     --sampling-mode dag_closure --sample-size 20
+#     --sampling-profile dag_legacy --sample-size 20
 #
 #   # Override walk/anchor hop range. Defaults are 2 to 4.
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
@@ -64,26 +64,27 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_ID="${1:-}"
+SAMPLING_PROFILE="simple_default"
 SAMPLE_SIZE=""
-MIN_HOPS=2
-MAX_HOPS=4
+MIN_HOPS=""
+MAX_HOPS=""
 SEED=""
-SAMPLING_MODE="simple_toolchain_question"
-PARTIAL_POLICY="closure_required"
-EDGE_PROFILE="core_strict"
-MAX_REPAIR_ROUNDS=2
+SAMPLING_MODE=""
+PARTIAL_POLICY=""
+EDGE_PROFILE=""
+MAX_REPAIR_ROUNDS=""
 TARGET_SUCCESSES=""
 MAX_ATTEMPTS=""
-JSON_REPAIR_ROUNDS=1
-SCIENCE_KB_TOPK=3
-GROUNDING_SELECTION="random_seeded"
-MAX_REPEAT_TARGET=2
-MAX_REPEAT_COMPOUND=2
+JSON_REPAIR_ROUNDS=""
+SCIENCE_KB_TOPK=""
+GROUNDING_SELECTION=""
+MAX_REPEAT_TARGET=""
+MAX_REPEAT_COMPOUND=""
 
 usage() {
   echo "Usage:"
-  echo "  Default simple mode: $0 <run_id> --target-successes <N> --max-attempts <N> [--grounding-selection random_seeded] [...]"
-  echo "  Legacy strict mode: $0 <run_id> --sampling-mode dag_closure|linear_debug --sample-size <N> [...]"
+  echo "  Default simple profile: $0 <run_id> [--target-successes <N>] [--max-attempts <N>] [...]"
+  echo "  Legacy DAG profile: $0 <run_id> --sampling-profile dag_legacy [--sample-size <N>] [...]"
 }
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "--help" || "$RUN_ID" == "-h" ]]; then
@@ -94,6 +95,10 @@ shift || true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --sampling-profile)
+      SAMPLING_PROFILE="${2:-}"
+      shift 2
+      ;;
     --sample-size)
       SAMPLE_SIZE="${2:-}"
       shift 2
@@ -107,31 +112,31 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --json-repair-rounds)
-      JSON_REPAIR_ROUNDS="${2:-1}"
+      JSON_REPAIR_ROUNDS="${2:-}"
       shift 2
       ;;
     --science-kb-topk)
-      SCIENCE_KB_TOPK="${2:-3}"
+      SCIENCE_KB_TOPK="${2:-}"
       shift 2
       ;;
     --grounding-selection)
-      GROUNDING_SELECTION="${2:-random_seeded}"
+      GROUNDING_SELECTION="${2:-}"
       shift 2
       ;;
     --max-repeat-target)
-      MAX_REPEAT_TARGET="${2:-2}"
+      MAX_REPEAT_TARGET="${2:-}"
       shift 2
       ;;
     --max-repeat-compound)
-      MAX_REPEAT_COMPOUND="${2:-2}"
+      MAX_REPEAT_COMPOUND="${2:-}"
       shift 2
       ;;
     --min-hops)
-      MIN_HOPS="${2:-2}"
+      MIN_HOPS="${2:-}"
       shift 2
       ;;
     --max-hops)
-      MAX_HOPS="${2:-4}"
+      MAX_HOPS="${2:-}"
       shift 2
       ;;
     --seed)
@@ -139,19 +144,19 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --sampling-mode)
-      SAMPLING_MODE="${2:-simple_toolchain_question}"
+      SAMPLING_MODE="${2:-}"
       shift 2
       ;;
     --partial-policy)
-      PARTIAL_POLICY="${2:-closure_required}"
+      PARTIAL_POLICY="${2:-}"
       shift 2
       ;;
     --edge-profile)
-      EDGE_PROFILE="${2:-core_strict}"
+      EDGE_PROFILE="${2:-}"
       shift 2
       ;;
     --max-repair-rounds)
-      MAX_REPAIR_ROUNDS="${2:-2}"
+      MAX_REPAIR_ROUNDS="${2:-}"
       shift 2
       ;;
     --help|-h)
@@ -165,18 +170,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-if [[ "$SAMPLING_MODE" == "simple_toolchain_question" ]]; then
-  if [[ -z "$TARGET_SUCCESSES" || -z "$MAX_ATTEMPTS" ]]; then
-    echo "ERROR: simple mode requires --target-successes and --max-attempts" >&2
-    usage
-    exit 2
-  fi
-elif [[ -z "$SAMPLE_SIZE" ]]; then
-    echo "ERROR: strict modes require --sample-size" >&2
-    usage
-    exit 2
-fi
 
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
   set -a
@@ -214,32 +207,33 @@ cmd=(
   --api-key "$API_KEY"
   --mode claude_cc
   sample-questions
-  --min-hops "$MIN_HOPS"
-  --max-hops "$MAX_HOPS"
-  --sampling-mode "$SAMPLING_MODE"
-  --partial-policy "$PARTIAL_POLICY"
-  --edge-profile "$EDGE_PROFILE"
-  --max-repair-rounds "$MAX_REPAIR_ROUNDS"
+  --sampling-profile "$SAMPLING_PROFILE"
 )
 
-if [[ "$SAMPLING_MODE" == "simple_toolchain_question" ]]; then
-  cmd+=(
-    --target-successes "$TARGET_SUCCESSES"
-    --max-attempts "$MAX_ATTEMPTS"
-    --json-repair-rounds "$JSON_REPAIR_ROUNDS"
-    --science-kb-topk "$SCIENCE_KB_TOPK"
-    --grounding-selection "$GROUNDING_SELECTION"
-    --max-repeat-target "$MAX_REPEAT_TARGET"
-    --max-repeat-compound "$MAX_REPEAT_COMPOUND"
-  )
-else
-  cmd+=(--sample-size "$SAMPLE_SIZE")
-fi
+append_override() {
+  local value="$1"
+  local flag="$2"
+  if [[ -n "$value" ]]; then
+    cmd+=("$flag" "$value")
+  fi
+}
 
-if [[ -n "$SEED" ]]; then
-  cmd+=(--seed "$SEED")
-fi
+append_override "$SAMPLE_SIZE" --sample-size
+append_override "$TARGET_SUCCESSES" --target-successes
+append_override "$MAX_ATTEMPTS" --max-attempts
+append_override "$JSON_REPAIR_ROUNDS" --json-repair-rounds
+append_override "$SCIENCE_KB_TOPK" --science-kb-topk
+append_override "$GROUNDING_SELECTION" --grounding-selection
+append_override "$MAX_REPEAT_TARGET" --max-repeat-target
+append_override "$MAX_REPEAT_COMPOUND" --max-repeat-compound
+append_override "$MIN_HOPS" --min-hops
+append_override "$MAX_HOPS" --max-hops
+append_override "$SEED" --seed
+append_override "$SAMPLING_MODE" --sampling-mode
+append_override "$PARTIAL_POLICY" --partial-policy
+append_override "$EDGE_PROFILE" --edge-profile
+append_override "$MAX_REPAIR_ROUNDS" --max-repair-rounds
 
-echo "[sample-questions] run_id=$RUN_ID mode=$SAMPLING_MODE sample_size=${SAMPLE_SIZE:-n/a} target_successes=${TARGET_SUCCESSES:-n/a} max_attempts=${MAX_ATTEMPTS:-n/a} hops=[$MIN_HOPS,$MAX_HOPS] partial=$PARTIAL_POLICY edges=$EDGE_PROFILE repairs=$MAX_REPAIR_ROUNDS json_repairs=$JSON_REPAIR_ROUNDS kb_topk=$SCIENCE_KB_TOPK grounding=$GROUNDING_SELECTION max_repeat_target=$MAX_REPEAT_TARGET max_repeat_compound=$MAX_REPEAT_COMPOUND seed=${SEED:-none}"
+echo "[sample-questions] run_id=$RUN_ID profile=$SAMPLING_PROFILE (only explicit flags override the profile)"
 PYTHONPATH="$PROJECT_ROOT/src" "${cmd[@]}"
-echo "[sample-questions] complete: $RUN_DIR/sample_results"
+echo "[sample-questions] complete: $RUN_DIR/results/tasks.jsonl"

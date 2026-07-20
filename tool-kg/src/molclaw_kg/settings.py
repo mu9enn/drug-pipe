@@ -29,7 +29,6 @@ class RuntimeConfig:
 class ProjectConfig:
     paths: ProjectPaths
     runtime: RuntimeConfig
-    stage_taxonomy_path: Path
 
 
 def _resolve_project_path(project_root: Path, value: str | None, default: str) -> Path:
@@ -65,14 +64,7 @@ def build_config(project_root: Path, run_id: str | None = None, server_url: str 
         logs_root=_resolve_project_path(project_root, logs_root or os.getenv("MOLCLAW_LOGS_ROOT"), DEFAULT_LOGS_ROOT),
         model_name=model_name,
     )
-    stage_taxonomy_path = _resolve_project_path(
-        project_root,
-        os.getenv("MOLCLAW_STAGE_TAXONOMY_JSON"),
-        "configs/stage_taxonomy.json",
-    )
-
     return ProjectConfig(
         paths=paths,
         runtime=runtime,
-        stage_taxonomy_path=stage_taxonomy_path,
     )

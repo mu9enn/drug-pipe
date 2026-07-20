@@ -6,7 +6,7 @@ from collections import defaultdict
 from .io_utils import read_jsonl, write_json, write_jsonl
 from .models import CandidatePair
 from .settings import ProjectConfig
-from .stage_taxonomy import load_stage_taxonomy
+from .stage_taxonomy import load_stage_taxonomy, resolve_stage_taxonomy_path
 
 
 def _cached_pair_ids(config: ProjectConfig) -> set[str]:
@@ -26,7 +26,7 @@ def _cached_pair_ids(config: ProjectConfig) -> set[str]:
 def generate_candidates(config: ProjectConfig) -> dict[str, Any]:
     cards = read_jsonl(config.paths.run_dir / "tool_cards.jsonl")
 
-    taxonomy = load_stage_taxonomy(config.stage_taxonomy_path)
+    taxonomy = load_stage_taxonomy(resolve_stage_taxonomy_path(config.paths.root))
     tool_map = {c["tool_id"]: c for c in cards}
     tools = sorted(tool_map.keys())
     all_pairs = list(itertools.permutations(tools, 2))
