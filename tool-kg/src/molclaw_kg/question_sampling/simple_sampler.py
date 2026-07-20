@@ -128,16 +128,17 @@ def _tool_context(card: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _debug_index(rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    out: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+def _decision_index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
     for row in rows:
-        out[(str(row.get("source_tool")), str(row.get("target_tool")))].append(row)
+        pair_id = str(row.get("pair_id") or "")
+        if pair_id:
+            out[pair_id] = row
     return out
 
 
-def _edge_evidence(edge: dict[str, Any], debug: dict[tuple[str, str], list[dict[str, Any]]]) -> dict[str, Any]:
-    rows = debug.get((str(edge["source_tool"]), str(edge["target_tool"])), [])
-    row = max(rows, key=lambda x: len(x.get("satisfied_mappings") or []), default={})
+def _edge_evidence(edge: dict[str, Any], decisions: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    row = decisions.get(str(edge.get("pair_id") or ""), {})
     return {
         **_edge_context(edge),
         "satisfied_mappings": row.get("satisfied_mappings") or [],
@@ -388,6 +389,7 @@ def sample_simple_questions(
     max_repeat_target: int = 2,
     max_repeat_compound: int = 2,
     seed: int | None = None,
+    sampling_profile_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if (
         target_successes < 1 or max_attempts < 1 or min_hops < 1 or max_hops < min_hops
@@ -402,17 +404,26 @@ def sample_simple_questions(
         config.paths.root / "science_kb/manifests/science_kb_manifest.json",
     )
     kb = ScienceKB(kb_path, manifest_path)
-    graph, card_rows, debug_rows = load_canonical_sampling_inputs(run_dir)
+    graph, card_rows, decision_rows = load_canonical_sampling_inputs(run_dir)
     cards = {str(row["tool_id"]): row for row in card_rows if row.get("tool_id")}
-    debug = _debug_index(debug_rows)
+    decisions = _decision_index(decision_rows)
     runtime, rng = ClaudeCodeRuntime(config), random.Random(seed)
     grounding_records = kb.list_target_ligand_pair_seeds()
     if not grounding_records:
         raise RuntimeError("Science-KB contains no target-ligand grounding seeds")
     seen_targets: Counter[str] = Counter()
     seen_compounds: Counter[str] = Counter()
-    prompt = (config.paths.configs / "prompts/toolchain_question_simple_v1.md").read_text(encoding="utf-8")
-    repair_prompt = (config.paths.configs / "prompts/toolchain_question_json_repair_v1.md").read_text(encoding="utf-8")
+    profile_values = (sampling_profile_meta or {}).get("resolved_sampling_config") or {}
+    prompt_path = Path(
+        (sampling_profile_meta or {}).get("prompt_path")
+        or config.paths.configs / "prompts/toolchain_question_simple_v1.md"
+    )
+    repair_prompt_path = config.paths.configs / str(
+        profile_values.get("json_repair_prompt")
+        or "prompts/toolchain_question_json_repair_v1.md"
+    )
+    prompt = prompt_path.read_text(encoding="utf-8")
+    repair_prompt = repair_prompt_path.read_text(encoding="utf-8")
     results = run_dir / "results"
     intermediate = run_dir / "intermediate" / "stage3"
     workdirs = intermediate / "workdir" / "simple_toolchain_question"
@@ -451,7 +462,7 @@ def sample_simple_questions(
             context = {
                 "hidden_toolchain": blueprint,
                 "tool_cards": tool_cards,
-                "edge_evidence": [_edge_evidence(edge, debug) for edge in edges],
+                "edge_evidence": [_edge_evidence(edge, decisions) for edge in edges],
                 "grounding_seed": _grounding_seed_context(grounding_seed),
                 "grounding_facts": _grounding_facts(kb, science_kb_topk, tool_cards, grounding_seed),
             }
@@ -557,7 +568,11 @@ def sample_simple_questions(
         "tasks_path": str(tasks_path),
         "intermediate_dir": str(intermediate),
         "created_at_utc": _now_utc(),
+        "sampling_profile": (sampling_profile_meta or {}).get("sampling_profile"),
+        "resolved_sampling_config": (sampling_profile_meta or {}).get("resolved_sampling_config"),
+        "config_sha256": (sampling_profile_meta or {}).get("config_sha256"),
+        "prompt_sha256": (sampling_profile_meta or {}).get("prompt_sha256"),
     }
     write_json(intermediate / "sampling_meta.json", meta)
-    update_manifest_tasks(run_dir, len(tasks))
+    update_manifest_tasks(run_dir, len(tasks), sampling_profile_meta)
     return meta

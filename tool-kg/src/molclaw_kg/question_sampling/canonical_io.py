@@ -108,11 +108,17 @@ def canonical_task(row: dict[str, Any], run_id: str) -> dict[str, Any]:
     }
 
 
-def update_manifest_tasks(run_dir: Path, task_count: int) -> None:
+def update_manifest_tasks(
+    run_dir: Path,
+    task_count: int,
+    sampling_profile_meta: dict[str, Any] | None = None,
+) -> None:
     manifest_path = run_dir / "results" / "run_manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(manifest_path)
     manifest = read_json(manifest_path)
     manifest.setdefault("counts", {})["tasks"] = int(task_count)
     manifest.setdefault("outputs", {})["tasks"] = "tasks.jsonl"
+    if sampling_profile_meta:
+        manifest["stage3_sampling"] = sampling_profile_meta
     write_json(manifest_path, manifest)

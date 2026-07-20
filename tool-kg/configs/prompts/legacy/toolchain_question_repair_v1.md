@@ -1,4 +1,4 @@
-You are repairing a MolClaw Stage3 grounded workflow proposal.
+You are repairing a legacy MolClaw Stage3 grounded workflow proposal.
 
 Read `previous_proposal.json` and `validation_feedback.json` first. Preserve valid parts, but fix every reported error. You may query the read-only Science-KB MCP and read ToolKG/skills context.
 Search only inside the current sample workdir, especially `.claude/skills`; never inspect other runs or the wider project tree.

@@ -21,6 +21,7 @@ from .evaluate_logs import evaluate_against_logs
 from .manifest import write_repro_manifest
 from .canonical_outputs import publish_canonical_outputs
 from .question_sampling import sample_questions, sample_simple_questions
+from .question_sampling.config import resolve_sampling_profile
 
 
 def _base_parser() -> argparse.ArgumentParser:
@@ -104,37 +105,42 @@ def main() -> None:
         help="Optional rerun round index for metadata.",
     )
     subparsers["sample-questions"].add_argument("--sample-size", type=int, default=None)
+    subparsers["sample-questions"].add_argument(
+        "--sampling-profile",
+        default="simple_default",
+        help="Named profile from configs/question_sampling_v2.yaml.",
+    )
     subparsers["sample-questions"].add_argument("--target-successes", type=int, default=None)
     subparsers["sample-questions"].add_argument("--max-attempts", type=int, default=None)
-    subparsers["sample-questions"].add_argument("--json-repair-rounds", type=int, default=1)
-    subparsers["sample-questions"].add_argument("--science-kb-topk", type=int, default=3)
+    subparsers["sample-questions"].add_argument("--json-repair-rounds", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--science-kb-topk", type=int, default=None)
     subparsers["sample-questions"].add_argument(
         "--grounding-selection",
-        default="random_seeded",
+        default=None,
         choices=["random_seeded"],
     )
-    subparsers["sample-questions"].add_argument("--max-repeat-target", type=int, default=2)
-    subparsers["sample-questions"].add_argument("--max-repeat-compound", type=int, default=2)
-    subparsers["sample-questions"].add_argument("--min-hops", type=int, default=2)
-    subparsers["sample-questions"].add_argument("--max-hops", type=int, default=4)
+    subparsers["sample-questions"].add_argument("--max-repeat-target", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--max-repeat-compound", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--min-hops", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--max-hops", type=int, default=None)
     subparsers["sample-questions"].add_argument("--seed", type=int, default=None)
     subparsers["sample-questions"].add_argument(
         "--sampling-mode",
         type=str,
-        default="simple_toolchain_question",
+        default=None,
         choices=["dag_closure", "linear_debug", "simple_toolchain_question"],
     )
     subparsers["sample-questions"].add_argument(
         "--partial-policy",
-        default="closure_required",
+        default=None,
         choices=["closure_required", "exclude"],
     )
     subparsers["sample-questions"].add_argument(
         "--edge-profile",
-        default="core_strict",
+        default=None,
         choices=["core_strict", "core_expanded"],
     )
-    subparsers["sample-questions"].add_argument("--max-repair-rounds", type=int, default=2)
+    subparsers["sample-questions"].add_argument("--max-repair-rounds", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -219,35 +225,56 @@ def main() -> None:
     elif args.cmd == "finalize":
         out = publish_canonical_outputs(config)
     elif args.cmd == "sample-questions":
-        if args.sampling_mode == "simple_toolchain_question":
-            if args.target_successes is None or args.max_attempts is None:
-                parser.error("simple_toolchain_question requires --target-successes and --max-attempts")
+        resolved = resolve_sampling_profile(
+            config,
+            str(args.sampling_profile),
+            overrides={
+                "mode": args.sampling_mode,
+                "sample_size": args.sample_size,
+                "target_successes": args.target_successes,
+                "max_attempts": args.max_attempts,
+                "json_repair_rounds": args.json_repair_rounds,
+                "science_kb_topk": args.science_kb_topk,
+                "grounding_selection": args.grounding_selection,
+                "max_repeat_target": args.max_repeat_target,
+                "max_repeat_compound": args.max_repeat_compound,
+                "min_hops": args.min_hops,
+                "max_hops": args.max_hops,
+                "random_seed": args.seed,
+                "partial_policy": args.partial_policy,
+                "edge_profile": args.edge_profile,
+                "max_repair_rounds": args.max_repair_rounds,
+            },
+        )
+        values = resolved.values
+        sampling_mode = str(values["mode"])
+        if sampling_mode == "simple_toolchain_question":
             out = sample_simple_questions(
                 config,
-                target_successes=int(args.target_successes),
-                max_attempts=int(args.max_attempts),
-                min_hops=int(args.min_hops),
-                max_hops=int(args.max_hops),
-                json_repair_rounds=max(0, int(args.json_repair_rounds)),
-                science_kb_topk=max(1, int(args.science_kb_topk)),
-                grounding_selection=str(args.grounding_selection),
-                max_repeat_target=max(1, int(args.max_repeat_target)),
-                max_repeat_compound=max(1, int(args.max_repeat_compound)),
-                seed=args.seed if args.seed is None else int(args.seed),
+                target_successes=int(values["target_successes"]),
+                max_attempts=int(values["max_attempts"]),
+                min_hops=int(values["min_hops"]),
+                max_hops=int(values["max_hops"]),
+                json_repair_rounds=max(0, int(values["json_repair_rounds"])),
+                science_kb_topk=max(1, int(values["science_kb_topk"])),
+                grounding_selection=str(values["grounding_selection"]),
+                max_repeat_target=max(1, int(values["max_repeat_target"])),
+                max_repeat_compound=max(1, int(values["max_repeat_compound"])),
+                seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
+                sampling_profile_meta=resolved.manifest_payload(),
             )
         else:
-            if args.sample_size is None:
-                parser.error("dag_closure/linear_debug require --sample-size")
             out = sample_questions(
                 config,
-                sample_size=int(args.sample_size),
-                min_hops=int(args.min_hops),
-                max_hops=int(args.max_hops),
-                seed=args.seed if args.seed is None else int(args.seed),
-                sampling_mode=str(args.sampling_mode),
-                partial_policy=str(args.partial_policy),
-                edge_profile=str(args.edge_profile),
-                max_repair_rounds=max(0, int(args.max_repair_rounds)),
+                sample_size=int(values["sample_size"]),
+                min_hops=int(values["min_hops"]),
+                max_hops=int(values["max_hops"]),
+                seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
+                sampling_mode=sampling_mode,
+                partial_policy=str(values["partial_policy"]),
+                edge_profile=str(values["edge_profile"]),
+                max_repair_rounds=max(0, int(values["max_repair_rounds"])),
+                sampling_profile_meta=resolved.manifest_payload(),
             )
     else:
         raise ValueError(f"Unknown command {args.cmd}")

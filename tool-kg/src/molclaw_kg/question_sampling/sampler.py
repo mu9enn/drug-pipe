@@ -37,12 +37,13 @@ def _load_sampling_config(config: ProjectConfig) -> dict[str, Any]:
     path = config.paths.configs / "question_sampling_v2.yaml"
     if not path.is_file():
         raise FileNotFoundError(f"missing Stage3 config: {path}")
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return raw.get("legacy_policies") or {}
 
 
 def _load_template(config: ProjectConfig, repair: bool = False) -> str:
     name = "toolchain_question_repair_v1.md" if repair else "toolchain_question_sampler_v1.md"
-    path = config.paths.configs / "prompts" / name
+    path = config.paths.configs / "prompts" / "legacy" / name
     if not path.is_file():
         raise FileNotFoundError(path)
     return path.read_text(encoding="utf-8").strip()
@@ -77,7 +78,7 @@ def _build_prompt(template: str, repair_round: int) -> str:
         "anchor_spec.json",
         "kg_context.json",
         "tool_catalog.json",
-        "edge_debug_context.json",
+        "edge_decision_context.json",
         "output_schema.json",
         ".claude/skills/**/*",
     ]
@@ -660,6 +661,7 @@ def sample_questions(
     partial_policy: str = "closure_required",
     edge_profile: str = "core_strict",
     max_repair_rounds: int = 2,
+    sampling_profile_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if sample_size < 1 or min_hops < 1 or max_hops < min_hops:
         raise ValueError("invalid sample size or hop range")
@@ -698,7 +700,17 @@ def sample_questions(
     results.mkdir(parents=True, exist_ok=True)
     runtime, rng, usage = ClaudeCodeRuntime(config), random.Random(seed), Counter()
     leak_patterns = _compile_leak_patterns(cards)
-    proposal_template, repair_template = _load_template(config), _load_template(config, repair=True)
+    profile_values = (sampling_profile_meta or {}).get("resolved_sampling_config") or {}
+    proposal_path = Path(
+        (sampling_profile_meta or {}).get("prompt_path")
+        or config.paths.configs / "prompts/legacy/toolchain_question_sampler_v1.md"
+    )
+    repair_path = config.paths.configs / str(
+        profile_values.get("repair_prompt")
+        or "prompts/legacy/toolchain_question_repair_v1.md"
+    )
+    proposal_template = proposal_path.read_text(encoding="utf-8").strip()
+    repair_template = repair_path.read_text(encoding="utf-8").strip()
 
     attempts, successes, closure_rows, grounding_rows = [], [], [], []
     for idx in tqdm(range(1, sample_size + 1), desc="sample-questions-v2", unit="sample"):
@@ -758,7 +770,7 @@ def sample_questions(
                 "anchor_spec.json": {"nodes": nodes, "edges": [_edge_public(x) for x in walk_edges_raw]},
                 "kg_context.json": {"edges": kg_context_edges},
                 "tool_catalog.json": catalog,
-                "edge_debug_context.json": {"edges": relevant_debug},
+                "edge_decision_context.json": {"edges": relevant_debug},
             }
             if previous is not None:
                 files["previous_proposal.json"] = previous
@@ -895,7 +907,11 @@ def sample_questions(
         "hop_range": {"min_hops": min_hops, "max_hops": max_hops},
         "science_kb_sqlite": str(sqlite_path), "science_kb_manifest": str(manifest_path),
         "tasks_path": str(results / "tasks.jsonl"), "intermediate_dir": str(intermediate),
+        "sampling_profile": (sampling_profile_meta or {}).get("sampling_profile"),
+        "resolved_sampling_config": (sampling_profile_meta or {}).get("resolved_sampling_config"),
+        "config_sha256": (sampling_profile_meta or {}).get("config_sha256"),
+        "prompt_sha256": (sampling_profile_meta or {}).get("prompt_sha256"),
     }
     write_json(intermediate / "sampling_meta.json", meta)
-    update_manifest_tasks(run_dir, len(tasks))
+    update_manifest_tasks(run_dir, len(tasks), sampling_profile_meta)
     return meta
