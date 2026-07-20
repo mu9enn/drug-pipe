@@ -51,7 +51,12 @@ def canonicalize_adjudication(
 ) -> dict[str, Any]:
     if not bool(row.get("response_schema_ok", False)):
         raise ValueError(str(row.get("response_schema_error") or "response_schema_ok is false"))
-    validate(instance=row, schema=ADJUDICATION_SCHEMA)
+    adjudication_payload = {
+        key: row[key]
+        for key in ADJUDICATION_SCHEMA["properties"]
+        if key in row
+    }
+    validate(instance=adjudication_payload, schema=ADJUDICATION_SCHEMA)
 
     pair_id = str(row["pair_id"])
     source_tool = str(row.get("source_tool") or "")

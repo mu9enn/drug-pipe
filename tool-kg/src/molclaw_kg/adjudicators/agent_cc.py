@@ -40,6 +40,7 @@ class AgentCCAdjudicator:
             "- task_context.json\n"
             "- pair_spec.json\n"
             "- stage_taxonomy.json\n"
+            "- edge_ontology.json\n"
             "- source_manifest.json\n"
             "- output_schema.json\n"
         )

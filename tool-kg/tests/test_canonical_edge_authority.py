@@ -75,7 +75,7 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
 
     def test_graph_projection_preserves_claude_edge_type_exactly(self) -> None:
         edge_type = {
-            "type": "alternative_to",
+            "type": "generates_partial_input_for",
             "source_slot": None,
             "target_slot_or_precondition": None,
             "confidence": 0.7,
@@ -99,7 +99,7 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
             build_graph_views(config)
 
             graph = read_jsonl(config.paths.run_dir / "graph_all.jsonl")
-            self.assertEqual(graph[0]["edge_type"], "alternative_to")
+            self.assertEqual(graph[0]["edge_type"], "generates_partial_input_for")
 
     def test_historical_migration_prefers_adjudication_and_reports_graph_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as td:

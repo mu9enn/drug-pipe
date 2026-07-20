@@ -17,8 +17,14 @@ except ImportError:  # pragma: no cover
         return iterable
 
 from .adjudicators.agent_cc import AgentCCAdjudicator
+from .edge_ontology import (
+    EdgeOntology,
+    build_adjudication_schema,
+    load_edge_ontology,
+    render_ontology_prompt,
+    validate_adjudication_output,
+)
 from .io_utils import append_jsonl, atomic_write_jsonl, read_jsonl, stable_hash_obj, write_json, write_jsonl
-from .schemas import ADJUDICATION_SCHEMA
 from .settings import ProjectConfig
 from .runtime_state import latest_jsonl_by_key, next_attempt_dir
 from .stage_taxonomy import load_stage_taxonomy
@@ -49,15 +55,17 @@ def _load_pair_prompt_template(config: ProjectConfig) -> str:
     return "You are MolClaw tool-graph pairwise adjudicator. Output strict JSON only."
 
 
-def _build_pair_prompt(template: str) -> str:
+def _build_pair_prompt(template: str, ontology: EdgeOntology) -> str:
+    rendered = template.replace("{{EDGE_ONTOLOGY}}", render_ontology_prompt(ontology))
     return (
-        f"{template.strip()}\n\n"
+        f"{rendered.strip()}\n\n"
         "You are running inside one isolated workdir for exactly one directed pairwise adjudication task.\n"
         "Read local files in this directory first, then output strict JSON for this direction only.\n\n"
         "Required local files:\n"
         "- task_context.json\n"
         "- pair_spec.json\n"
         "- stage_taxonomy.json\n"
+        "- edge_ontology.json\n"
         "- source_manifest.json\n"
         "- output_schema.json\n"
     )
@@ -157,6 +165,8 @@ def _prepare_pair_workdir(
     prompt: str,
     source_card: dict[str, Any],
     target_card: dict[str, Any],
+    ontology: EdgeOntology,
+    adjudication_schema: dict[str, Any],
 ) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
 
@@ -172,7 +182,15 @@ def _prepare_pair_workdir(
     write_json(workdir / "source_tool_card.json", source_card)
     write_json(workdir / "target_tool_card.json", target_card)
     write_json(workdir / "stage_taxonomy.json", config.stage_taxonomy)
-    write_json(workdir / "output_schema.json", ADJUDICATION_SCHEMA)
+    write_json(
+        workdir / "edge_ontology.json",
+        {
+            "version": ontology.version,
+            "relation_statuses": list(ontology.relation_statuses),
+            "edge_types": ontology.edge_types,
+        },
+    )
+    write_json(workdir / "output_schema.json", adjudication_schema)
     write_json(
         workdir / "task_context.json",
         {
@@ -180,6 +198,7 @@ def _prepare_pair_workdir(
             "pair_id": pair_spec.get("pair_id"),
             "pair_spec_file": "pair_spec.json",
             "taxonomy_file": "stage_taxonomy.json",
+            "edge_ontology_file": "edge_ontology.json",
             "source_manifest_file": "source_manifest.json",
             "output_schema_file": "output_schema.json",
             "canonical_skill_root": ".claude/skills",
@@ -255,6 +274,8 @@ def _run_pairwise_attempt(
     cache_path: Path,
     cache_lock: threading.Lock,
     rerun_round: int,
+    ontology: EdgeOntology,
+    adjudication_schema: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     source_tool = str(pair["source_tool"])
     target_tool = str(pair["target_tool"])
@@ -277,7 +298,7 @@ def _run_pairwise_attempt(
     try:
         pair_spec = _build_pair_spec(row=pair, cards=cards)
         source_manifest = _build_source_manifest(pair_spec)
-        prompt = _build_pair_prompt(prompt_template)
+        prompt = _build_pair_prompt(prompt_template, ontology)
         unit_dir = _pair_unit_dir(config, source_tool, target_tool)
         attempt_dir = next_attempt_dir(unit_dir)
         attempt_rel = _pair_attempt_rel_name(config, source_tool, target_tool, attempt_dir)
@@ -290,15 +311,13 @@ def _run_pairwise_attempt(
             prompt=prompt,
             source_card=cards.get(source_tool, {}),
             target_card=cards.get(target_tool, {}),
+            ontology=ontology,
+            adjudication_schema=adjudication_schema,
         )
 
         payload = {
             "pair_id": pair_id,
             "pair_meta": pair_spec["pair_meta"],
-            "project_rules": {
-                "thresholds": config.rules.get("thresholds", {}),
-                "stage_pruning": config.rules.get("stage_pruning", {}),
-            },
             "cc_workdir_name": attempt_rel,
             "template_version": "pairwise_adjudication_agent_v3_directional",
             "prompt_override": prompt,
@@ -313,6 +332,7 @@ def _run_pairwise_attempt(
                 "source_tool_card": cards.get(source_tool, {}),
                 "target_tool_card": cards.get(target_tool, {}),
                 "taxonomy_version": taxonomy_version,
+                "edge_ontology_version": ontology.version,
             }
         )
 
@@ -321,7 +341,11 @@ def _run_pairwise_attempt(
 
         schema_ok = True
         try:
-            jsonschema.validate(raw, ADJUDICATION_SCHEMA)
+            validate_adjudication_output(
+                raw,
+                adjudication_schema,
+                expected_pair_id=pair_id,
+            )
         except jsonschema.ValidationError as e:
             schema_ok = False
             schema_error = str(e)
@@ -363,6 +387,7 @@ def _run_pairwise_attempt(
                     "source_tool_card": cards.get(source_tool, {}),
                     "target_tool_card": cards.get(target_tool, {}),
                     "taxonomy_version": taxonomy_version,
+                    "edge_ontology_version": ontology.version,
                 }
             )
 
@@ -490,6 +515,8 @@ def run_pairwise_adjudication(
     final_map: dict[str, dict[str, Any]] = latest_jsonl_by_key(out_path, "pair_id") if reuse_existing else {}
 
     taxonomy = load_stage_taxonomy(config.stage_taxonomy_path)
+    ontology = load_edge_ontology(config.paths.configs / "edge_ontology_v1.yaml")
+    adjudication_schema = build_adjudication_schema(ontology)
     pruned: list[dict[str, Any]] = []
     stage_kept = list(pairs)
 
@@ -520,7 +547,7 @@ def run_pairwise_adjudication(
         source_tool = str(p["source_tool"])
         target_tool = str(p["target_tool"])
         pair_spec = _build_pair_spec(row=p, cards=cards)
-        prompt = _build_pair_prompt(prompt_template)
+        prompt = _build_pair_prompt(prompt_template, ontology)
         cache_key = stable_hash_obj(
             {
                 "model": adjudicator.model_name,
@@ -530,6 +557,7 @@ def run_pairwise_adjudication(
                 "source_tool_card": cards.get(source_tool, {}),
                 "target_tool_card": cards.get(target_tool, {}),
                 "taxonomy_version": taxonomy.raw.get("schema_version"),
+                "edge_ontology_version": ontology.version,
             }
         )
         bypass_cache = bool(bypass_cache_for_targets and target_pair_ids and pair_id in target_pair_ids)
@@ -563,6 +591,8 @@ def run_pairwise_adjudication(
                     cache_path=cache_path,
                     cache_lock=cache_lock,
                     rerun_round=rerun_round,
+                    ontology=ontology,
+                    adjudication_schema=adjudication_schema,
                 )
                 for pair in scheduled_pairs
             ]

@@ -21,26 +21,9 @@ If source satisfies at least one meaningful connectable input/precondition of ta
 Do NOT reject only because some target inputs are missing.
 Record missing requirements in `unsatisfied_required_inputs`.
 
-## Allowed Relation Status
-- `valid`
-- `negative`
-- `uncertain`
-- `alternative`
+## Runtime Edge Ontology
+{{EDGE_ONTOLOGY}}
 
-## Allowed Edge Types
-- `generates_full_input_for`
-- `generates_partial_input_for`
-- `preprocesses_for`
-- `converts_format_for`
-- `parameterizes_for`
-- `filters_candidates_for`
-- `ranks_or_scores_for`
-- `validates_output_of`
-- `refines_output_of`
-- `reports_or_summarizes`
-- `alternative_to`
-
-Do not invent edge types.
 Do not output `requires_intermediate` as edge type. If needed, express it as `relation_status=negative` and `negative_reason=requires_intermediate`.
 
 ## Evidence Requirements
