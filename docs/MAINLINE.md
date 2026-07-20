@@ -4,11 +4,13 @@
 
 | 事实 | 唯一 authority | 其他模块的角色 |
 | --- | --- | --- |
-| MCP 明确的工具字段 | MCP schema 的确定性 snapshot | Tool Catalog 消费 |
-| skills 中的工具语义摘要 | Tool-card Claude agent | Python heuristic 仅提示缺失信息 |
+| MCP 明确的工具字段 | MCP schema 的确定性 snapshot | Tool Catalog 合并时保持 immutable |
+| skills 中的工具语义摘要 | Tool-card Claude annotation patch | 只能注解已有 schema slot；skill-derived slot 必须独立并带 evidence |
 | 是否调度 directed candidate | stage taxonomy 的 transition/alternative 规则 | Tool Card 字段只用于上下文、优先级与 audit |
-| directed relation status/type/mapping/evidence/confidence | Claude pair adjudication | canonical parser 只校验并写 `edge_decisions.jsonl` |
+| relation status/type 的受控词汇与结构约束 | `edge_ontology_v1.yaml` | 运行时生成 pair prompt 片段与 output schema |
+| directed relation status/type/mapping/evidence/confidence | Claude pair adjudication | Python 只拒绝结构/跨字段非法结果，不猜测或修复语义 |
 | sampling graph | `graph.jsonl` 的确定性 projection | 只筛选可采样的 valid Claude decision，不改边语义 |
+| Stage3 默认参数与 prompt | `question_sampling_v2.yaml` 的 named profile | CLI 显式 flag 才覆盖 resolved profile，并记录 hash |
 | grounded task validity | Tool-KG sampler + Science-KB + canonical graph | Data-Pipe 只检查可读性并执行 |
 | task metrics / `task_answer_valid` | `pipeline/evaluate/task_evaluator.py` | KG/E2E 只读 final prediction 与 task contract，不读取 execution |
 | `execution_valid`、`training_trace_valid`、MolClaw usage | `trace_curator.py` | acceptance gate 消费 |
@@ -27,17 +29,19 @@ ToolRL 的 allowlist、GAD 的筛选策略和 tool registry 是方法策略或�
 
 ```mermaid
 flowchart TD
-    A[MCP schema + canonical skills] --> B[Tool Catalog]
-    B --> C[Taxonomy-directed pair scheduling]
-    C --> D[Claude directional adjudication]
-    D --> E[Canonical edge decisions]
-    E --> F[Pure sampling graph]
-    F --> G[Grounded task sampling]
-    G --> H[Real Agent execution]
-    H --> I[Raw complete_session]
-    I --> J[Task evaluator + ReAct construction]
-    J --> K[LLM clean + hard clean + final gate]
-    K --> R[Canonical ReAct + audit sidecar]
+    A[MCP schema + canonical skills] --> B[Immutable facts + annotation patch]
+    B --> C[Tool Catalog]
+    C --> D[Taxonomy-directed pair scheduling]
+    D --> E[Ontology-generated contract + Claude adjudication]
+    E --> F[Canonical edge decisions]
+    F --> G[Pure sampling graph]
+    G --> S[Named sampling profile + Science-KB]
+    S --> H[Grounded task sampling]
+    H --> I[Real Agent execution]
+    I --> J[Raw complete_session]
+    J --> K[Task evaluator + ReAct construction]
+    K --> T[LLM clean + hard clean + final gate]
+    T --> R[Canonical ReAct + audit sidecar]
     R --> L[Shared history-only decisions]
     L --> M[SFT]
     L --> N[ToolRL]
@@ -57,6 +61,8 @@ SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state �
 ## 兼容层
 
 - Tool-KG `score` 命令委托 canonical edge builder；旧 graph views/CSV/GraphML 只按需导出。
+- `doc-chunks` 仅保留为显式 debug/index 命令，不属于 Stage1 或默认 `run-all`。
+- Stage3 默认使用 `simple_default` profile 和 simple prompt；复杂 DAG/semantic repair prompt 位于 `prompts/legacy/`，必须显式选择 `dag_legacy`。
 - `trajectory_exporter.py`、`scan_molclaw_usage.py`、`post_process_sft.py` 保留旧入口形状，但 authority 都在 evaluator/curator。
 - Data-Pipe KG adapter 默认只读 `results/tasks.jsonl`；历史 `sample_success*` 必须显式加 `--legacy-sample-results`。
 - SFT、ToolRL、GAD 与 online replay 的默认输入都从 `$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl` 或其方法派生目录开始；`PROMPT_DATA`/`INPUT` 只用于显式覆盖。

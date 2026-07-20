@@ -22,8 +22,13 @@ bash scripts/run_full_pipeline.sh run_x --resume --max-workers 1
 ```bash
 PYTHONPATH=src python -m molclaw_kg.cli \
   --project-root "$PWD" --run-id run_x \
-  sample-questions --target-successes 10 --max-attempts 40 --seed 42
+  sample-questions --sampling-profile simple_default \
+  --target-successes 10 --max-attempts 40 --seed 42
 ```
+
+未显式提供的参数来自 `configs/question_sampling_v2.yaml`；需要旧 DAG 路径时必须使用
+`--sampling-profile dag_legacy`。Stage3 只依赖 canonical
+`graph.jsonl + edge_decisions.jsonl + tool_catalog.jsonl`。
 
 正式 KG 结果位于 `runs/run_x/results/`：`tool_catalog.jsonl`、`edge_decisions.jsonl`、`graph.jsonl`、可选 `tasks.jsonl`、`run_manifest.json`，有问题时另有 `issues.jsonl`。
 

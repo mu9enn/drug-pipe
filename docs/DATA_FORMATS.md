@@ -11,13 +11,33 @@
   "tool_id": "tool_name",
   "description_summary": "...",
   "primary_stage": "...",
+  "scheduling_stages": ["..."],
+  "schema_slots": [{
+    "slot_path": "input.protein_file",
+    "direction": "input",
+    "raw_type": "string",
+    "required": true,
+    "source": "input_schema"
+  }],
+  "slot_annotations": {
+    "input.protein_file": {
+      "semantic_type": "protein_structure",
+      "format": "pdb",
+      "connectable": true,
+      "evidence_refs": ["..."]
+    }
+  },
+  "skill_derived_slots": [],
   "connectable_inputs": [{"name": "...", "raw_type": "...", "required": true}],
   "connectable_outputs": [{"name": "...", "raw_type": "..."}],
   "preconditions": []
 }
 ```
 
-MCP schema 字段为确定性事实；skills 语义由 tool-card agent 摘要。`doc_chunks` 只是 tool-card 构建缓存。
+MCP schema 的参数名、raw type、required/default/enum 是不可覆盖的确定性事实；skills
+语义由 tool-card agent 以 annotation patch 补充。真实但暂时无法解释的 schema slot
+仍以 `connectable_state=unknown` 保留。`doc_chunks` 不属于默认构建依赖，只能显式用于
+debug/index。
 
 ## Edge Decisions 与 Graph
 
@@ -75,6 +95,10 @@ Tool-KG Stage3 先写 `results/tasks.jsonl`（`tool_kg_task_v1`）；Data-Pipe a
 ```
 
 每个 workflow transition 必须引用 canonical ToolKG `pair_id`。skills 可帮助理解工具，但不能独立创建关系。
+Stage3 只读取 `graph.jsonl`、`edge_decisions.jsonl` 与 `tool_catalog.jsonl`，并按
+`pair_id` join mapping/evidence；不读取 debug sidecar、legacy graph view 或 Claude
+intermediate。采样使用 `question_sampling_v2.yaml` 的 named profile，resolved values、
+profile/config hash 与 prompt hash 写入 manifest。
 
 ## Raw Trace
 
