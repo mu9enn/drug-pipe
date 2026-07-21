@@ -106,7 +106,9 @@ profile/config hash 与 prompt hash 写入 manifest。
 
 ## Canonical ReAct
 
-训练唯一接口为 `react_trajectories.jsonl`：
+Step 1 的内部接口为 `python_drafts.jsonl`。其中每条已经通过确定性构造和验证，状态仅为
+`python_valid`，不是最终 accepted。Step 2 完成 restricted LLM patch 和 final gate 后，训练
+唯一接口才是 `react_trajectories.jsonl`：
 
 ```json
 {
@@ -132,13 +134,14 @@ react_trajectories.jsonl
 curation_audit.jsonl
 rejected.jsonl
 quarantine.jsonl          # 仅有内容时
-curation_summary.json
+run_manifest.json
 ```
 
 `task_answer_valid` 只来自 evaluator；KG/E2E evaluator 仅接收 prediction、parse error
 与 task contract，不接收 raw session、return code、timeout 或 tool/observation counts。
-`execution_valid`/`training_trace_valid` 来自 curator；final/observation consistency 由 hard
-clean 报告；只有 final acceptance gate 决定 accepted/rejected/quarantine。聚合器只去重和汇总。
+`execution_valid`/`training_trace_valid` 来自 `python_clean`；final/observation consistency 由
+`invariants.py` 只读验证。只有 LLM clean 内部的 final acceptance gate 决定
+accepted/rejected/quarantine，不存在 deterministic accepted 或第二个聚合 authority。
 
 ## Shared Decision State
 

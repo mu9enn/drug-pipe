@@ -4,20 +4,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-try:
-    from .trace_curator import SCHEMA_VERSION, curate_sample, discover_rollout_samples, infer_task
-except ImportError:
-    from trace_curator import SCHEMA_VERSION, curate_sample, discover_rollout_samples, infer_task
-try:
-    from ..cleaning.acceptance_gate import decide_final_status
-    from ..evaluate.task_evaluator import load_chemistry_module
-except ImportError:
-    from cleaning.acceptance_gate import decide_final_status
-    from evaluate.task_evaluator import load_chemistry_module
+DATA_PIPE_DIR = Path(__file__).resolve().parents[2]
+if str(DATA_PIPE_DIR) not in sys.path:
+    sys.path.insert(0, str(DATA_PIPE_DIR))
+
+from pipeline.cleaning.acceptance_gate import decide_final_status  # noqa: E402
+from pipeline.cleaning.models import REACT_SCHEMA_VERSION  # noqa: E402
+from pipeline.cleaning.python_clean import python_clean  # noqa: E402
 
 
 def _sha256_file(path: Path) -> str:
@@ -77,14 +75,14 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
         message_hash_changes += int(before_hash != after_hash)
         sample_id = str(row.get("id") or f"legacy_{line_number:06d}")
         task = next((name for name in ("vs", "ac", "pf", "kg", "e2e") if f"_{name}_" in sample_id), "unknown")
-        migrated.append({"schema_version": SCHEMA_VERSION, "id": sample_id, "messages": copied_messages})
+        migrated.append({"schema_version": REACT_SCHEMA_VERSION, "id": sample_id, "messages": copied_messages})
         decision = decide_final_status(
             execution_valid=True,
             task_answer_valid=True,
             training_trace_valid=True,
             llm_clean_status="not_run",
             llm_clean_findings=[],
-            hard_clean_findings=[],
+            invariant_findings=[],
         )
         audits.append(
             {
@@ -105,7 +103,7 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
     report = {
         "source": str(source),
         "source_hash": _source_hash([source]),
-        "target_contract": SCHEMA_VERSION,
+        "target_contract": REACT_SCHEMA_VERSION,
         "input_count": len(rows),
         "output_count": len(migrated),
         "rejected_count": len(rejected),
@@ -125,47 +123,14 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
 
 
 def migrate_raw_reference(source_root: Path, output_dir: Path) -> dict[str, Any]:
-    source_root = source_root.resolve()
-    output_dir = output_dir.resolve()
-    source_files = sorted(source_root.rglob("complete_session.jsonl"))
-    records: list[dict[str, Any]] = []
-    chemistry, chemistry_error = load_chemistry_module()
-    for run_dir in sorted(path for path in source_root.iterdir() if path.is_dir()):
-        task = infer_task(run_dir)
-        for sample in discover_rollout_samples(run_dir):
-            record = curate_sample(sample, default_task=task, chemistry=chemistry)
-            records.append(record)
-    accepted = [record for record in records if record["audit"]["final_status"] == "accepted"]
-    rejected = [record["audit"] for record in records if record["audit"]["final_status"] == "rejected"]
-    quarantine = [record["audit"] for record in records if record["audit"]["final_status"] == "quarantine"]
-    _write_jsonl(
-        output_dir / "react_trajectories.jsonl",
-        [record["training_record"] for record in accepted],
-    )
-    _write_jsonl(output_dir / "curation_audit.jsonl", [record["audit"] for record in records])
-    _write_jsonl(output_dir / "rejected.jsonl", rejected)
-    if quarantine:
-        _write_jsonl(output_dir / "quarantine.jsonl", quarantine)
+    result = python_clean(source_root.resolve(), output_dir.resolve())
     report = {
-        "source": str(source_root),
-        "source_hash": _source_hash(source_files),
-        "target_contract": SCHEMA_VERSION,
-        "input_count": len(source_files),
-        "output_count": len(accepted),
-        "rejected_count": len(rejected),
-        "quarantine_count": len(quarantine),
-        "conflict_count": 0,
-        "chemistry_error": chemistry_error,
-        "semantic_changes": [
-            "workspace/debug calls removed from training messages",
-            "MolClaw usage and three validity states materialized once",
-            "final answer wrapped in canonical final_answer tag",
-        ],
+        **result,
+        "migration_mode": "raw_reference_to_python_drafts",
+        "next_step": "run pipeline.cleaning.llm_clean before publishing canonical training data",
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "migration_report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return report
 

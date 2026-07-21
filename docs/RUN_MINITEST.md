@@ -6,8 +6,8 @@
 Tool-KG
 → grounded task
 → Data-Pipe 真实执行
-→ deterministic curation
-→ LLM clean
+→ one-pass Python clean
+→ restricted-patch LLM clean
 → canonical ReAct
 → SFT / ToolRL / GAD 数据
 → 可选 GPU smoke
@@ -519,69 +519,74 @@ test ! -f "$DATA_RUN_DIR/run_summary.jsonl" \
 
 如果执行失败，不要进入清洗；先检查该 run 下的日志和 `complete_session.jsonl`。
 
-### C4. 先运行 deterministic curation
+### C4. Step 1：一次性 Python clean
 
-这一步不调用 LLM clean，便于先检查确定性 constructor/evaluator/hard-clean/gate。
+这一步一次完成 raw discovery、event pairing、MolClaw filtering、ReAct construction、
+artifact sanitization、observation compaction、task evaluation 和 invariants。输出状态只有
+`python_valid/rejected`，不会提前产生 accepted。
 
 运行：
 
 ```bash
-export REACT_DETERMINISTIC="$MINI_ROOT/react_deterministic"
-bash scripts/run_postprocess.sh \
-  --results-root "$DATA_RESULTS_ROOT" \
-  --output-root "$REACT_DETERMINISTIC"
+export PYTHON_CLEAN="$MINI_ROOT/python_clean"
+PYTHONPATH=. python -m pipeline.cleaning.python_clean \
+  --results-root "$DATA_RUN_DIR" \
+  --output-root "$PYTHON_CLEAN"
 ```
 
 检查汇总：
 
 ```bash
-python -m json.tool "$REACT_DETERMINISTIC/curation_summary.json"
+python -m json.tool "$PYTHON_CLEAN/run_manifest.json"
 wc -l \
-  "$REACT_DETERMINISTIC/react_trajectories.jsonl" \
-  "$REACT_DETERMINISTIC/curation_audit.jsonl" \
-  "$REACT_DETERMINISTIC/rejected.jsonl"
+  "$PYTHON_CLEAN/python_drafts.jsonl" \
+  "$PYTHON_CLEAN/python_audit.jsonl" \
+  "$PYTHON_CLEAN/rejected.jsonl"
 ```
 
 查看 audit：
 
 ```bash
-head -n 1 "$REACT_DETERMINISTIC/curation_audit.jsonl" | python -m json.tool
+head -n 1 "$PYTHON_CLEAN/python_audit.jsonl" | python -m json.tool
 ```
 
 人工确认：
 
 - `execution_valid`、`task_answer_valid`、`training_trace_valid` 分开记录；
 - evaluator metrics 只在 audit 中；
-- acceptance status 只由 final gate 决定；
+- `python_status=python_valid`，且不存在 `final_status`；
 - raw path、return code、ground truth 没有进入 training messages；
 - bare tool name、reasoning、observation、rich final 都被保留。
 
-如果 deterministic 输出被拒绝，先查看：
+如果 Python clean 输出被拒绝，先查看：
 
 ```bash
-head -n 1 "$REACT_DETERMINISTIC/rejected.jsonl" | python -m json.tool
+head -n 1 "$PYTHON_CLEAN/rejected.jsonl" | python -m json.tool
 ```
 
-不要通过跳过 final gate 强行继续。
+不要把 `python_drafts.jsonl` 当作最终训练输入。
 
-### C5. 单独运行带保护的 LLM clean
+### C5. Step 2：restricted-patch LLM clean
 
-只有在 C4 的 deterministic 结果和 audit 合理后再运行。
+只有在 C4 的 Python draft 和 audit 合理后再运行。Claude 在隔离 workdir 中只写
+`llm_clean_patch.json`；Python 应用白名单 thought/final-summary edits，并在唯一 final gate
+之前验证 immutable facts 和最终 schema。
 
 运行：
 
 ```bash
 export REACT_LLM_CLEAN="$MINI_ROOT/react_llm_clean"
-bash scripts/run_postprocess.sh \
-  --results-root "$DATA_RESULTS_ROOT" \
+PYTHONPATH=. python -m pipeline.cleaning.llm_clean \
+  --input "$PYTHON_CLEAN/python_drafts.jsonl" \
+  --python-audit "$PYTHON_CLEAN/python_audit.jsonl" \
   --output-root "$REACT_LLM_CLEAN" \
-  --llm-clean
+  --limit 1
 ```
 
 检查：
 
 ```bash
-python -m json.tool "$REACT_LLM_CLEAN/curation_summary.json"
+python -m json.tool "$REACT_LLM_CLEAN/run_manifest.json"
 head -n 1 "$REACT_LLM_CLEAN/curation_audit.jsonl" | python -m json.tool
 ```
 
@@ -589,7 +594,7 @@ head -n 1 "$REACT_LLM_CLEAN/curation_audit.jsonl" | python -m json.tool
 
 ```bash
 diff -u \
-  <(head -n 1 "$REACT_DETERMINISTIC/react_trajectories.jsonl") \
+  <(head -n 1 "$PYTHON_CLEAN/python_drafts.jsonl") \
   <(head -n 1 "$REACT_LLM_CLEAN/react_trajectories.jsonl") \
   || true
 ```
@@ -614,21 +619,22 @@ test ! -f "$REACT_LLM_CLEAN/quarantine.jsonl" \
   || head -n 1 "$REACT_LLM_CLEAN/quarantine.jsonl" | python -m json.tool
 ```
 
-### C6. 选择训练输入
+并检查对应 debug workdir：
 
-完整主线优先使用通过 final gate 的 LLM-cleaned 版本：
+```bash
+find "$REACT_LLM_CLEAN/debug" -maxdepth 2 -type f -print
+```
+
+### C6. Final output fail-fast（不是清洗阶段）
+
+最终训练输入固定为 final gate 发布的文件：
 
 ```bash
 export REACT_SOURCE="$REACT_LLM_CLEAN/react_trajectories.jsonl"
-```
-
-确认恰好 1 条：
-
-```bash
 test "$(wc -l < "$REACT_SOURCE")" -eq 1 && echo "canonical ReAct: 1 accepted"
 ```
 
-如果没有 accepted sample，在这里停止。
+如果文件为空就在这里停止。没有独立“选择器”，也不能回退到 Python draft 冒充 accepted。
 
 ---
 
@@ -901,7 +907,7 @@ find "$DRUG_AGENT_RUNS_ROOT/replay_minitest" -maxdepth 2 -type f -print
 - [ ] `graph.jsonl` 是 `edge_decisions.jsonl` 的纯 projection。
 - [ ] Grounded question 没有泄露 hidden toolchain。
 - [ ] Data-Pipe raw trace 包含真实 tool call/observation。
-- [ ] Evaluator、curator、hard clean、acceptance gate 职责分离。
+- [ ] Python clean、restricted LLM patch、invariants、final gate 职责分离。
 - [ ] LLM clean 没有改变 tool call、observation 数值或 prediction。
 - [ ] Training JSONL 与 audit sidecar 分离。
 - [ ] ToolRL/GAD state 不包含 future observation。

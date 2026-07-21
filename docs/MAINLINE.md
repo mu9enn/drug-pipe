@@ -13,11 +13,12 @@
 | Stage3 默认参数与 prompt | `question_sampling.yaml` 的 named profile | CLI 显式 flag 才覆盖 resolved profile，并记录 hash |
 | grounded task validity | Tool-KG sampler + Science-KB + canonical graph | Data-Pipe 只检查可读性并执行 |
 | task metrics / `task_answer_valid` | `pipeline/evaluate/task_evaluator.py` | KG/E2E 只读 final prediction 与 task contract，不读取 execution |
-| `execution_valid`、`training_trace_valid`、MolClaw usage | `trace_curator.py` | acceptance gate 消费 |
-| canonical ReAct construction、首次 observation compaction/final construction | `react_constructor.py` | hard clean 不二次构造或压缩 |
-| artifact/path 规范和 observation status 解释 | `cleaning/primitives.py` | constructor 首次规范化；hard clean 在 LLM 后复用同一纯函数 |
-| final/observation 与跨消息 consistency findings | `cleaning/hard_cleaner.py` | 只报告 findings，不改写最终样本状态 |
-| accepted/rejected/quarantine | `cleaning/acceptance_gate.py` | evaluator、LLM clean、hard clean 只提供事实/findings |
+| `execution_valid`、`training_trace_valid`、MolClaw usage | `cleaning/python_clean.py` | LLM clean 只消费 Python audit |
+| canonical ReAct draft、observation compaction/final construction | `cleaning/react_builder.py` | 每条 raw trace 只构造一次 |
+| artifact/path 规范和 observation status 解释 | `cleaning/artifacts.py` | Python clean 唯一执行规范化 |
+| final/observation 与跨消息 consistency findings | `cleaning/invariants.py` | 只读验证，不再次清洗或构造 |
+| thought/final summary prose | restricted LLM patch | 只能修改 Python 标记的文本 segment |
+| accepted/rejected/quarantine | `cleaning/acceptance_gate.py` | 只在 LLM clean 第二步结束时决定最终状态 |
 | decision-state slicing / assistant decision parsing | `drug_agent/decision_extractor.py` | ToolRL、GAD 只派生方法字段 |
 | ToolRL reward | `drug_agent.toolrl.molclaw_reward` | 只评价生成 action，不执行 |
 | GAD negative/discriminator/reward | `drug_agent.gad` | 保留现有方法与权重 |
@@ -39,8 +40,8 @@ flowchart TD
     S --> H[Grounded task sampling]
     H --> I[Real Agent execution]
     I --> J[Raw complete_session]
-    J --> K[Task evaluator + ReAct construction]
-    K --> T[LLM clean + hard clean + final gate]
+    J --> K[Step 1: one-pass Python clean]
+    K --> T[Step 2: restricted LLM patch + invariants + final gate]
     T --> R[Canonical ReAct + audit sidecar]
     R --> L[Shared history-only decisions]
     L --> M[SFT]
@@ -66,12 +67,13 @@ SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state �
 - Tool-KG 旧 graph views 与 CSV/GraphML 只通过 `legacy-views`、`legacy-export` 按需生成。
 - 旧 `score`、`doc-chunks`、provenance/audit/log-evaluation/repro-manifest CLI 已删除；它们依赖重复或退役的 graph/debug 产物。
 - Stage3 默认使用 `simple_default` profile 和 simple prompt；复杂 DAG/semantic repair prompt 位于 `prompts/legacy/`，必须显式选择 `dag_legacy`。
-- `trajectory_exporter.py`、`scan_molclaw_usage.py`、`post_process_sft.py` 保留旧入口形状，但 authority 都在 evaluator/curator。
+- 旧 `trajectory_exporter.py`、usage scanner、`post_process_sft.py`、独立 hard-clean/aggregate
+  入口已删除；正式清洗只有 `python_clean` 和 `llm_clean` 两个入口。
 - Data-Pipe KG adapter 默认只读 `results/tasks.jsonl`；历史 `sample_success*` 必须显式加 `--legacy-sample-results`。
 - SFT、ToolRL、GAD 与 online replay 的默认输入都从 `$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl` 或其方法派生目录开始；`PROMPT_DATA`/`INPUT` 只用于显式覆盖。
 
 OPD、VERL bundle、legacy action-JSON SFT 和 legacy online PPO/GRPO 不属于当前主线。
 
-ReAct constructor 和 LLM clean 的输入不包含 ground truth、benchmark metrics 或 evaluator
-结果。question record 只投影推理时可见的 task input；reference labels 仅进入 audit
-sidecar，不能回流到训练 messages。
+Python clean 只把 canonical draft 和确定性 repair hints 交给 LLM；ground truth、benchmark
+metrics 和 evaluator 结果只进入 audit。LLM 返回最小 patch，不能重写 tool call、observation、
+prediction 或完整 trajectory。

@@ -8,11 +8,9 @@ import unittest
 
 PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
-sys.path.insert(0, str(PIPELINE_DIR / "postprocess"))
-
-from cleaning.hard_cleaner import hard_clean  # noqa: E402
-from react_constructor import reconstruct_react_messages  # noqa: E402
-from trace_curator import discover_rollout_samples  # noqa: E402
+from cleaning.invariants import validate_final_record  # noqa: E402
+from cleaning.react_builder import reconstruct_react_messages  # noqa: E402
+from cleaning.trace_parser import discover_rollout_samples  # noqa: E402
 
 
 def assistant_event(*items: dict) -> dict:
@@ -127,7 +125,7 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertEqual(payload["evidence"][0]["key_values"]["score"], -7.1)
         self.assertIn("<artifact:", json.dumps(payload, ensure_ascii=False))
 
-    def test_hard_clean_does_not_reconstruct_or_recompact_canonical_react(self) -> None:
+    def test_invariant_validation_does_not_reconstruct_or_recompact(self) -> None:
         events = [
             assistant_event(
                 {
@@ -177,34 +175,35 @@ class ReactConstructorTest(unittest.TestCase):
         assistant_message["content"] = (
             "<thought>Review ../outputs/result.pdb.</thought>\n" + assistant_message["content"]
         )
-        cleaned, report = hard_clean(
-            {
-                "schema_version": "drug_agent_sft_react_json_v1",
-                "id": "react_test",
-                "messages": messages,
-            }
-        )
-        cleaned_text = "\n".join(message["content"] for message in cleaned["messages"])
+        record = {
+            "schema_version": "drug_agent_sft_react_json_v1",
+            "id": "react_test",
+            "messages": messages,
+        }
+        source_json = json.dumps(record, ensure_ascii=False, sort_keys=True)
+        report = validate_final_record(record)
+        cleaned_text = "\n".join(message["content"] for message in record["messages"])
         cleaned_observation = next(
-            message["content"] for message in cleaned["messages"] if "<observation " in message["content"]
+            message["content"] for message in record["messages"] if "<observation " in message["content"]
         )
         cleaned_payload = json.loads(cleaned_observation.split(">", 1)[1].split("</observation>", 1)[0])
 
-        self.assertEqual([message["role"] for message in cleaned["messages"]], source_roles)
+        self.assertEqual([message["role"] for message in record["messages"]], source_roles)
         self.assertEqual(
             sum(
                 "<final_answer>" in message["content"]
-                for message in cleaned["messages"]
+                for message in record["messages"]
                 if message["role"] == "assistant"
             ),
             1,
         )
         self.assertEqual(cleaned_payload, source_payload)
-        self.assertIn("<artifact:structure/result.pdb>", cleaned_text)
+        self.assertIn("../outputs/result.pdb", cleaned_text)
+        self.assertIn("message_2_unsanitized_path", report["errors"])
+        self.assertEqual(json.dumps(record, ensure_ascii=False, sort_keys=True), source_json)
         self.assertEqual(report["counts"]["tool_calls"], 1)
         self.assertEqual(report["counts"]["observations"], 1)
         self.assertNotIn("final_status", report)
-        self.assertNotIn("accepted", report)
 
 
 if __name__ == "__main__":

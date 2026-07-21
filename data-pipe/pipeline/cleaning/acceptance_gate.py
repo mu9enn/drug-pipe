@@ -10,7 +10,7 @@ def decide_final_status(
     training_trace_valid: bool,
     llm_clean_status: str,
     llm_clean_findings: list[str],
-    hard_clean_findings: list[str],
+    invariant_findings: list[str],
     llm_clean_required: bool = False,
 ) -> dict[str, Any]:
     """The sole authority for accepted/rejected/quarantine."""
@@ -29,12 +29,12 @@ def decide_final_status(
         }
 
     quarantine_reasons: list[str] = []
-    if llm_clean_status in {"failed", "unsafe_rewrite"}:
+    if llm_clean_status in {"failed", "unsafe_patch"}:
         quarantine_reasons.append(f"llm_clean_{llm_clean_status}")
     if llm_clean_required and llm_clean_status != "cleaned":
         quarantine_reasons.append("llm_clean_required_but_not_completed")
     quarantine_reasons.extend(f"llm_clean:{finding}" for finding in llm_clean_findings)
-    quarantine_reasons.extend(f"hard_clean:{finding}" for finding in hard_clean_findings)
+    quarantine_reasons.extend(f"invariant:{finding}" for finding in invariant_findings)
     if quarantine_reasons:
         return {
             "final_status": "quarantine",

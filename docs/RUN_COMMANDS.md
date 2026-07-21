@@ -50,19 +50,25 @@ bash pipeline/claude_agent/run_execute.sh \
   --run-dataset --task vs --dataset-csv molbench/molbench-vs-30.csv
 ```
 
-评测与 canonical ReAct：
+两步清洗与 canonical ReAct：
 
 ```bash
-bash pipeline/evaluate/run_evaluate.sh results/<run_dir> vs
-python pipeline/postprocess/trajectory_exporter.py results/<run_dir> --task vs
-bash scripts/run_postprocess.sh \
-  --results-root results \
-  --output-root results/postprocess_candidates
+PYTHONPATH=. python -m pipeline.cleaning.python_clean \
+  --results-root results/<run_dir> \
+  --output-root results/cleaning_work
+
+PYTHONPATH=. python -m pipeline.cleaning.llm_clean \
+  --input results/cleaning_work/python_drafts.jsonl \
+  --python-audit results/cleaning_work/python_audit.jsonl \
+  --output-root results/cleaned
 ```
 
-需要正式 LLM semantic clean 时增加 `--llm-clean`；该 rewrite 会先经过 tool/observation/prediction 不变性保护，再进入 hard clean 和 final gate。
+也可用 `bash scripts/run_cleaning.sh` 连续执行同样两步。LLM 只写
+`llm_clean_patch.json`，Python 验证并应用白名单 prose edits；stdout 不作为数据接口。
 
-输出训练接口为 `results/postprocess_candidates/react_trajectories.jsonl`；审计为同目录 `curation_audit.jsonl`，拒绝与隔离分别为 `rejected.jsonl`、条件生成的 `quarantine.jsonl`。
+输出训练接口为 `results/cleaned/react_trajectories.jsonl`；审计为同目录
+`curation_audit.jsonl`，拒绝与隔离分别为 `rejected.jsonl`、条件生成的
+`quarantine.jsonl`。
 
 历史 trace 确定性迁移：
 
@@ -75,6 +81,8 @@ python pipeline/postprocess/migrate_trace.py raw-reference \
   --source-root /path/to/historical/results \
   --output-dir /tmp/drug_pipe_convergence/migrated/react_raw
 ```
+
+`raw-reference` 只产生 `python_drafts.jsonl`，随后仍必须运行 `pipeline.cleaning.llm_clean`。
 
 ## Slime 数据派生
 
@@ -158,7 +166,6 @@ cd tool-kg
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
 
 cd ../data-pipe
-PYTHONPATH=. python -m unittest discover -s pipeline/postprocess/tests -p 'test_*.py' -v
 PYTHONPATH=. python -m unittest discover -s pipeline/evaluate/tests -p 'test_*.py' -v
 PYTHONPATH=. python -m unittest discover -s pipeline/cleaning/tests -p 'test_*.py' -v
 PYTHONPATH=. python -m unittest discover -s pipeline/kg/tests -p 'test_*.py' -v

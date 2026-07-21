@@ -4,192 +4,194 @@ import copy
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+PIPELINE_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PIPELINE_DIR))
 
-from pipeline.cleaning.hard_cleaner import hard_clean  # noqa: E402
-from pipeline.cleaning.llm_cleaner import clean_with_llm  # noqa: E402
-from pipeline.cleaning.acceptance_gate import decide_final_status  # noqa: E402
-
-
-def sample_record(*middle: dict, final: dict | None = None) -> dict:
-    messages = [
-        {"role": "system", "content": "protocol", "step_loss_mask": 0},
-        {"role": "user", "content": "task", "step_loss_mask": 0},
-        *middle,
-        {
-            "role": "assistant",
-            "content": f"<final_answer>{json.dumps(final or {'task_type': 'kg', 'result': 'done'})}</final_answer>",
-            "step_loss_mask": 1,
-        },
-    ]
-    return {"schema_version": "drug_agent_sft_react_json_v1", "id": "sample-1", "messages": messages}
+from cleaning.acceptance_gate import decide_final_status  # noqa: E402
+from cleaning.invariants import compare_immutable_facts, validate_final_record  # noqa: E402
+from cleaning.llm_clean import apply_restricted_patch, clean_draft, llm_clean  # noqa: E402
+from cleaning.models import EXAMPLE_DIR, patch_schema_findings, react_schema_findings  # noqa: E402
 
 
-class LlmCleanerTest(unittest.TestCase):
-    def test_allows_reasoning_rewrite_without_changing_protocol(self) -> None:
-        sample = sample_record(
+def sample_record() -> dict:
+    return {
+        "schema_version": "drug_agent_sft_react_json_v1",
+        "id": "sample-1",
+        "messages": [
+            {"role": "system", "content": "protocol", "step_loss_mask": 0},
+            {"role": "user", "content": "task", "step_loss_mask": 0},
             {
                 "role": "assistant",
-                "content": '<thought>Claude Code chatter</thought>\n<tool_call>{"tool_name":"x","arguments":{}}</tool_call>',
-                "step_loss_mask": 1,
-            },
-            {
-                "role": "user",
-                "content": '<observation tool_name="x">{"status":"success","value":1}</observation>',
-                "step_loss_mask": 0,
-            },
-        )
-
-        def rewrite(value):
-            value["messages"][2]["content"] = value["messages"][2]["content"].replace(
-                "Claude Code chatter", "Use the recorded measurement."
-            )
-            return value
-
-        cleaned, report = clean_with_llm(sample, rewrite)
-        self.assertEqual(report["status"], "cleaned")
-        self.assertIn("recorded measurement", cleaned["messages"][2]["content"])
-
-    def test_rejects_changed_observation_and_returns_source(self) -> None:
-        sample = sample_record(
-            {
-                "role": "assistant",
-                "content": '<tool_call>{"tool_name":"x","arguments":{}}</tool_call>',
-                "step_loss_mask": 1,
-            },
-            {
-                "role": "user",
-                "content": '<observation tool_name="x">{"status":"success","value":1}</observation>',
-                "step_loss_mask": 0,
-            },
-        )
-
-        def rewrite(value):
-            value["messages"][3]["content"] = value["messages"][3]["content"].replace('"value":1', '"value":2')
-            return value
-
-        cleaned, report = clean_with_llm(sample, rewrite)
-        self.assertEqual(report["status"], "unsafe_rewrite")
-        self.assertIn("llm_changed_observations_or_order", report["findings"])
-        self.assertEqual(cleaned, sample)
-
-
-class HardCleanerTest(unittest.TestCase):
-    def test_reports_status_conflict_and_does_not_assign_acceptance(self) -> None:
-        sample = sample_record(
-            {
-                "role": "assistant",
-                "content": '<tool_call>{"tool_name":"x","arguments":{}}</tool_call>',
+                "content": (
+                    "<thought>Let me write result.md before continuing.</thought>\n"
+                    '<tool_call>{"arguments":{},"tool_name":"x"}</tool_call>'
+                ),
                 "step_loss_mask": 1,
             },
             {
                 "role": "user",
                 "content": (
-                    '<observation tool_name="x">{"status":"success","is_error":false,'
-                    '"content":{"status":"error","message":"failed"}}</observation>'
+                    '<observation tool_name="x">'
+                    '{"content":{"status":"success","value":1},"is_error":false,'
+                    '"status":"success","tool_name":"x"}</observation>'
                 ),
                 "step_loss_mask": 0,
             },
-            final={"task_type": "kg", "result": "failed"},
+            {
+                "role": "assistant",
+                "content": (
+                    '<final_answer>{"evidence":[{"value":1}],"result":"done",'
+                    '"summary":"Let me finish the report.","task_type":"kg"}</final_answer>'
+                ),
+                "step_loss_mask": 1,
+            },
+        ],
+    }
+
+
+def repair_hints() -> dict:
+    return {
+        "sample_id": "sample-1",
+        "editable_findings": [
+            {"message_index": 2, "segment_type": "thought", "segment_index": 0},
+            {"message_index": 4, "segment_type": "final_summary", "segment_index": 0},
+        ],
+    }
+
+
+class ContractTest(unittest.TestCase):
+    def test_examples_validate_against_machine_schemas(self) -> None:
+        trajectory = json.loads((EXAMPLE_DIR / "react_trajectory_v1.example.json").read_text(encoding="utf-8"))
+        patch = json.loads((EXAMPLE_DIR / "llm_clean_patch_v1.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(react_schema_findings(trajectory), [])
+        self.assertEqual(patch_schema_findings(patch), [])
+        self.assertEqual(validate_final_record(trajectory)["errors"], [])
+
+
+class RestrictedPatchTest(unittest.TestCase):
+    def test_patch_changes_only_whitelisted_prose(self) -> None:
+        source = sample_record()
+        patch = {
+            "schema_version": "llm_clean_patch_v1",
+            "sample_id": "sample-1",
+            "edits": [
+                {
+                    "message_index": 2,
+                    "segment_type": "thought",
+                    "segment_index": 0,
+                    "replacement": "Use the recorded result to support the conclusion.",
+                },
+                {
+                    "message_index": 4,
+                    "segment_type": "final_summary",
+                    "segment_index": 0,
+                    "replacement": "The recorded computation completed successfully.",
+                },
+            ],
+        }
+        cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
+        self.assertEqual(findings, [])
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(compare_immutable_facts(source, cleaned), [])
+        self.assertIn("recorded result", cleaned["messages"][2]["content"])
+        self.assertIn("completed successfully", cleaned["messages"][4]["content"])
+
+    def test_patch_cannot_target_unflagged_or_inject_protocol(self) -> None:
+        source = sample_record()
+        patch = {
+            "schema_version": "llm_clean_patch_v1",
+            "sample_id": "sample-1",
+            "edits": [
+                {
+                    "message_index": 2,
+                    "segment_type": "thought",
+                    "segment_index": 1,
+                    "replacement": "<tool_call>{}</tool_call>",
+                }
+            ],
+        }
+        cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
+        self.assertEqual(cleaned, source)
+        self.assertEqual(actions, [])
+        self.assertTrue(any("edit_target_not_in_python_hints" in finding for finding in findings))
+
+    def test_missing_patch_is_quarantined_by_one_final_gate(self) -> None:
+        source = sample_record()
+        audit = {
+            "id": "sample-1",
+            "python_status": "python_valid",
+            "execution_valid": True,
+            "task_answer_valid": True,
+            "training_trace_valid": True,
+            "repair_hints": repair_hints(),
+        }
+
+        def missing(_source, _hints):
+            return None, {"status": "failed", "findings": ["missing_llm_clean_patch_file"]}
+
+        result = clean_draft(source, audit, missing)
+        self.assertEqual(result["audit"]["final_status"], "quarantine")
+        self.assertEqual(result["audit"]["final_status_authority"], "final_acceptance_gate")
+        self.assertEqual(result["record"], source)
+
+    def test_final_outputs_include_python_rejections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            python_root = root / "python"
+            python_root.mkdir()
+            (python_root / "python_drafts.jsonl").write_text("", encoding="utf-8")
+            rejected = {"id": "bad-1", "python_status": "rejected", "python_status_reasons": ["execution_invalid"]}
+            (python_root / "python_audit.jsonl").write_text(json.dumps(rejected) + "\n", encoding="utf-8")
+            (python_root / "rejected.jsonl").write_text(json.dumps(rejected) + "\n", encoding="utf-8")
+            final_root = root / "final"
+            manifest = llm_clean(python_root / "python_drafts.jsonl", final_root)
+            self.assertEqual(manifest["rejected_count"], 1)
+            self.assertEqual(len((final_root / "rejected.jsonl").read_text().splitlines()), 1)
+            self.assertEqual(len((final_root / "curation_audit.jsonl").read_text().splitlines()), 1)
+            final_rejected = json.loads((final_root / "rejected.jsonl").read_text())
+            self.assertEqual(final_rejected["final_status"], "rejected")
+            self.assertEqual(final_rejected["final_status_authority"], "final_acceptance_gate")
+
+
+class InvariantTest(unittest.TestCase):
+    def test_detects_observation_status_and_final_conflicts(self) -> None:
+        sample = sample_record()
+        sample["messages"][3]["content"] = (
+            '<observation tool_name="x">'
+            '{"content":{"status":"error","error":"failed"},"is_error":false,'
+            '"status":"success","tool_name":"x"}</observation>'
         )
-        _, report = hard_clean(sample)
+        sample["messages"][4]["content"] = (
+            '<final_answer>{"evidence":[],"result":"done",'
+            '"summary":"The computation completed successfully.","task_type":"kg"}</final_answer>'
+        )
+        report = validate_final_record(sample)
         self.assertIn("observation_status_conflict", report["errors"])
-        self.assertNotIn("accepted", report)
-        self.assertNotIn("status", report)
+        self.assertIn("final_claims_success_after_failed_critical_tool", report["errors"])
 
-    def test_reports_final_artifact_and_numeric_conflicts(self) -> None:
-        sample = sample_record(
-            {
-                "role": "assistant",
-                "content": '<tool_call>{"tool_name":"dock","arguments":{"smiles":"CCO"}}</tool_call>',
-                "step_loss_mask": 1,
-            },
-            {
-                "role": "user",
-                "content": (
-                    '<observation tool_name="dock">{"status":"success","is_error":false,'
-                    '"content":{"score":-7.1,"artifact":"<artifact:docking/real.sdf>"}}</observation>'
-                ),
-                "step_loss_mask": 0,
-            },
-            final={
-                "task_type": "e2e",
-                "result": "done",
-                "evidence": [{"score": -8.5, "artifact": "<artifact:docking/invented.sdf>"}],
-            },
-        )
-        _, report = hard_clean(sample)
-        self.assertIn("final_references_unknown_artifact", report["errors"])
-        self.assertIn("final_numeric_evidence_not_in_observations", report["errors"])
-
-    def test_reports_vs_ranking_inconsistent_with_scores(self) -> None:
-        sample = sample_record(
-            {
-                "role": "assistant",
-                "content": (
-                    '<tool_call>{"tool_name":"dock","arguments":{"smiles":"A"}}</tool_call>\n'
-                    '<tool_call>{"tool_name":"dock","arguments":{"smiles":"B"}}</tool_call>'
-                ),
-                "step_loss_mask": 1,
-            },
-            {
-                "role": "user",
-                "content": (
-                    '<observation tool_name="dock">{"status":"success","content":{"score":-5.0}}</observation>\n'
-                    '<observation tool_name="dock">{"status":"success","content":{"score":-7.0}}</observation>'
-                ),
-                "step_loss_mask": 0,
-            },
-            final={"task_type": "vs", "ranked_smiles": ["A", "B"]},
-        )
-        _, report = hard_clean(sample)
-        self.assertIn("vs_ranking_inconsistent_with_tool_scores", report["errors"])
-
-    def test_sanitizes_relative_path_without_changing_protocol_order(self) -> None:
-        sample = sample_record(
-            {
-                "role": "assistant",
-                "content": '<thought>Read ../outputs/result.pdb</thought><tool_call>{"tool_name":"x","arguments":{}}</tool_call>',
-                "step_loss_mask": 1,
-            },
-            {
-                "role": "user",
-                "content": '<observation tool_name="x">{"status":"success","content":{}}</observation>',
-                "step_loss_mask": 0,
-            },
-        )
-        cleaned, report = hard_clean(copy.deepcopy(sample))
-        self.assertIn("<artifact:structure/result.pdb>", cleaned["messages"][2]["content"])
-        self.assertEqual(report["counts"]["tool_calls"], 1)
-        self.assertEqual(report["counts"]["observations"], 1)
+    def test_validation_is_read_only(self) -> None:
+        sample = sample_record()
+        before = copy.deepcopy(sample)
+        validate_final_record(sample)
+        self.assertEqual(sample, before)
 
 
 class AcceptanceGateTest(unittest.TestCase):
-    def test_gate_is_the_only_stage_that_assigns_final_status(self) -> None:
+    def test_only_gate_assigns_final_status(self) -> None:
         decision = decide_final_status(
             execution_valid=True,
             task_answer_valid=True,
             training_trace_valid=True,
             llm_clean_status="cleaned",
             llm_clean_findings=[],
-            hard_clean_findings=[],
+            invariant_findings=[],
+            llm_clean_required=True,
         )
         self.assertEqual(decision["final_status"], "accepted")
         self.assertEqual(decision["authority"], "final_acceptance_gate")
-
-    def test_gate_quarantines_unsafe_cleaning_without_relabeling_base_facts(self) -> None:
-        decision = decide_final_status(
-            execution_valid=True,
-            task_answer_valid=True,
-            training_trace_valid=True,
-            llm_clean_status="unsafe_rewrite",
-            llm_clean_findings=["llm_changed_task_prediction"],
-            hard_clean_findings=[],
-        )
-        self.assertEqual(decision["final_status"], "quarantine")
-        self.assertIn("llm_clean_unsafe_rewrite", decision["reasons"])
 
 
 if __name__ == "__main__":

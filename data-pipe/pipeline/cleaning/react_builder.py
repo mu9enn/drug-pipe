@@ -5,9 +5,9 @@ from collections import Counter
 from typing import Any
 
 try:
-    from pipeline.cleaning.primitives import inspect_observation_status, sanitize_artifact_paths
+    from pipeline.cleaning.artifacts import inspect_observation_status, sanitize_artifact_paths
 except ImportError:
-    from cleaning.primitives import inspect_observation_status, sanitize_artifact_paths
+    from cleaning.artifacts import inspect_observation_status, sanitize_artifact_paths
 
 
 MOLCLAW_PREFIX = "mcp__molclaw-scp__"

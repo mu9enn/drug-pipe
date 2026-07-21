@@ -1,0 +1,41 @@
+{
+  "schema_version": "drug_agent_sft_react_json_v1",
+  "id": "react_kg_example_0001",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Use the canonical ReAct protocol. Never invent tool results.",
+      "step_loss_mask": 0
+    },
+    {
+      "role": "user",
+      "content": "Retrieve and repair the structure for the example target.",
+      "step_loss_mask": 0
+    },
+    {
+      "role": "assistant",
+      "content": "<thought>Retrieve the target structure before attempting repair.</thought>\n<tool_call>{\"arguments\":{\"gene_name\":\"EXAMPLE1\",\"organism\":\"9606\",\"sort_by\":\"length\"},\"tool_name\":\"retrieve_protein_structure_by_gene_name\"}</tool_call>",
+      "step_loss_mask": 1
+    },
+    {
+      "role": "user",
+      "content": "<observation tool_name=\"retrieve_protein_structure_by_gene_name\">{\"content\":{\"artifact\":\"<artifact:structure/example.pdb>\",\"status\":\"success\"},\"is_error\":false,\"status\":\"success\",\"tool_name\":\"retrieve_protein_structure_by_gene_name\"}</observation>",
+      "step_loss_mask": 0
+    },
+    {
+      "role": "assistant",
+      "content": "<thought>The retrieved structure can now be repaired using the requested preparation settings.</thought>\n<tool_call>{\"arguments\":{\"add_hydrogens\":true,\"input_path\":\"<artifact:structure/example.pdb>\",\"remove_heterogens\":true},\"tool_name\":\"fix_pdb\"}</tool_call>",
+      "step_loss_mask": 1
+    },
+    {
+      "role": "user",
+      "content": "<observation tool_name=\"fix_pdb\">{\"content\":{\"atom_count\":1000,\"output_file\":\"<artifact:pdbfixer/example_fixed.pdb>\",\"status\":\"success\"},\"is_error\":false,\"status\":\"success\",\"tool_name\":\"fix_pdb\"}</observation>",
+      "step_loss_mask": 0
+    },
+    {
+      "role": "assistant",
+      "content": "<final_answer>{\"evidence\":[{\"status\":\"success\",\"tool_name\":\"fix_pdb\"}],\"result\":\"<artifact:pdbfixer/example_fixed.pdb>\",\"summary\":\"The example structure was retrieved and repaired successfully.\",\"task_type\":\"kg\"}</final_answer>",
+      "step_loss_mask": 1
+    }
+  ]
+}

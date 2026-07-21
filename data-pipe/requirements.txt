@@ -1,0 +1,2 @@
+-r get-molbench/requirements.txt
+jsonschema>=4.0,<5.0
