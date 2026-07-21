@@ -15,7 +15,7 @@ def test_converter_builds_step_level_samples(tmp_path: Path):
     input_dir.mkdir()
     record = {
         "schema_version": "drug_agent_sft_react_json_v1",
-        "id": "sample-1",
+        "id": "react_ac_sample-1",
         "messages": [
             {"role": "system", "content": "system"},
             {"role": "user", "content": "user prompt"},
@@ -45,6 +45,7 @@ def test_converter_builds_step_level_samples(tmp_path: Path):
     rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 2
     assert rows[0]["metadata"]["assistant_index"] == 2
+    assert rows[0]["metadata"]["task_type"] == "ac"
     assert rows[0]["prompt"][-1]["role"] == "user"
     assert "final_answer" not in rows[0]["prompt"][-1]["content"]
     assert rows[1]["metadata"]["assistant_index"] == 4

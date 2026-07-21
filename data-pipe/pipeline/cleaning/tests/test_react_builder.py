@@ -188,6 +188,38 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertNotIn("step02_P08913_6K42_fixed.pdb", json.dumps(final_payload["result"]))
         self.assertNotIn("run_log.md", json.dumps(final_payload["result"]))
 
+    def test_path_sanitization_does_not_rewrite_smiles_stereochemistry(self) -> None:
+        smiles = "N=C(N)N/C(=N\\C1CCCCC1)c1ccc(Cl)cc1"
+        events = [
+            assistant_event(
+                {"type": "thinking", "thinking": f"Evaluate {smiles} before selecting it."},
+                {
+                    "type": "tool_use",
+                    "id": "c1",
+                    "name": "mcp__molclaw-scp__is_valid_smiles",
+                    "input": {"smiles": smiles},
+                },
+            ),
+            user_event(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": {"status": "success", "smiles": smiles, "valid": True},
+                }
+            ),
+        ]
+        messages, stats = reconstruct_react_messages(
+            events,
+            question_text=f"Return the valid molecule {smiles}",
+            final_answer=[smiles],
+            task="pf",
+        )
+        rendered = json.dumps(messages, ensure_ascii=False)
+        self.assertNotIn("<artifact:", rendered)
+        self.assertGreaterEqual(rendered.count("N=C(N)N/C"), 4)
+        self.assertGreaterEqual(rendered.count("C1CCCCC1"), 4)
+        self.assertEqual(stats["artifact_mappings"], {})
+
     def test_invariant_validation_does_not_reconstruct_or_recompact(self) -> None:
         events = [
             assistant_event(

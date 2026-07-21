@@ -62,20 +62,41 @@ def _validate_tool_call(payload: dict[str, Any]) -> tuple[bool, str | None, str 
 
 def _validate_final_answer(payload: dict[str, Any]) -> tuple[bool, str | None, str | None]:
     answer = payload.get("answer")
-    if not isinstance(answer, dict):
-        return False, "ReactSchemaError", "`final_answer.answer` must be an object"
+    if isinstance(answer, dict):
+        if "summary" not in answer or not isinstance(answer.get("summary"), str):
+            return False, "ReactSchemaError", "`answer.summary` must be a string"
+        if "evidence" not in answer or not isinstance(answer.get("evidence"), list):
+            return False, "ReactSchemaError", "`answer.evidence` must be a list"
+        if "result" not in answer or not isinstance(answer.get("result"), dict):
+            return False, "ReactSchemaError", "`answer.result` must be an object"
+        ranked = answer.get("ranked_molecules")
+        if ranked is not None and not isinstance(ranked, list):
+            return False, "ReactSchemaError", "`answer.ranked_molecules` must be a list when provided"
+        return True, None, None
 
-    if "summary" not in answer or not isinstance(answer.get("summary"), str):
-        return False, "ReactSchemaError", "`answer.summary` must be a string"
-    if "evidence" not in answer or not isinstance(answer.get("evidence"), list):
-        return False, "ReactSchemaError", "`answer.evidence` must be a list"
-    if "result" not in answer or not isinstance(answer.get("result"), dict):
-        return False, "ReactSchemaError", "`answer.result` must be an object"
-
-    ranked = answer.get("ranked_molecules")
-    if ranked is not None and not isinstance(ranked, list):
-        return False, "ReactSchemaError", "`answer.ranked_molecules` must be a list when provided"
-
+    # Data-Pipe's canonical ReAct contract is task-specific and intentionally
+    # does not reuse the online action-JSON {"answer": ...} envelope.
+    if not isinstance(payload.get("summary"), str):
+        return False, "ReactSchemaError", "canonical `final_answer.summary` must be a string"
+    if not isinstance(payload.get("evidence"), list):
+        return False, "ReactSchemaError", "canonical `final_answer.evidence` must be a list"
+    task_type = str(payload.get("task_type") or "").lower()
+    if task_type == "vs":
+        if not isinstance(payload.get("ranked_smiles"), list):
+            return False, "ReactSchemaError", "VS `final_answer.ranked_smiles` must be a list"
+        if not isinstance(payload.get("selected_smiles"), str):
+            return False, "ReactSchemaError", "VS `final_answer.selected_smiles` must be a string"
+    elif task_type == "ac":
+        if not isinstance(payload.get("answer_smiles"), str):
+            return False, "ReactSchemaError", "AC `final_answer.answer_smiles` must be a string"
+    elif task_type == "pf":
+        if not isinstance(payload.get("selected_smiles"), list):
+            return False, "ReactSchemaError", "PF `final_answer.selected_smiles` must be a list"
+    elif task_type in {"kg", "e2e"}:
+        if "result" not in payload:
+            return False, "ReactSchemaError", f"{task_type.upper()} `final_answer.result` is required"
+    else:
+        return False, "ReactSchemaError", "canonical `final_answer.task_type` is unsupported"
     return True, None, None
 
 

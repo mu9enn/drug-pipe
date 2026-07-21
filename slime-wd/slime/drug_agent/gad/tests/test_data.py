@@ -12,7 +12,7 @@ class TestGADData(unittest.TestCase):
     def test_state_target_boundary_and_final_answer(self):
         records = [
             {
-                "id": "x",
+                "id": "react_pf_x",
                 "messages": [
                     {"role": "system", "content": "system"},
                     {"role": "user", "content": "task"},
@@ -30,6 +30,7 @@ class TestGADData(unittest.TestCase):
         self.assertIn(OBS, [m["content"] for m in rows[1]["prompt"]])
         self.assertNotIn(FINAL, [m["content"] for m in rows[1]["prompt"]])
         self.assertEqual(rows[1]["metadata"]["state_messages"], rows[1]["state_messages"])
+        self.assertEqual(rows[1]["metadata"]["task_type"], "pf")
 
     def test_non_molclaw_is_skipped(self):
         bad = '<thought>x</thought><tool_call>{"tool_name":"Bash","arguments":{"cmd":"pwd"}}</tool_call>'

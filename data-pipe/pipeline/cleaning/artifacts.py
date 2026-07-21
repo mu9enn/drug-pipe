@@ -8,7 +8,7 @@ from typing import Any
 
 ARTIFACT_RE = re.compile(r"<artifact:[^>]+>")
 ABSOLUTE_PATH_RE = re.compile(
-    r"(?<![\w<:/])/(?!/)[^\s<>\"'`{}\[\],()]+"
+    r"(?<![\w<:/])/(?!/)(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+"
 )
 RELATIVE_PATH_RE = re.compile(
     r"(?<![:/A-Za-z0-9])(?:\.\.?/)+(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+"

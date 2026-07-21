@@ -52,12 +52,12 @@ def _infer_task_type(record: dict[str, Any], source_path: str) -> str | None:
             return candidate.strip()
 
     record_id = str(record.get("id") or "")
-    match = re.search(r"mcp_sft_(?P<task_type>[a-z]+)_", record_id)
+    match = re.search(r"(?:mcp_sft|react)_(?P<task_type>vs|ac|pf|kg|e2e)_", record_id)
     if match:
         return match.group("task_type")
 
     path_name = Path(source_path).name
-    match = re.search(r"mcp_sft_(?P<task_type>[a-z]+)_", path_name)
+    match = re.search(r"(?:mcp_sft|react)_(?P<task_type>vs|ac|pf|kg|e2e)_", path_name)
     if match:
         return match.group("task_type")
     return None

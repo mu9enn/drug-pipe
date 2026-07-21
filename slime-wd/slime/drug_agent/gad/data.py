@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,18 @@ NON_MOLCLAW_LOCAL_TOOLS = {
     "websearch",
     "write",
 }
+
+
+def _infer_task_type(record: dict[str, Any]) -> str | None:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    for candidate in (metadata.get("task"), record.get("task_type"), record.get("task")):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip().lower()
+    match = re.search(
+        r"(?:mcp_sft|react)_(?P<task_type>vs|ac|pf|kg|e2e)_",
+        str(record.get("id") or ""),
+    )
+    return match.group("task_type") if match else None
 
 
 def _partition_cleaned_tool_calls(tool_info: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -98,6 +111,7 @@ def convert_records(records: list[dict[str, Any]], source: str = "") -> tuple[li
                 "schema_version": "drug_agent_gad_step_v1",
                 "sample_id": sample_id,
                 "source_id": record.get("id"),
+                "task_type": _infer_task_type(record),
                 "source_path": source,
                 "assistant_index": assistant_index,
                 "decision_type": decision_type,
