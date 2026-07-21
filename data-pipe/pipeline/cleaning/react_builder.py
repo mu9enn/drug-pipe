@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from typing import Any
 
@@ -37,6 +38,11 @@ IMPORTANT_OBSERVATION_KEYS = (
     "output_path",
     "output_file",
 )
+OUTPUT_ARTIFACT_KEYS = ("output_file", "output_path", "artifact")
+DELIVERABLE_FILE_RE = re.compile(
+    r"(?i)(?:<artifact:[^>]+>|(?<![\w.-])[\w.-]+\.(?:pdb|cif|mmcif|sdf|mol|mol2|pdbqt|csv|tsv|json|npy|npz|pt|pkl))"
+)
+ARTIFACT_REF_RE = re.compile(r"<artifact:[^>]+>")
 
 
 def bare_tool_name(raw_name: str) -> str | None:
@@ -161,6 +167,42 @@ def _evidence_summary(observations: list[dict[str, Any]]) -> list[dict[str, Any]
     return evidence
 
 
+def _artifact_refs(value: Any) -> list[str]:
+    return ARTIFACT_REF_RE.findall(_serialize(value))
+
+
+def _values_for_key(value: Any, key: str) -> list[Any]:
+    values: list[Any] = []
+    if isinstance(value, dict):
+        for item_key, item in value.items():
+            if str(item_key) == key:
+                values.append(item)
+            values.extend(_values_for_key(item, key))
+    elif isinstance(value, list):
+        for item in value:
+            values.extend(_values_for_key(item, key))
+    return values
+
+
+def _primary_output_artifact(observations: list[dict[str, Any]]) -> str | None:
+    preferred: list[str] = []
+    fallback: list[str] = []
+    for observation in observations:
+        if observation.get("is_error"):
+            continue
+        content = observation.get("content")
+        fallback.extend(_artifact_refs(content))
+        for key in OUTPUT_ARTIFACT_KEYS:
+            for value in _values_for_key(content, key):
+                preferred.extend(_artifact_refs(value))
+    candidates = preferred or fallback
+    return candidates[-1] if candidates else None
+
+
+def _is_file_delivery_answer(value: Any) -> bool:
+    return bool(DELIVERABLE_FILE_RE.search(_serialize(value)))
+
+
 def build_final_payload(task: str, final_answer: Any, final_text: str, observations: list[dict[str, Any]]) -> dict[str, Any]:
     value = final_answer
     if value in (None, "", []):
@@ -179,7 +221,13 @@ def build_final_payload(task: str, final_answer: Any, final_text: str, observati
     elif task == "pf":
         payload = {"task_type": "pf", "selected_smiles": values}
     else:
-        payload = {"task_type": task, "result": value}
+        primary_artifact = _primary_output_artifact(observations)
+        result = (
+            primary_artifact
+            if task in {"kg", "e2e"} and primary_artifact and _is_file_delivery_answer(value)
+            else value
+        )
+        payload = {"task_type": task, "result": result}
     if summary:
         payload["summary"] = summary
     if evidence:
@@ -311,6 +359,7 @@ def reconstruct_react_messages(
             "step_loss_mask": 1,
         }
     )
+    messages = sanitize_artifact_paths(messages, path_map)
     resolved_final_answer = final_answer
     if resolved_final_answer in (None, "", []):
         resolved_final_answer = payload.get("result") or payload.get("ranked_smiles") or payload.get("answer_smiles")

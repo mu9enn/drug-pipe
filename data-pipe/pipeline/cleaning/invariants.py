@@ -19,9 +19,22 @@ OBSERVATION_RE = re.compile(r'<observation\s+tool_name="([^"]+)">([\s\S]*?)</obs
 THOUGHT_RE = re.compile(r"<thought>([\s\S]*?)</thought>")
 FINAL_RE = re.compile(r"<final_answer>([\s\S]*?)</final_answer>")
 SUCCESS_CLAIM_RE = re.compile(r"(?i)\b(success(?:ful(?:ly)?)?|completed|produced|saved|written)\b")
-ENGINEERING_CHATTER_RE = re.compile(
-    r"(?i)(claude code|let me|run_log\.md|result\.md|skills directory|"
-    r"phase 0|file inventory|write the (?:log|report)|everything is done)"
+TEACHER_SCAFFOLD_RE = re.compile(
+    r"(?ix)(?:"
+    r"claude\s+code|claude\.md|\.claude(?:/|\\)skills|"
+    r"\bskills?\b|\bphase\s+\d+(?:\.\d+)?(?:\s*:\s*execution)?\b|\btask\s+type\s+triage\b|"
+    r"\b(?:run_log|results?)\.md\b|\bfile\s+inventory\b|"
+    r"\b(?:execution|decision|run)\s+log\b|\b(?:result|scientific)\s+report\b|"
+    r"\b(?:using|use)\s+`?(?:Read|Write|Edit)`?\b|"
+    r"`(?:Read|Write|Edit)`|\bls\s+-la\b|\blocal\s+workspace\b|"
+    r"\ball\s+(?:output\s+)?files?\s+(?:are\s+)?in\s+place\b|"
+    r"\b(?:compile|compiling|prepare|preparing|confirm|confirming)\b[^\n.]{0,60}"
+    r"\bfinal\s+(?:results?|answer|summary)\b|"
+    r"\breviewing\s+the\s+current\s+state\s+of\s+the\s+workflow\b|"
+    r"\beverything\s+is\s+done\b|"
+    r"\b(?:read|write|edit|update|record|compile)\b[^\n.]{0,80}"
+    r"\b(?:file|log|report|inventory)\b"
+    r")"
 )
 MOLECULE_KEYS = ("smiles", "ligand", "molecule", "candidate")
 
@@ -35,6 +48,74 @@ def _parse_json(text: str) -> Any:
 
 def _serialize(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _upcoming_tool_name(content: str, after: int) -> str | None:
+    match = TOOL_CALL_RE.search(content, after)
+    if not match:
+        return None
+    payload = _parse_json(match.group(1))
+    return str(payload.get("tool_name") or "") if isinstance(payload, dict) else None
+
+
+def _premature_completion_claim(text: str, upcoming_tool: str | None) -> bool:
+    tool = str(upcoming_tool or "").lower()
+    if "server_file_to_base64" in tool or "base64_to_server_file" in tool:
+        operation = r"(?:file\s+)?(?:transfer|conversion)|file\s+transferr?ed"
+    elif "retrieve" in tool:
+        operation = r"retriev(?:al|e|ed)"
+    elif "fix" in tool or "repair" in tool:
+        operation = r"repair(?:ed)?|fix(?:ed)?"
+    elif "dock" in tool or "quickvina" in tool:
+        operation = r"dock(?:ing|ed)?"
+    else:
+        return False
+    return bool(
+        re.search(
+            rf"(?i)\b(?:{operation})\b[^\n.]{{0,30}}\b(?:complete|completed|successful|succeeded)\b|"
+            rf"\b(?:successfully|already)\b[^\n.]{{0,20}}\b(?:{operation})\b|"
+            rf"\bfile\s+(?:was\s+)?transferred\b",
+            text,
+        )
+    )
+
+
+def _assistant_prose_findings(sample: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for message_index, message in enumerate(sample.get("messages") or []):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = str(message.get("content") or "")
+        for segment_index, match in enumerate(THOUGHT_RE.finditer(content)):
+            reasons: list[str] = []
+            text = match.group(1)
+            if TEACHER_SCAFFOLD_RE.search(text):
+                reasons.append("teacher_engineering_scaffolding")
+            upcoming_tool = _upcoming_tool_name(content, match.end())
+            if _premature_completion_claim(text, upcoming_tool):
+                reasons.append(f"premature_completion_before_tool:{upcoming_tool}")
+            if reasons:
+                findings.append(
+                    {
+                        "message_index": message_index,
+                        "segment_type": "thought",
+                        "segment_index": segment_index,
+                        "reasons": reasons,
+                    }
+                )
+        for match in FINAL_RE.finditer(content):
+            payload = _parse_json(match.group(1))
+            summary = payload.get("summary") if isinstance(payload, dict) else None
+            if isinstance(summary, str) and TEACHER_SCAFFOLD_RE.search(summary):
+                findings.append(
+                    {
+                        "message_index": message_index,
+                        "segment_type": "final_summary",
+                        "segment_index": 0,
+                        "reasons": ["teacher_engineering_scaffolding"],
+                    }
+                )
+    return findings
 
 
 def protocol_parts(sample: dict[str, Any]) -> dict[str, Any]:
@@ -195,6 +276,7 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         "warnings": [],
         "status_conflicts": [],
         "sequence_mismatches": [],
+        "prose_findings": _assistant_prose_findings(sample),
     }
     parts = protocol_parts(sample)
     report["errors"].extend(parts["malformed"])
@@ -235,42 +317,13 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         "observations": len(parts["observations"]),
         "final_answers": len(parts["finals"]),
         "errors": len(report["errors"]),
+        "prose_findings": len(report["prose_findings"]),
     }
     return report
 
 
 def collect_repair_hints(sample: dict[str, Any]) -> dict[str, Any]:
-    hints: list[dict[str, Any]] = []
-    for message_index, message in enumerate(sample.get("messages") or []):
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        content = str(message.get("content") or "")
-        for segment_index, match in enumerate(THOUGHT_RE.finditer(content)):
-            text = match.group(1)
-            reasons: list[str] = []
-            if ENGINEERING_CHATTER_RE.search(text):
-                reasons.append("engineering_or_process_chatter")
-            if len(text) > 2000:
-                reasons.append("overlong_reasoning_segment")
-            if reasons:
-                hints.append(
-                    {
-                        "message_index": message_index,
-                        "segment_type": "thought",
-                        "segment_index": segment_index,
-                        "reasons": reasons,
-                    }
-                )
-        for match in FINAL_RE.finditer(content):
-            payload = _parse_json(match.group(1))
-            summary = payload.get("summary") if isinstance(payload, dict) else None
-            if isinstance(summary, str) and (ENGINEERING_CHATTER_RE.search(summary) or len(summary) > 2000):
-                hints.append(
-                    {
-                        "message_index": message_index,
-                        "segment_type": "final_summary",
-                        "segment_index": 0,
-                        "reasons": ["engineering_chatter_or_overlong_summary"],
-                    }
-                )
-    return {"sample_id": sample.get("id"), "editable_findings": hints}
+    return {
+        "sample_id": sample.get("id"),
+        "editable_findings": _assistant_prose_findings(sample),
+    }

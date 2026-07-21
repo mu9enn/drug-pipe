@@ -80,6 +80,9 @@ def apply_restricted_patch(
             findings.append(f"edit_target_not_in_python_hints:{target}")
             continue
         replacement = str(edit["replacement"]).strip()
+        if edit["segment_type"] == "final_summary" and not replacement:
+            findings.append(f"empty_final_summary_replacement:{target}")
+            continue
         if PROTOCOL_TAG_RE.search(replacement):
             findings.append(f"replacement_contains_protocol_tag:{target}")
             continue
@@ -124,11 +127,14 @@ def apply_restricted_patch(
                         "message_index": message_index,
                         "segment_type": "thought",
                         "segment_index": current,
+                        "operation": "delete" if not replacement else "replace",
                     }
                 )
-                return f"<thought>{replacement}</thought>"
+                return f"<thought>{replacement}</thought>" if replacement else ""
 
             content = THOUGHT_RE.sub(replace_thought, content)
+            if not content.strip():
+                findings.append(f"thought_deletion_would_empty_message:{message_index}")
         if final_edits:
             if len(final_edits) != 1 or int(final_edits[0]["segment_index"]) != 0:
                 findings.append(f"invalid_final_summary_target:{message_index}")
@@ -262,7 +268,14 @@ def clean_draft(
         llm_status = "unsafe_patch" if apply_findings else "cleaned"
     invariant_report = validate_final_record(candidate)
     immutable_findings = compare_immutable_facts(source, candidate)
-    final_findings = list(dict.fromkeys(invariant_report["errors"] + immutable_findings))
+    prose_findings = [
+        f"prose:{finding['message_index']}:{finding['segment_type']}:{finding['segment_index']}:"
+        f"{','.join(finding['reasons'])}"
+        for finding in invariant_report["prose_findings"]
+    ]
+    final_findings = list(
+        dict.fromkeys(invariant_report["errors"] + prose_findings + immutable_findings)
+    )
     decision = decide_final_status(
         execution_valid=bool(python_audit.get("execution_valid")),
         task_answer_valid=bool(python_audit.get("task_answer_valid")),

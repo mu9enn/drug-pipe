@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import PurePosixPath
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 
 ARTIFACT_RE = re.compile(r"<artifact:[^>]+>")
 ABSOLUTE_PATH_RE = re.compile(
-    r"(?<![\w<])(?:/root|/home|/tmp|/mnt|/workspace)(?:/[^\s<>\"'{}\[\],)]*)?"
+    r"(?<![\w<:/])/(?!/)[^\s<>\"'`{}\[\],()]+"
 )
 RELATIVE_PATH_RE = re.compile(
     r"(?<![:/A-Za-z0-9])(?:\.\.?/)+(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+"
@@ -17,9 +18,14 @@ ERROR_STATUSES = {"error", "failed", "failure", "timeout", "timed_out", "invalid
 SUCCESS_STATUSES = {"ok", "success", "succeeded", "complete", "completed", "partial_success"}
 
 
-def _artifact_reference(raw_path: str) -> str:
-    path = str(raw_path).rstrip(".,;:")
-    normalized = path.replace("\\", "/")
+TRAILING_PATH_PUNCTUATION = ".,;:"
+
+
+def _normalized_path(raw_path: str) -> str:
+    return str(raw_path).strip().rstrip(TRAILING_PATH_PUNCTUATION).replace("\\", "/")
+
+
+def _artifact_reference(normalized: str) -> str:
     name = PurePosixPath(normalized).name or "result"
     lowered = normalized.lower()
     if "fpocket" in lowered:
@@ -45,6 +51,19 @@ def _artifact_reference(raw_path: str) -> str:
     return f"<artifact:{namespace}/{name}>"
 
 
+def _mapped_reference(raw_path: str, path_map: dict[str, str]) -> str:
+    normalized = _normalized_path(raw_path)
+    if normalized in path_map:
+        return path_map[normalized]
+    reference = _artifact_reference(normalized)
+    if reference in path_map.values():
+        stem = reference[:-1]
+        suffix = hashlib.sha256(normalized.encode()).hexdigest()[:8]
+        reference = f"{stem}-{suffix}>"
+    path_map[normalized] = reference
+    return reference
+
+
 def sanitize_artifact_paths(value: Any, path_map: dict[str, str]) -> Any:
     """Replace absolute and explicit relative file paths using one pure rule."""
     if isinstance(value, str):
@@ -58,8 +77,9 @@ def sanitize_artifact_paths(value: Any, path_map: dict[str, str]) -> Any:
 
         def replace(match: re.Match[str]) -> str:
             raw = match.group(0)
-            path_map.setdefault(raw, _artifact_reference(raw))
-            return path_map[raw]
+            core = raw.rstrip(TRAILING_PATH_PUNCTUATION)
+            suffix = raw[len(core) :]
+            return f"{_mapped_reference(core, path_map)}{suffix}"
 
         text = ABSOLUTE_PATH_RE.sub(replace, text)
         text = RELATIVE_PATH_RE.sub(replace, text)

@@ -125,6 +125,69 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertEqual(payload["evidence"][0]["key_values"]["score"], -7.1)
         self.assertIn("<artifact:", json.dumps(payload, ensure_ascii=False))
 
+    def test_all_absolute_paths_share_mapping_and_final_uses_real_output_artifact(self) -> None:
+        source_path = "/data/services/proteins/P08913_6K42.pdb"
+        output_path = "/opt/molclaw/results/P08913_6K42_fixed.pdb"
+        events = [
+            assistant_event(
+                {
+                    "type": "tool_use",
+                    "id": "c1",
+                    "name": "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name",
+                    "input": {"gene_name": "ADRA2A", "organism": "9606"},
+                }
+            ),
+            user_event(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": {"status": "success", "prot_structure_path": source_path},
+                }
+            ),
+            assistant_event(
+                {"type": "thinking", "thinking": f"Repair `{source_path}` with the recorded options."},
+                {
+                    "type": "tool_use",
+                    "id": "c2",
+                    "name": "mcp__molclaw-scp__fix_pdb",
+                    "input": {"input_path": source_path, "add_hydrogens": True},
+                },
+            ),
+            user_event(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "c2",
+                    "content": {"status": "success", "output_file": output_path, "atom_count": 4495},
+                }
+            ),
+            assistant_event(
+                {"type": "text", "text": f"The repaired structure is available at {output_path}."}
+            ),
+        ]
+        messages, stats = reconstruct_react_messages(
+            events,
+            question_text="Retrieve and repair ADRA2A.",
+            final_answer=[
+                "Repaired file: step02_P08913_6K42_fixed.pdb. "
+                "The result.md and run_log.md reports were written."
+            ],
+            task="kg",
+        )
+        rendered = json.dumps(messages, ensure_ascii=False)
+        source_ref = "<artifact:structure/P08913_6K42.pdb>"
+        output_ref = "<artifact:structure/P08913_6K42_fixed.pdb>"
+        self.assertNotIn("/data/", rendered)
+        self.assertNotIn("/opt/", rendered)
+        self.assertGreaterEqual(rendered.count(source_ref), 3)
+        self.assertEqual(stats["artifact_mappings"][source_path], source_ref)
+        self.assertNotIn(f"{source_path}`", stats["artifact_mappings"])
+        final_payload = json.loads(
+            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
+        )
+        self.assertEqual(final_payload["result"], output_ref)
+        self.assertNotIn("step02_P08913_6K42_fixed.pdb", json.dumps(final_payload["result"]))
+        self.assertNotIn("run_log.md", json.dumps(final_payload["result"]))
+
     def test_invariant_validation_does_not_reconstruct_or_recompact(self) -> None:
         events = [
             assistant_event(

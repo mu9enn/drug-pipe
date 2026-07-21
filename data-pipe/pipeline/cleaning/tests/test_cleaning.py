@@ -11,7 +11,7 @@ PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
 
 from cleaning.acceptance_gate import decide_final_status  # noqa: E402
-from cleaning.invariants import compare_immutable_facts, validate_final_record  # noqa: E402
+from cleaning.invariants import collect_repair_hints, compare_immutable_facts, validate_final_record  # noqa: E402
 from cleaning.llm_clean import apply_restricted_patch, clean_draft, llm_clean  # noqa: E402
 from cleaning.models import EXAMPLE_DIR, patch_schema_findings, react_schema_findings  # noqa: E402
 
@@ -72,6 +72,27 @@ class ContractTest(unittest.TestCase):
 
 
 class RestrictedPatchTest(unittest.TestCase):
+    def test_empty_replacement_deletes_only_a_flagged_scaffolding_thought(self) -> None:
+        source = sample_record()
+        patch = {
+            "schema_version": "llm_clean_patch_v1",
+            "sample_id": "sample-1",
+            "edits": [
+                {
+                    "message_index": 2,
+                    "segment_type": "thought",
+                    "segment_index": 0,
+                    "replacement": "",
+                }
+            ],
+        }
+        cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
+        self.assertEqual(findings, [])
+        self.assertNotIn("<thought>", cleaned["messages"][2]["content"])
+        self.assertIn("<tool_call>", cleaned["messages"][2]["content"])
+        self.assertEqual(actions[0]["operation"], "delete")
+        self.assertEqual(compare_immutable_facts(source, cleaned), [])
+
     def test_patch_changes_only_whitelisted_prose(self) -> None:
         source = sample_record()
         patch = {
@@ -137,6 +158,61 @@ class RestrictedPatchTest(unittest.TestCase):
         self.assertEqual(result["audit"]["final_status_authority"], "final_acceptance_gate")
         self.assertEqual(result["record"], source)
 
+    def test_remaining_premature_claim_is_quarantined_and_safe_rewrite_is_accepted(self) -> None:
+        source = sample_record()
+        source["messages"][2]["content"] = (
+            "<thought>Transfer complete.</thought>\n"
+            '<tool_call>{"arguments":{"file_path":"<artifact:structure/fixed.pdb>"},'
+            '"tool_name":"server_file_to_base64"}</tool_call>'
+        )
+        source["messages"][3]["content"] = (
+            '<observation tool_name="server_file_to_base64">'
+            '{"content":{"status":"success","value":1},"is_error":false,'
+            '"status":"success","tool_name":"server_file_to_base64"}</observation>'
+        )
+        source["messages"][4]["content"] = (
+            '<final_answer>{"evidence":[{"value":1}],"result":"done",'
+            '"summary":"The recorded transfer produced the requested artifact.",'
+            '"task_type":"kg"}</final_answer>'
+        )
+        hints = collect_repair_hints(source)
+        audit = {
+            "id": "sample-1",
+            "python_status": "python_valid",
+            "execution_valid": True,
+            "task_answer_valid": True,
+            "training_trace_valid": True,
+            "repair_hints": hints,
+        }
+
+        def no_rewrite(_source, _hints):
+            return {"schema_version": "llm_clean_patch_v1", "sample_id": "sample-1", "edits": []}, {
+                "status": "patch_received",
+                "findings": [],
+            }
+
+        quarantined = clean_draft(source, audit, no_rewrite)
+        self.assertEqual(quarantined["audit"]["final_status"], "quarantine")
+        self.assertTrue(quarantined["audit"]["final_invariants"]["prose_findings"])
+
+        def safe_rewrite(_source, _hints):
+            return {
+                "schema_version": "llm_clean_patch_v1",
+                "sample_id": "sample-1",
+                "edits": [
+                    {
+                        "message_index": 2,
+                        "segment_type": "thought",
+                        "segment_index": 0,
+                        "replacement": "Encode the repaired structure for transfer from the server.",
+                    }
+                ],
+            }, {"status": "patch_received", "findings": []}
+
+        accepted = clean_draft(source, audit, safe_rewrite)
+        self.assertEqual(accepted["audit"]["final_status"], "accepted")
+        self.assertEqual(compare_immutable_facts(source, accepted["record"]), [])
+
     def test_final_outputs_include_python_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -157,6 +233,33 @@ class RestrictedPatchTest(unittest.TestCase):
 
 
 class InvariantTest(unittest.TestCase):
+    def test_hints_are_targeted_to_teacher_scaffolding_and_premature_claims(self) -> None:
+        long_science = "ADRA2A receptor evidence remains relevant. " * 80
+        sample = sample_record()
+        sample["messages"][2]["content"] = (
+            "<thought>Use the observed ADRA2A structure, then write run_log.md.</thought>\n"
+            f"<thought>{long_science}</thought>\n"
+            "<thought>Transfer complete.</thought>\n"
+            "<thought>Encode the repaired structure for transfer.</thought>\n"
+            '<tool_call>{"arguments":{},"tool_name":"server_file_to_base64"}</tool_call>'
+        )
+        sample["messages"][4]["content"] = (
+            '<final_answer>{"evidence":[{"value":1}],"result":"done",'
+            '"summary":"ADRA2A was repaired; result.md was also written.",'
+            '"task_type":"kg"}</final_answer>'
+        )
+        hints = collect_repair_hints(sample)["editable_findings"]
+        targets = {(item["message_index"], item["segment_type"], item["segment_index"]): item for item in hints}
+        self.assertIn((2, "thought", 0), targets)
+        self.assertIn("teacher_engineering_scaffolding", targets[(2, "thought", 0)]["reasons"])
+        self.assertNotIn((2, "thought", 1), targets)
+        self.assertIn((2, "thought", 2), targets)
+        self.assertTrue(
+            any(reason.startswith("premature_completion_before_tool") for reason in targets[(2, "thought", 2)]["reasons"])
+        )
+        self.assertNotIn((2, "thought", 3), targets)
+        self.assertIn((4, "final_summary", 0), targets)
+
     def test_detects_observation_status_and_final_conflicts(self) -> None:
         sample = sample_record()
         sample["messages"][3]["content"] = (
