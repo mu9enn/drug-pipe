@@ -649,6 +649,9 @@ def _run_agent_attempt(
         "latency_sec": round(run.latency_sec, 4),
         "command": run.command,
         "session_file": run.session_file,
+        "attempt_session_files": run.attempt_session_files,
+        "claude_attempts": run.claude_attempts,
+        "selected_claude_attempt": run.selected_claude_attempt,
         "parsed_ok": isinstance(parsed, dict),
     }
     write_json(workdir / "agent_trace.json", trace)

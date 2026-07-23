@@ -470,6 +470,9 @@ def _run_toolcard_attempt(
     attempt_dir_str = str(attempt_dir) if attempt_dir is not None else str(_toolcard_unit_dir(config, tool_id))
     workdir_str = getattr(run, "workdir", attempt_dir_str) if run is not None else attempt_dir_str
     session_file_str = getattr(run, "session_file", str(Path(attempt_dir_str) / "complete_session.jsonl")) if run is not None else str(Path(attempt_dir_str) / "complete_session.jsonl")
+    attempt_session_files = getattr(run, "attempt_session_files", []) if run is not None else []
+    claude_attempts = getattr(run, "claude_attempts", []) if run is not None else []
+    selected_claude_attempt = getattr(run, "selected_claude_attempt", None) if run is not None else None
     created_at = datetime.now(timezone.utc).isoformat()
     debug_row = {
         "tool_id": tool_id,
@@ -479,6 +482,9 @@ def _run_toolcard_attempt(
         "fallback_applied": fallback_applied,
         "workdir": workdir_str,
         "session_file": session_file_str,
+        "attempt_session_files": attempt_session_files,
+        "claude_attempts": claude_attempts,
+        "selected_claude_attempt": selected_claude_attempt,
         "prompt_file": str(Path(attempt_dir_str) / "prompt.txt"),
         "candidate_source_count": 3,
         "agent_extra": debug_extra,
@@ -495,6 +501,8 @@ def _run_toolcard_attempt(
             "cache_key": cache_key,
             "workdir": workdir_str,
             "session_file": session_file_str,
+            "attempt_session_files": attempt_session_files,
+            "selected_claude_attempt": selected_claude_attempt,
             "prompt_file": str(Path(attempt_dir_str) / "prompt.txt"),
             "created_at_utc": created_at,
             "fallback_applied": True,
@@ -510,6 +518,9 @@ def _run_toolcard_attempt(
         "fallback_applied": fallback_applied,
         "workdir": workdir_str,
         "session_file": session_file_str,
+        "attempt_session_files": attempt_session_files,
+        "claude_attempts": claude_attempts,
+        "selected_claude_attempt": selected_claude_attempt,
         "prompt_file": str(Path(attempt_dir_str) / "prompt.txt"),
         "candidate_source_count": 3,
         "agent_extra": debug_extra,

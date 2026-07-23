@@ -6,11 +6,11 @@ import hashlib
 import json
 import re
 import shutil
-import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
+from pipeline.claude_agent.session_capture import run_stream_json, select_attempt
 from pipeline.cleaning.acceptance_gate import decide_final_status
 from pipeline.cleaning.artifacts import ABSOLUTE_PATH_RE, RELATIVE_PATH_RE
 from pipeline.cleaning.invariants import (
@@ -208,6 +208,9 @@ def build_claude_patch_provider(
         command = [
             claude_bin,
             "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
             "--safe-mode",
             "--no-session-persistence",
             "--permission-mode",
@@ -226,24 +229,32 @@ def build_claude_patch_provider(
             "timeout_sec": timeout_sec,
             "findings": [],
         }
-        try:
-            process = subprocess.run(
-                command,
-                cwd=sample_dir,
-                check=False,
-                text=True,
-                capture_output=True,
-                timeout=timeout_sec,
-            )
-            (sample_dir / "claude_stdout.txt").write_text(process.stdout or "", encoding="utf-8")
-            (sample_dir / "claude_stderr.txt").write_text(process.stderr or "", encoding="utf-8")
-            metadata["return_code"] = process.returncode
-        except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-            stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-            (sample_dir / "claude_stdout.txt").write_text(stdout, encoding="utf-8")
-            (sample_dir / "claude_stderr.txt").write_text(stderr, encoding="utf-8")
+        attempt = run_stream_json(
+            command,
+            cwd=sample_dir,
+            archive_root=sample_dir,
+            timeout_sec=timeout_sec,
+        )
+        selected = select_attempt(attempt, sample_dir / "complete_session.jsonl")
+        metadata.update(
+            {
+                "command": command,
+                "return_code": attempt["return_code"],
+                "session_file": str(sample_dir / "complete_session.jsonl"),
+                "attempt_session_file": attempt["session_file"],
+                "claude_attempts": [attempt],
+                "selected_claude_attempt": attempt["attempt_index"],
+                "session_byte_count": selected["byte_count"],
+                "session_sha256": selected["sha256"],
+                "parseable_event_count": selected["parseable_event_count"],
+                "raw_session_valid": selected["raw_session_valid"],
+            }
+        )
+        if attempt["timed_out"]:
             metadata["findings"].append("claude_timeout")
+            return None, metadata
+        if not selected["raw_session_valid"]:
+            metadata["findings"].append("raw_session_invalid")
             return None, metadata
         if metadata.get("return_code") != 0:
             metadata["findings"].append(f"claude_exit_code:{metadata.get('return_code')}")

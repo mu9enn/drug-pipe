@@ -77,6 +77,9 @@ class AgentCCAdjudicator:
             "mcp_server_url": run.mcp_server_url,
             "workdir": run.workdir,
             "session_file": run.session_file,
+            "attempt_session_files": run.attempt_session_files,
+            "claude_attempts": run.claude_attempts,
+            "selected_claude_attempt": run.selected_claude_attempt,
             "skills_root": str(self.config.runtime.skills_root),
             "parsed_ok": "_parse_failure" not in parsed,
         }

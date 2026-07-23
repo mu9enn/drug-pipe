@@ -102,7 +102,27 @@ profile/config hash 与 prompt hash 写入 manifest。
 
 ## Raw Trace
 
-执行层保存不可改写的 `complete_session.jsonl`、`run_config.json`/run meta、task input snapshot 和 artifacts。raw event 顺序、observation、工具调用与科学结论不得由后处理修改。
+每次 Claude CLI invocation 都以 `--verbose --output-format stream-json` 运行，并把
+stdout 与 stderr 按 `2>&1` 语义直接写入独立的不可变归档：
+
+```text
+<workdir>/attempts/attempt_0001/complete_session.jsonl
+<workdir>/attempts/attempt_0002/complete_session.jsonl
+...
+```
+
+执行层随后把当前流程最终采用的 attempt 按字节复制到稳定兼容路径
+`<workdir>/complete_session.jsonl`，并校验两者 SHA256 一致。`run_meta.json` 或对应
+trace 记录所有 attempt 的 index、路径、return code、字节数、SHA256 与最终选择；
+MCP-ready retry 不覆盖之前的 attempt。timeout、非零退出和 CLI stderr 留在原始文件，
+runner 自己的 timeout/MCP-ready 诊断只写 metadata，禁止追加到 raw stream。
+
+下游仍只读取顶层 `complete_session.jsonl`。空文件或完全没有可解析 stream-json event
+的文件标记为 `raw_session_invalid`；Data-Pipe rollout/Tool-KG 视为执行失败，LLM clean
+回退 Python draft。该契约只适用于新运行，不为历史目录伪造 session。
+
+执行层另保存 `run_config.json`/run meta、task input snapshot 和 artifacts。raw event
+顺序、observation、工具调用与科学结论不得由后处理修改。
 
 ## Canonical ReAct
 

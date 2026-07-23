@@ -39,7 +39,8 @@ flowchart TD
     G --> S[Named sampling profile + Science-KB]
     S --> H[Grounded task sampling]
     H --> I[Real Agent execution]
-    I --> J[Raw complete_session]
+    I --> V[Immutable per-invocation attempts]
+    V --> J[Selected complete_session]
     J --> K[Step 1: Python filter with A/B/C gates]
     K --> U[Step 2: Python canonical ReAct structuring]
     U --> T[Step 3: restricted LLM prose clean]
@@ -84,3 +85,8 @@ OPD、VERL bundle、legacy action-JSON SFT 和 legacy online PPO/GRPO 不属于�
 Python clean 先用 A/B/C gate 筛选，再把 canonical draft 和确定性 repair hints 交给 LLM；ground truth、benchmark
 metrics 和 evaluator 结果只进入 audit。LLM 返回最小 patch，不能重写 tool call、observation、
 prediction 或完整 trajectory。
+
+所有主线 Claude Code runtime（Data-Pipe rollout、LLM clean、Tool-KG adjudication/
+Tool Card/task sampling 和单样本 launcher）共享同一留存边界：每次 invocation 原样写入
+`attempts/attempt_NNNN/complete_session.jsonl`，顶层 `complete_session.jsonl` 只是最终
+采用 attempt 的 SHA256 一致副本。runner 诊断不进入 raw stream。

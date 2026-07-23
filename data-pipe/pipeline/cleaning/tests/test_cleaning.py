@@ -12,7 +12,12 @@ sys.path.insert(0, str(PIPELINE_DIR))
 
 from cleaning.acceptance_gate import decide_final_status  # noqa: E402
 from cleaning.invariants import collect_repair_hints, compare_immutable_facts, validate_final_record  # noqa: E402
-from cleaning.llm_clean import apply_restricted_patch, clean_draft, llm_clean  # noqa: E402
+from cleaning.llm_clean import (  # noqa: E402
+    apply_restricted_patch,
+    build_claude_patch_provider,
+    clean_draft,
+    llm_clean,
+)
 from cleaning.models import EXAMPLE_DIR, patch_schema_findings, react_schema_findings  # noqa: E402
 
 
@@ -214,6 +219,58 @@ class RestrictedPatchTest(unittest.TestCase):
         accepted = clean_draft(source, audit, safe_rewrite)
         self.assertEqual(accepted["audit"]["final_status"], "accepted")
         self.assertEqual(compare_immutable_facts(source, accepted["record"]), [])
+
+
+class ClaudePatchCaptureTest(unittest.TestCase):
+    def _fake_claude(self, root: Path, *, emit_stream: bool = True) -> Path:
+        executable = root / "fake-claude"
+        stream_line = (
+            "print('{\"type\":\"result\",\"result\":\"patch written\"}', flush=True)\n"
+            if emit_stream else ""
+        )
+        executable.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json\n"
+            "from pathlib import Path\n"
+            "source = json.loads(Path('source_trajectory.json').read_text())\n"
+            "Path('llm_clean_patch.json').write_text(json.dumps({"
+            "'schema_version':'llm_clean_patch_v1','sample_id':source['id'],'edits':[]}))\n"
+            + stream_line,
+            encoding="utf-8",
+        )
+        executable.chmod(0o755)
+        return executable
+
+    def test_provider_keeps_raw_stream_and_reads_written_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            provider = build_claude_patch_provider(
+                claude_bin=str(self._fake_claude(root)),
+                debug_root=root / "debug",
+                timeout_sec=5,
+            )
+            patch, metadata = provider(sample_record(), repair_hints())
+            self.assertIsNotNone(patch)
+            self.assertEqual(metadata["status"], "patch_received")
+            self.assertTrue(metadata["raw_session_valid"])
+            attempt = Path(metadata["attempt_session_file"])
+            canonical = Path(metadata["session_file"])
+            self.assertEqual(attempt.read_bytes(), canonical.read_bytes())
+            self.assertFalse((canonical.parent / "claude_stdout.txt").exists())
+            self.assertFalse((canonical.parent / "claude_stderr.txt").exists())
+
+    def test_invalid_raw_stream_falls_back_even_if_patch_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            provider = build_claude_patch_provider(
+                claude_bin=str(self._fake_claude(root, emit_stream=False)),
+                debug_root=root / "debug",
+                timeout_sec=5,
+            )
+            patch, metadata = provider(sample_record(), repair_hints())
+            self.assertIsNone(patch)
+            self.assertIn("raw_session_invalid", metadata["findings"])
+            self.assertTrue(Path(metadata["attempt_session_file"]).is_file())
 
     def test_partial_safe_patch_is_applied_and_unresolved_targets_are_audited(self) -> None:
         source = sample_record()

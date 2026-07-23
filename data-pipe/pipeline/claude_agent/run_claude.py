@@ -8,7 +8,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -18,6 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from tqdm.auto import tqdm
+
+try:
+    from pipeline.claude_agent.session_capture import run_stream_json, select_attempt
+except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
+    from session_capture import run_stream_json, select_attempt
 
 
 ANSWER_RE = re.compile(r"<answer>([\s\S]*?)</answer>", re.IGNORECASE)
@@ -668,7 +672,6 @@ def _run_one(
     claude_bin: str,
     prompt: str,
     workdir: Path,
-    out_file: Path,
     mcp_config_file: Path | None = None,
     strict_mcp_config: bool = False,
 ) -> dict[str, Any]:
@@ -690,29 +693,9 @@ def _run_one(
         ]
     )
 
-    t0 = time.time()
-    with out_file.open("w", encoding="utf-8") as f:
-        try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(workdir),
-                text=True,
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                check=False,
-            )
-            return_code = int(proc.returncode)
-        except FileNotFoundError:
-            f.write(f"[runner-error] executable not found: {claude_bin}\n")
-            return_code = 127
-    sec = time.time() - t0
-    return {
-        "command": cmd,
-        "return_code": return_code,
-        "timed_out": False,
-        "timeout_sec": None,
-        "duration_sec": round(sec, 3),
-    }
+    result = run_stream_json(cmd, cwd=workdir, archive_root=workdir)
+    result["command"] = cmd
+    return result
 
 
 def _run_single_rollout(
@@ -774,6 +757,7 @@ def _run_single_rollout(
     mcp_ready_reason = "mcp_check_skipped_no_config"
     mcp_snapshot: dict[str, Any] = {}
     mcp_attempts = 0
+    claude_attempts: list[dict[str, Any]] = []
 
     while True:
         mcp_attempts += 1
@@ -781,10 +765,11 @@ def _run_single_rollout(
             claude_bin=claude_bin,
             prompt=prompt,
             workdir=workdir,
-            out_file=session_path,
             mcp_config_file=mcp_config_file,
             strict_mcp_config=strict_mcp_config,
         )
+        claude_attempts.append(cli_meta)
+        attempt_session_path = Path(str(cli_meta["session_file"]))
 
         if not enforce_mcp_ready:
             mcp_ready = True
@@ -792,7 +777,7 @@ def _run_single_rollout(
             break
 
         mcp_ready, mcp_ready_reason, mcp_snapshot = _check_session_mcp_ready(
-            session_path=session_path,
+            session_path=attempt_session_path,
             expected_mcp_servers=expected_mcp_servers,
         )
         if mcp_ready:
@@ -803,6 +788,10 @@ def _run_single_rollout(
             break
         time.sleep(ready_retry_wait_sec)
 
+    selected_session = select_attempt(cli_meta, session_path)
+    if not bool(cli_meta.get("raw_session_valid")) and int(cli_meta.get("return_code", 0)) == 0:
+        cli_meta["return_code"] = 97
+        cli_meta["failure"] = "raw_session_invalid"
     if enforce_mcp_ready and not mcp_ready and int(cli_meta.get("return_code", 0)) == 0:
         cli_meta["return_code"] = 98
 
@@ -868,6 +857,11 @@ def _run_single_rollout(
         "mcp_ready_reason": mcp_ready_reason,
         "mcp_attempts": mcp_attempts,
         "mcp_snapshot": mcp_snapshot,
+        "claude_attempts": claude_attempts,
+        "selected_claude_attempt": int(cli_meta["attempt_index"]),
+        "selected_session_byte_count": selected_session["byte_count"],
+        "selected_session_sha256": selected_session["sha256"],
+        "raw_session_valid": bool(selected_session["raw_session_valid"]),
     }
     (workdir / "run_meta.json").write_text(
         json.dumps(run_meta, ensure_ascii=False, indent=2),

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -82,6 +83,43 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def inspect_raw_session(path: Path) -> dict[str, Any]:
+    byte_count = path.stat().st_size if path.is_file() else 0
+    parseable_event_count = 0
+    if path.is_file():
+        with path.open("rb") as stream:
+            for raw_line in stream:
+                try:
+                    value = json.loads(raw_line)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if isinstance(value, dict):
+                    parseable_event_count += 1
+    return {
+        "byte_count": byte_count,
+        "sha256": sha256_file(path) if path.is_file() else None,
+        "parseable_event_count": parseable_event_count,
+        "raw_session_valid": byte_count > 0 and parseable_event_count > 0,
+    }
+
+
+def allocate_attempt(workdir: Path) -> tuple[int, Path]:
+    attempts_root = workdir / "attempts"
+    attempts_root.mkdir(parents=True, exist_ok=True)
+    indexes: list[int] = []
+    for child in attempts_root.glob("attempt_*"):
+        try:
+            indexes.append(int(child.name.removeprefix("attempt_")))
+        except ValueError:
+            continue
+    index = max(indexes, default=0) + 1
+    attempt_dir = attempts_root / f"attempt_{index:04d}"
+    attempt_dir.mkdir()
+    session_path = attempt_dir / "complete_session.jsonl"
+    session_path.touch()
+    return index, session_path
+
+
 def inspect_mcp_init(raw_stream: str, expected_server: str | list[str]) -> tuple[bool, str, dict[str, Any]]:
     init_obj: dict[str, Any] | None = None
     for line in raw_stream.splitlines():
@@ -145,6 +183,9 @@ class ClaudeCodeRunResult:
     mcp_server_url: str
     workdir: str
     session_file: str
+    attempt_session_files: list[str]
+    claude_attempts: list[dict[str, Any]]
+    selected_claude_attempt: int
     raw_stream: str
     assistant_text: str
     result_text: str
@@ -249,6 +290,8 @@ class ClaudeCodeRuntime:
             session_path = actual_workdir / "complete_session.jsonl"
             max_ready_retries = max(0, int(os.getenv("CLAUDE_MCP_READY_RETRIES", "2")))
             ready_retry_wait_sec = max(0.0, float(os.getenv("CLAUDE_MCP_READY_RETRY_WAIT_SEC", "2")))
+            timeout_value = float(os.getenv("CLAUDE_CODE_TIMEOUT_SEC", "0"))
+            timeout_sec = timeout_value if timeout_value > 0 else None
 
             timed_out = False
             return_code = 1
@@ -256,33 +299,49 @@ class ClaudeCodeRuntime:
             mcp_ready = False
             mcp_reason = "not_checked"
             mcp_attempts = 0
+            claude_attempts: list[dict[str, Any]] = []
             t0 = time.time()
 
             while True:
                 mcp_attempts += 1
+                attempt_index, attempt_session_path = allocate_attempt(actual_workdir)
+                attempt_started = time.time()
+                attempt_failure: str | None = None
                 try:
-                    with session_path.open("w", encoding="utf-8") as session_f:
+                    with attempt_session_path.open("wb") as session_f:
                         proc = subprocess.run(
                             cmd,
                             cwd=str(actual_workdir),
-                            input=prompt,
-                            text=True,
+                            input=prompt.encode("utf-8"),
                             stdout=session_f,
                             stderr=subprocess.STDOUT,
                             check=False,
+                            timeout=timeout_sec,
                         )
                         return_code = int(proc.returncode)
-                except subprocess.TimeoutExpired as e:
+                except subprocess.TimeoutExpired:
                     timed_out = True
-                    with session_path.open("a", encoding="utf-8") as session_f:
-                        if isinstance(e.stdout, bytes):
-                            session_f.write(e.stdout.decode("utf-8", errors="ignore"))
-                        elif isinstance(e.stdout, str):
-                            session_f.write(e.stdout)
-                        session_f.write("\n[agent-timeout]\n")
                     return_code = 124
+                    attempt_failure = "timeout"
+                except FileNotFoundError:
+                    return_code = 127
+                    attempt_failure = "executable_not_found"
 
-                raw_stream = session_path.read_text(encoding="utf-8", errors="ignore") if session_path.exists() else ""
+                inspection = inspect_raw_session(attempt_session_path)
+                attempt_meta = {
+                    "attempt_index": attempt_index,
+                    "session_file": str(attempt_session_path),
+                    "return_code": return_code,
+                    "timed_out": timed_out,
+                    "timeout_sec": timeout_sec,
+                    "duration_sec": round(time.time() - attempt_started, 3),
+                    "failure": attempt_failure,
+                    **inspection,
+                }
+                claude_attempts.append(attempt_meta)
+                raw_stream = attempt_session_path.read_text(
+                    encoding="utf-8", errors="ignore"
+                )
                 mcp_ready, mcp_reason, _ = inspect_mcp_init(
                     raw_stream,
                     expected_mcp_servers or [self.mcp_server_name],
@@ -295,10 +354,19 @@ class ClaudeCodeRuntime:
                     break
                 time.sleep(ready_retry_wait_sec)
 
+            shutil.copyfile(attempt_session_path, session_path)
+            if sha256_file(session_path) != inspection["sha256"]:
+                raise RuntimeError(
+                    f"selected Claude session checksum mismatch: {attempt_session_path}"
+                )
+            if not inspection["raw_session_valid"] and return_code == 0:
+                return_code = 97
+                claude_attempts[-1]["return_code"] = return_code
+                claude_attempts[-1]["failure"] = "raw_session_invalid"
             if not mcp_ready and return_code == 0:
                 return_code = 98
-                raw_stream += f"\n[agent-mcp-not-ready] {mcp_reason}\n"
-                session_path.write_text(raw_stream, encoding="utf-8")
+                claude_attempts[-1]["return_code"] = return_code
+                claude_attempts[-1]["failure"] = f"mcp_not_ready:{mcp_reason}"
 
             latency = time.time() - t0
 
@@ -318,6 +386,11 @@ class ClaudeCodeRuntime:
             mcp_server_url=self.mcp_server_url,
             workdir=str(actual_workdir),
             session_file=str(session_path),
+            attempt_session_files=[
+                str(attempt["session_file"]) for attempt in claude_attempts
+            ],
+            claude_attempts=claude_attempts,
+            selected_claude_attempt=int(claude_attempts[-1]["attempt_index"]),
             raw_stream=raw_stream,
             assistant_text=assistant_text,
             result_text=result_text,

@@ -295,6 +295,9 @@ def _call_agent(
         "parsed_ok": isinstance(parsed, dict),
         "parse_source": parse_source,
         "session_file": run.session_file,
+        "attempt_session_files": run.attempt_session_files,
+        "claude_attempts": run.claude_attempts,
+        "selected_claude_attempt": run.selected_claude_attempt,
     })
     return parsed, raw
 

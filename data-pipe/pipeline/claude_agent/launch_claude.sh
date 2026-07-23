@@ -275,6 +275,15 @@ fi
 
 printf '%s\n' "$PROMPT_TEXT" > "$WORKDIR/prompt.txt"
 
+ATTEMPT_INDEX=1
+while [[ -e "$WORKDIR/attempts/attempt_$(printf '%04d' "$ATTEMPT_INDEX")" ]]; do
+  ATTEMPT_INDEX=$((ATTEMPT_INDEX + 1))
+done
+ATTEMPT_DIR="$WORKDIR/attempts/attempt_$(printf '%04d' "$ATTEMPT_INDEX")"
+ATTEMPT_SESSION="$ATTEMPT_DIR/complete_session.jsonl"
+mkdir -p "$ATTEMPT_DIR"
+: > "$ATTEMPT_SESSION"
+
 set +e
 (
   cd "$WORKDIR" || exit 1
@@ -285,12 +294,15 @@ set +e
     --mcp-config "$MCP_CONFIG_FILE" \
     --strict-mcp-config \
     -p "$PROMPT_TEXT"
-) > "$WORKDIR/complete_session.jsonl" 2>&1
+) > "$ATTEMPT_SESSION" 2>&1
 RC=$?
 set -e
 
-"$PYTHON_BIN" - "$WORKDIR" "$PROVIDER" "$CLAUDE_BIN" "$RC" <<'PY'
+set +e
+"$PYTHON_BIN" - "$WORKDIR" "$PROVIDER" "$CLAUDE_BIN" "$RC" "$ATTEMPT_INDEX" "$ATTEMPT_SESSION" <<'PY'
+import hashlib
 import json
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -299,6 +311,48 @@ workdir = Path(sys.argv[1]).resolve()
 provider = sys.argv[2]
 claude_bin = sys.argv[3]
 rc = int(sys.argv[4])
+attempt_index = int(sys.argv[5])
+attempt_session = Path(sys.argv[6]).resolve()
+canonical_session = workdir / "complete_session.jsonl"
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+parseable_events = 0
+with attempt_session.open("rb") as stream:
+    for raw_line in stream:
+        try:
+            value = json.loads(raw_line)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            parseable_events += 1
+byte_count = attempt_session.stat().st_size
+raw_session_valid = byte_count > 0 and parseable_events > 0
+attempt_sha256 = digest(attempt_session)
+shutil.copyfile(attempt_session, canonical_session)
+canonical_sha256 = digest(canonical_session)
+if canonical_sha256 != attempt_sha256:
+    raise RuntimeError("selected Claude session checksum mismatch")
+if rc == 0 and not raw_session_valid:
+    rc = 97
+
+attempt = {
+    "attempt_index": attempt_index,
+    "session_file": str(attempt_session),
+    "return_code": rc,
+    "timed_out": False,
+    "timeout_sec": None,
+    "byte_count": byte_count,
+    "sha256": attempt_sha256,
+    "parseable_event_count": parseable_events,
+    "raw_session_valid": raw_session_valid,
+    "failure": None if raw_session_valid else "raw_session_invalid",
+}
 meta = {
     "timestamp": datetime.now().isoformat(),
     "provider": provider,
@@ -307,12 +361,21 @@ meta = {
     "return_code": rc,
     "timed_out": False,
     "timeout_sec": None,
+    "session_file": str(canonical_session),
+    "claude_attempts": [attempt],
+    "selected_claude_attempt": attempt_index,
+    "selected_session_byte_count": byte_count,
+    "selected_session_sha256": canonical_sha256,
+    "raw_session_valid": raw_session_valid,
 }
 (workdir / "run_meta.json").write_text(
     json.dumps(meta, ensure_ascii=False, indent=2),
     encoding="utf-8",
 )
+raise SystemExit(rc)
 PY
+RC=$?
+set -e
 
 echo "WORKDIR=$WORKDIR"
 exit "$RC"

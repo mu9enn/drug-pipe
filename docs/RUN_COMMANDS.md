@@ -2,6 +2,16 @@
 
 以下只列当前主线。把示例路径替换为本机实际目录；大规模 Claude、MCP 与 GPU 命令应手动确认后运行。
 
+所有下列 Claude 主线命令会自动保留每次 invocation 的原始合并 stream：
+
+```text
+<workdir>/attempts/attempt_NNNN/complete_session.jsonl
+```
+
+MCP-ready retry 会递增 `NNNN`，不会覆盖旧流；顶层
+`<workdir>/complete_session.jsonl` 是最终采用 attempt 的字节级副本，供现有 parser
+继续读取。不要编辑 attempt 文件或向其中追加 runner 诊断。该布局仅对新运行生效。
+
 ## Tool-KG
 
 完整构图会调用 MCP/Claude：
