@@ -10,14 +10,16 @@ WORK_ROOT="${WORK_ROOT:-$RESULTS_ROOT/cleaning_work}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$RESULTS_ROOT/cleaned}"
 TIMEOUT_SEC="${LLM_CLEAN_TIMEOUT_SEC:-300}"
 LIMIT=0
+ONLY_MOLCLAW_TOOL=0
 
 usage() {
   cat <<'EOF'
 Usage: bash scripts/run_cleaning.sh [options]
 
-Runs exactly two user-visible steps:
-  1. deterministic Python clean
-  2. restricted-patch LLM clean + invariant validation + final gate
+Runs three logical steps through two commands:
+  1. deterministic Python filtering
+  2. deterministic Python ReAct structuring
+  3. restricted-patch LLM prose cleaning
 
 Options:
   --results-root PATH
@@ -26,6 +28,7 @@ Options:
   --claude-bin PATH
   --timeout-sec SECONDS
   --limit N
+  --only-molclaw-tool
 EOF
 }
 
@@ -37,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --claude-bin) CLAUDE_BIN="${2:-}"; shift 2 ;;
     --timeout-sec) TIMEOUT_SEC="${2:-}"; shift 2 ;;
     --limit) LIMIT="${2:-}"; shift 2 ;;
+    --only-molclaw-tool) ONLY_MOLCLAW_TOOL=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "[error] unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -58,12 +62,18 @@ if [[ ! -d "$RESULTS_ROOT" ]]; then
 fi
 
 cd "$DATA_PIPE_DIR"
-echo "[cleaning] step 1/2: deterministic Python clean"
-"$PYTHON_BIN" -m pipeline.cleaning.python_clean \
-  --results-root "$RESULTS_ROOT" \
+echo "[cleaning] steps 1-2/3: Python filter then canonical ReAct structuring"
+python_clean_args=(
+  --results-root "$RESULTS_ROOT"
   --output-root "$WORK_ROOT"
+)
+if [[ "$ONLY_MOLCLAW_TOOL" -eq 1 ]]; then
+  python_clean_args+=(--only-molclaw-tool)
+fi
+"$PYTHON_BIN" -m pipeline.cleaning.python_clean \
+  "${python_clean_args[@]}"
 
-echo "[cleaning] step 2/2: restricted-patch LLM clean"
+echo "[cleaning] step 3/3: restricted-patch LLM prose clean"
 "$PYTHON_BIN" -m pipeline.cleaning.llm_clean \
   --input "$WORK_ROOT/python_drafts.jsonl" \
   --python-audit "$WORK_ROOT/python_audit.jsonl" \
@@ -74,7 +84,7 @@ echo "[cleaning] step 2/2: restricted-patch LLM clean"
 
 count=$(wc -l < "$OUTPUT_ROOT/react_trajectories.jsonl")
 if [[ "$count" -eq 0 ]]; then
-  echo "[error] final react_trajectories.jsonl is empty; inspect quarantine/rejected audit" >&2
+  echo "[error] final react_trajectories.jsonl is empty; inspect rejected/audit outputs" >&2
   exit 1
 fi
 echo "[done] accepted canonical ReAct: $count"

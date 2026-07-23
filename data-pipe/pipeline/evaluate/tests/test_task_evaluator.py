@@ -64,8 +64,29 @@ class TaskEvaluatorTest(unittest.TestCase):
             prediction="Analysis complete",
             ground_truth=None,
         )
-        self.assertFalse(result["task_answer_valid"])
+        self.assertTrue(result["task_answer_valid"])
+        self.assertFalse(result["aggregate_eligible"])
         self.assertIn("missing_result_content", result["invalid_reasons"])
+
+    def test_parse_error_is_the_only_task_answer_gate(self) -> None:
+        invalid_prediction = evaluate_task_answer(
+            "ac",
+            prediction=["invalid"],
+            ground_truth=["CCO"],
+            chemistry=FakeChemistry(),
+        )
+        self.assertTrue(invalid_prediction["task_answer_valid"])
+        self.assertFalse(invalid_prediction["aggregate_eligible"])
+        self.assertEqual(invalid_prediction["task_answer_invalid_reasons"], [])
+
+        parse_failed = evaluate_task_answer(
+            "kg",
+            prediction={"result": "present"},
+            ground_truth=None,
+            parse_error="answer_tag_missing",
+        )
+        self.assertFalse(parse_failed["task_answer_valid"])
+        self.assertEqual(parse_failed["task_answer_invalid_reasons"], ["parse_error"])
 
     def test_invalid_vs_is_excluded_from_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

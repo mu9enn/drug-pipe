@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from drug_agent.tools.tool_executor import MCPToolExecutor
+from drug_agent.tools.local_tools import LOCAL_TOOL_SPECS, LocalToolExecutor, is_local_tool
 from drug_agent.utils import normalize_tool_name
 
 
@@ -32,7 +33,7 @@ def load_allowlist(path: str | Path | None = None) -> set[str]:
 
 
 class ToolRegistry:
-    """Thin MCP tool registry with allowlist and basic argument checks."""
+    """Registry and dispatcher for MolClaw MCP and sandboxed local tools."""
 
     def __init__(
         self,
@@ -40,10 +41,12 @@ class ToolRegistry:
         *,
         allowlist: set[str] | None = None,
         allow_all: bool = False,
+        include_local_tools: bool = False,
     ) -> None:
         self.executor = executor
         self.allowlist = set(allowlist or [])
         self.allow_all = bool(allow_all)
+        self.include_local_tools = bool(include_local_tools)
 
         self._tool_specs: list[dict[str, Any]] = []
         self._tool_map: dict[str, dict[str, Any]] = {}
@@ -58,6 +61,8 @@ class ToolRegistry:
             executor=executor or MCPToolExecutor(connect_on_init=False),
             allowlist=allowlist,
             allow_all=allow_all,
+            include_local_tools=os.environ.get("DRUG_AGENT_ENABLE_LOCAL_TOOLS", "1").strip().lower()
+            not in {"0", "false", "no", "off"},
         )
 
     def list_tools(self, force_refresh: bool = False) -> list[dict[str, Any]]:
@@ -83,12 +88,23 @@ class ToolRegistry:
             normalized_specs.append(norm)
             tool_map[bare_name] = norm
 
+        if self.include_local_tools:
+            for spec in LOCAL_TOOL_SPECS:
+                norm = {**spec, "raw_name": spec["name"], "executor": "local_sandbox"}
+                normalized_specs.append(norm)
+                tool_map[spec["name"]] = norm
+
         self._tool_specs = normalized_specs
         self._tool_map = tool_map
         return self._tool_specs
 
     def load_tool_schema(self, tool_name: str) -> dict[str, Any] | None:
         bare_name = normalize_tool_name(tool_name)
+        if self.include_local_tools and is_local_tool(bare_name):
+            for spec in LOCAL_TOOL_SPECS:
+                if spec["name"] == bare_name:
+                    schema = spec.get("input_schema")
+                    return schema if isinstance(schema, dict) else {}
         if bare_name not in self._tool_map:
             self.list_tools(force_refresh=True)
         spec = self._tool_map.get(bare_name)
@@ -108,8 +124,13 @@ class ToolRegistry:
             if bare_name not in normalized_allowed:
                 return False, "tool_not_in_sample_allowed_tools"
 
-        if (not self.allow_all) and self.allowlist and bare_name not in self.allowlist:
+        if (not is_local_tool(bare_name)) and (not self.allow_all) and self.allowlist and bare_name not in self.allowlist:
             return False, "tool_not_in_allowlist"
+
+        if is_local_tool(bare_name):
+            if not self.include_local_tools:
+                return False, "local_tools_disabled"
+            return True, None
 
         if bare_name not in self._tool_map:
             self.list_tools(force_refresh=True)
@@ -117,6 +138,22 @@ class ToolRegistry:
             return False, "tool_not_found_in_registry"
 
         return True, None
+
+    def execute(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        local_executor: LocalToolExecutor | None = None,
+    ) -> dict[str, Any]:
+        bare_name = normalize_tool_name(tool_name)
+        if is_local_tool(bare_name):
+            if not self.include_local_tools:
+                raise RuntimeError("local tools are disabled")
+            if local_executor is None:
+                raise RuntimeError("a per-task LocalToolExecutor is required")
+            return local_executor.execute(bare_name, arguments)
+        return self.executor.execute(bare_name, arguments)
 
     def validate_arguments_basic(self, tool_name: str, arguments: Any) -> tuple[bool, str | None]:
         if not isinstance(arguments, dict):

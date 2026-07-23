@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import threading
 from typing import Any
 
@@ -15,6 +16,8 @@ from drug_agent.protocol.parse_policy import (
     resolve_rollout_controls,
 )
 from drug_agent.protocol.action_schema import ACTION_FINAL_ANSWER, ACTION_TOOL_CALL
+from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_WORKSPACES_ROOT
+from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry
 from drug_agent.tools.tool_success import make_validation_failed_result
@@ -29,6 +32,10 @@ ROLLOUT_FORMAT_REMINDER = (
     "Use schema: "
     '{"type":"tool_call","tool_name":"...","arguments":{...}} OR '
     '{"type":"final_answer","answer":{"summary":"...","evidence":[],"result":{},"ranked_molecules":[]}}'
+)
+LOCAL_TOOL_REMINDER = (
+    "\nAvailable local tools: Read, Write, Edit, Bash, Grep, Glob, and Skill. "
+    "They operate only in this task's workspace; Skill exposes only read-only L1 tool skills."
 )
 
 
@@ -57,6 +64,16 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
     if not isinstance(allowed_tools_raw, list):
         allowed_tools_raw = []
     allowed_tools = [normalize_tool_name(x) for x in allowed_tools_raw if isinstance(x, str) and x.strip()]
+    local_tools_enabled = os.environ.get("DRUG_AGENT_ENABLE_LOCAL_TOOLS", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    if local_tools_enabled:
+        for tool_name in LOCAL_TOOL_NAMES:
+            if tool_name not in allowed_tools:
+                allowed_tools.append(tool_name)
 
     max_steps = env_kwargs.get("max_steps")
     if not isinstance(max_steps, int) or max_steps <= 0:
@@ -69,27 +86,36 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
         "allowed_tools": allowed_tools,
         "max_steps": max_steps,
         "env_kwargs": env_kwargs,
+        "local_tools_enabled": local_tools_enabled,
     }
 
 
-def _augment_prompt_messages(prompt: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _augment_prompt_messages(
+    prompt: list[dict[str, Any]], *, local_tools_enabled: bool
+) -> list[dict[str, Any]]:
     out = [dict(m) for m in prompt]
     if not out:
         return out
 
-    out[0]["content"] = (out[0].get("content") or "") + "\n\n" + ROLLOUT_FORMAT_REMINDER
+    reminder = ROLLOUT_FORMAT_REMINDER
+    if local_tools_enabled:
+        reminder += LOCAL_TOOL_REMINDER
+    out[0]["content"] = (out[0].get("content") or "") + "\n\n" + reminder
     for idx in range(len(out) - 1, -1, -1):
         if out[idx].get("role") == "user":
-            out[idx]["content"] = (out[idx].get("content") or "") + "\n\n" + ROLLOUT_FORMAT_REMINDER
+            out[idx]["content"] = (out[idx].get("content") or "") + "\n\n" + reminder
             break
     return out
 
 
-def _to_prompt_text(state: GenerateState, prompt: Any) -> str:
+def _to_prompt_text(state: GenerateState, prompt: Any, *, local_tools_enabled: bool) -> str:
     if isinstance(prompt, str):
-        return prompt
+        reminder = ROLLOUT_FORMAT_REMINDER
+        if local_tools_enabled:
+            reminder += LOCAL_TOOL_REMINDER
+        return prompt + "\n\n" + reminder
     if isinstance(prompt, list):
-        prompt = _augment_prompt_messages(prompt)
+        prompt = _augment_prompt_messages(prompt, local_tools_enabled=local_tools_enabled)
         try:
             return state.tokenizer.apply_chat_template(
                 prompt,
@@ -126,11 +152,23 @@ def _append_observation(
 
 
 async def _execute_tool(
-    executor: MCPToolExecutor,
+    registry: ToolRegistry,
     tool_name: str,
     arguments: dict[str, Any],
+    local_executor: LocalToolExecutor | None,
 ) -> dict[str, Any]:
-    return await asyncio.to_thread(executor.execute, tool_name, arguments)
+    return await asyncio.to_thread(
+        registry.execute,
+        tool_name,
+        arguments,
+        local_executor=local_executor,
+    )
+
+
+def _workspace_name(task_id: str, sample_index: Any) -> str:
+    safe_task = re.sub(r"[^A-Za-z0-9._-]+", "_", task_id).strip("._") or "task"
+    safe_index = re.sub(r"[^A-Za-z0-9._-]+", "_", str(sample_index)).strip("._") or "sample"
+    return f"{safe_task}__{safe_index}"
 
 
 async def generate(args, sample: Sample, sampling_params, evaluation: bool = False) -> Sample:
@@ -138,7 +176,6 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
 
     state = GenerateState(args)
     runtime = _get_runtime()
-    executor: MCPToolExecutor = runtime["executor"]
     registry: ToolRegistry = runtime["registry"]
 
     context = _resolve_context(sample)
@@ -147,6 +184,11 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
     data_source = context["data_source"]
     allowed_tools = context["allowed_tools"]
     max_steps = context["max_steps"]
+    local_executor = None
+    workspace = None
+    if context["local_tools_enabled"]:
+        workspace = DRUG_AGENT_WORKSPACES_ROOT / _workspace_name(task_id, sample.index)
+        local_executor = LocalToolExecutor(workspace, DRUG_AGENT_L1_SKILLS_ROOT)
     rollout_controls = resolve_rollout_controls()
     rollout_mode = rollout_controls["rollout_mode"]
     parse_recovery_enabled = bool(rollout_controls["parse_recovery_enabled"])
@@ -154,7 +196,11 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
 
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
-    prompt_text = _to_prompt_text(state, sample.prompt)
+    prompt_text = _to_prompt_text(
+        state,
+        sample.prompt,
+        local_tools_enabled=context["local_tools_enabled"],
+    )
     prompt_token_ids = state.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
 
     response_parts: list[str] = []
@@ -274,7 +320,7 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                 args_ok, args_reason = registry.validate_arguments_basic(tool_name, tool_args)
 
                 if tool_ok and args_ok:
-                    tool_result = await _execute_tool(executor, tool_name, tool_args)
+                    tool_result = await _execute_tool(registry, tool_name, tool_args, local_executor)
                 else:
                     err_message = tool_reason or args_reason or "tool validation failed"
                     tool_result = make_validation_failed_result(
@@ -376,6 +422,7 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
         "data_source": data_source,
         "evaluation": bool(evaluation),
         "allowed_tools": allowed_tools,
+        "workspace": str(workspace) if workspace is not None else None,
         "max_steps": max_steps,
         "rollout_mode": rollout_mode,
         "parse_recovery_enabled": parse_recovery_enabled,

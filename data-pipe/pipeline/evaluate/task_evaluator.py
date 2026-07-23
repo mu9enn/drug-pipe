@@ -100,11 +100,17 @@ def _base_result(
     candidates: list[str],
     audit: dict[str, Any],
 ) -> dict[str, Any]:
-    eligible = not reasons
+    task_answer_reasons = [reason for reason in reasons if reason == "parse_error"]
+    task_answer_valid = not task_answer_reasons
+    aggregate_eligible = not reasons
     return {
         "task": task,
-        "task_answer_valid": eligible,
-        "aggregate_eligible": eligible,
+        "task_answer_valid": task_answer_valid,
+        "task_answer_invalid_reasons": task_answer_reasons,
+        "aggregate_eligible": aggregate_eligible,
+        "aggregate_invalid_reasons": reasons,
+        # Compatibility alias for evaluator consumers. These are metric
+        # eligibility reasons, not Data-Pipe curation rejection reasons.
         "invalid_reasons": reasons,
         "metrics": metrics,
         "canonical": {
@@ -112,7 +118,11 @@ def _base_result(
             "ground_truth": ground_truth,
             "candidates": candidates,
         },
-        "audit": {**audit, "aggregate_eligible": eligible},
+        "audit": {
+            **audit,
+            "task_answer_valid": task_answer_valid,
+            "aggregate_eligible": aggregate_eligible,
+        },
     }
 
 

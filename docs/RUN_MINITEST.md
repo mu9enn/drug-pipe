@@ -6,7 +6,8 @@
 Tool-KG
 → grounded task
 → Data-Pipe 真实执行
-→ one-pass Python clean
+→ Python 筛选
+→ Python 结构化
 → restricted-patch LLM clean
 → canonical ReAct
 → SFT / ToolRL / GAD 数据
@@ -519,11 +520,11 @@ test ! -f "$DATA_RUN_DIR/run_summary.jsonl" \
 
 如果执行失败，不要进入清洗；先检查该 run 下的日志和 `complete_session.jsonl`。
 
-### C4. Step 1：一次性 Python clean
+### C4. Step 1-2：Python 筛选与 Python 结构化
 
-这一步一次完成 raw discovery、event pairing、MolClaw filtering、ReAct construction、
-artifact sanitization、observation compaction、task evaluation 和 invariants。输出状态只有
-`python_valid/rejected`，不会提前产生 accepted。
+同一个命令先按 A/B/C gate 筛选 raw 样本，再只对通过样本执行 event pairing、ReAct
+construction、artifact sanitization 和 observation compaction。Evaluator 与 invariants
+只写 audit，不改变准入。输出状态只有 `python_valid/rejected`，不会提前产生 accepted。
 
 运行：
 
@@ -533,6 +534,10 @@ PYTHONPATH=. python -m pipeline.cleaning.python_clean \
   --results-root "$DATA_RUN_DIR" \
   --output-root "$PYTHON_CLEAN"
 ```
+
+默认保留 MolClaw 与受支持的 `Read/Write/Edit/Bash/Grep/Glob/L1 Skill`。如需差异检查，
+另选输出目录并增加 `--only-molclaw-tool`；两次 manifest 的
+`python_valid_count/rejected_count` 应一致。
 
 检查汇总：
 
@@ -566,11 +571,12 @@ head -n 1 "$PYTHON_CLEAN/rejected.jsonl" | python -m json.tool
 
 不要把 `python_drafts.jsonl` 当作最终训练输入。
 
-### C5. Step 2：restricted-patch LLM clean
+### C5. Step 3：restricted-patch LLM clean
 
 只有在 C4 的 Python draft 和 audit 合理后再运行。Claude 在隔离 workdir 中只写
-`llm_clean_patch.json`；Python 应用白名单 thought/final-summary edits，并在唯一 final gate
-之前验证 immutable facts 和最终 schema。
+`llm_clean_patch.json`；Python 应用白名单 thought/final-summary edits，并验证 immutable
+facts 和最终 schema。LLM timeout、坏 JSON、缺 patch 或 unsafe patch 都回退 Python draft，
+不改变 A/B/C 准入结论。
 
 运行：
 
@@ -599,10 +605,12 @@ diff -u \
   || true
 ```
 
-允许：
+默认模式允许：
 
 - reasoning 语言更连贯；
-- 工程 chatter 被删除；
+- L1 skill 和真实受支持的本地文件操作；
+- `run_log.md`、`result.md` 的真实写入；
+- L2/L3 teacher-only 编排被清理；
 - final 表达更清晰。
 
 不允许：
@@ -612,14 +620,7 @@ diff -u \
 - task prediction 变化；
 - 新增 raw trace 中不存在的科学结论。
 
-若进入 quarantine：
-
-```bash
-test ! -f "$REACT_LLM_CLEAN/quarantine.jsonl" \
-  || head -n 1 "$REACT_LLM_CLEAN/quarantine.jsonl" | python -m json.tool
-```
-
-并检查对应 debug workdir：
+若 LLM 回退，检查 audit 中的 `llm_clean.status/findings` 以及对应 debug workdir：
 
 ```bash
 find "$REACT_LLM_CLEAN/debug" -maxdepth 2 -type f -print
@@ -907,7 +908,7 @@ find "$DRUG_AGENT_RUNS_ROOT/replay_minitest" -maxdepth 2 -type f -print
 - [ ] `graph.jsonl` 是 `edge_decisions.jsonl` 的纯 projection。
 - [ ] Grounded question 没有泄露 hidden toolchain。
 - [ ] Data-Pipe raw trace 包含真实 tool call/observation。
-- [ ] Python clean、restricted LLM patch、invariants、final gate 职责分离。
+- [ ] Python 筛选、Python 结构化、restricted LLM patch 与 A/B/C final projection 职责分离。
 - [ ] LLM clean 没有改变 tool call、observation 数值或 prediction。
 - [ ] Training JSONL 与 audit sidecar 分离。
 - [ ] ToolRL/GAD state 不包含 future observation。

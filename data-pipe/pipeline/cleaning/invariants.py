@@ -19,21 +19,33 @@ OBSERVATION_RE = re.compile(r'<observation\s+tool_name="([^"]+)">([\s\S]*?)</obs
 THOUGHT_RE = re.compile(r"<thought>([\s\S]*?)</thought>")
 FINAL_RE = re.compile(r"<final_answer>([\s\S]*?)</final_answer>")
 SUCCESS_CLAIM_RE = re.compile(r"(?i)\b(success(?:ful(?:ly)?)?|completed|produced|saved|written)\b")
-TEACHER_SCAFFOLD_RE = re.compile(
+L2_L3_ORCHESTRATION_RE = re.compile(
     r"(?ix)(?:"
-    r"claude\s+code|claude\.md|\.claude(?:/|\\)skills|"
-    r"\bskills?\b|\bphase\s+\d+(?:\.\d+)?(?:\s*:\s*execution)?\b|\btask\s+type\s+triage\b|"
-    r"\b(?:run_log|results?)\.md\b|\bfile\s+inventory\b|"
-    r"\b(?:execution|decision|run)\s+log\b|\b(?:result|scientific)\s+report\b|"
-    r"\b(?:using|use)\s+`?(?:Read|Write|Edit)`?\b|"
-    r"`(?:Read|Write|Edit)`|\bls\s+-la\b|\blocal\s+workspace\b|"
-    r"\ball\s+(?:output\s+)?files?\s+(?:are\s+)?in\s+place\b|"
-    r"\b(?:compile|compiling|prepare|preparing|confirm|confirming)\b[^\n.]{0,60}"
-    r"\bfinal\s+(?:results?|answer|summary)\b|"
-    r"\breviewing\s+the\s+current\s+state\s+of\s+the\s+workflow\b|"
-    r"\beverything\s+is\s+done\b|"
-    r"\b(?:read|write|edit|update|record|compile)\b[^\n.]{0,80}"
-    r"\b(?:file|log|report|inventory)\b"
+    r"(?:\.claude(?:/|\\)skills|skills?)[^\n]{0,100}\bL[23](?:[-_/ ][A-Za-z0-9.-]+)?\b|"
+    r"\bL[23](?:[-_/ ][A-Za-z0-9.-]+)?\b[^\n]{0,100}\b(?:skill|workflow|methodolog)|"
+    r"\b(?:workflow|methodology)[- ]level\s+skills?\b|"
+    r"\b(?:read|load|inspect|invoke|follow|consult)(?:ing)?\b[^\n.]{0,100}"
+    r"\b(?:L[23]|workflow|methodology)\b[^\n.]{0,60}\b(?:skill|document|workflow)\b"
+    r")"
+)
+LOCAL_TOOL_NARRATION_RE = re.compile(
+    r"(?ix)(?:"
+    r"\b(?:Read|Write|Edit|Bash|Grep|Glob|Skill)\s+(?:tool|call)\b|"
+    r"\b(?:use|using|invoke|run|call)(?:\s+the)?\s+`?(?:Read|Write|Edit|Bash|Grep|Glob|Skill)`?\b|"
+    r"\b(?:read|load|inspect|consult)(?:ing)?\b[^\n.]{0,100}\bskills?\b|"
+    r"\b(?:read|load|inspect|consult)(?:ing)?\b[^\n.]{0,80}"
+    r"\b(?:L1|tool[- ]level)\b[^\n.]{0,40}\bskills?\b|"
+    r"\b(?:read|write|edit|update|append|create|inspect|list)\b[^\n.]{0,80}"
+    r"\b(?:file|directory|run_log\.md|results?\.md|report|log|file\s+inventory|local\s+workspace)\b|"
+    r"\b(?:run_log\.md|results?\.md|file\s+inventory|local\s+workspace)\b"
+    r")"
+)
+TEACHER_SIDECAR_NARRATION_RE = re.compile(
+    r"(?ix)(?:"
+    r"\b(?:question\.json|parsed_answer\.json|run_meta\.json|complete_session\.jsonl|"
+    r"prompt\.txt|CLAUDE\.md)\b|"
+    r"\b(?:read|inspect|list|check|locate|open)(?:ing)?\b[^\n.]{0,80}"
+    r"\b(?:skills?\s+(?:directory|catalog|hierarchy)|\.claude/skills)\b"
     r")"
 )
 MOLECULE_KEYS = ("smiles", "ligand", "molecule", "candidate")
@@ -80,7 +92,11 @@ def _premature_completion_claim(text: str, upcoming_tool: str | None) -> bool:
     )
 
 
-def _assistant_prose_findings(sample: dict[str, Any]) -> list[dict[str, Any]]:
+def _assistant_prose_findings(
+    sample: dict[str, Any],
+    *,
+    only_molclaw_tool: bool = False,
+) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for message_index, message in enumerate(sample.get("messages") or []):
         if not isinstance(message, dict) or message.get("role") != "assistant":
@@ -89,8 +105,12 @@ def _assistant_prose_findings(sample: dict[str, Any]) -> list[dict[str, Any]]:
         for segment_index, match in enumerate(THOUGHT_RE.finditer(content)):
             reasons: list[str] = []
             text = match.group(1)
-            if TEACHER_SCAFFOLD_RE.search(text):
-                reasons.append("teacher_engineering_scaffolding")
+            if L2_L3_ORCHESTRATION_RE.search(text):
+                reasons.append("l2_l3_teacher_orchestration")
+            if TEACHER_SIDECAR_NARRATION_RE.search(text):
+                reasons.append("teacher_sidecar_or_skill_catalog_narration")
+            if only_molclaw_tool and LOCAL_TOOL_NARRATION_RE.search(text):
+                reasons.append("local_tool_narration_removed_in_only_molclaw_mode")
             upcoming_tool = _upcoming_tool_name(content, match.end())
             if _premature_completion_claim(text, upcoming_tool):
                 reasons.append(f"premature_completion_before_tool:{upcoming_tool}")
@@ -106,13 +126,27 @@ def _assistant_prose_findings(sample: dict[str, Any]) -> list[dict[str, Any]]:
         for match in FINAL_RE.finditer(content):
             payload = _parse_json(match.group(1))
             summary = payload.get("summary") if isinstance(payload, dict) else None
-            if isinstance(summary, str) and TEACHER_SCAFFOLD_RE.search(summary):
+            reasons = []
+            if isinstance(summary, str) and L2_L3_ORCHESTRATION_RE.search(summary):
+                reasons.append("l2_l3_teacher_orchestration")
+            if (
+                isinstance(summary, str)
+                and TEACHER_SIDECAR_NARRATION_RE.search(summary)
+            ):
+                reasons.append("teacher_sidecar_or_skill_catalog_narration")
+            if (
+                only_molclaw_tool
+                and isinstance(summary, str)
+                and LOCAL_TOOL_NARRATION_RE.search(summary)
+            ):
+                reasons.append("local_tool_narration_removed_in_only_molclaw_mode")
+            if reasons:
                 findings.append(
                     {
                         "message_index": message_index,
                         "segment_type": "final_summary",
                         "segment_index": 0,
-                        "reasons": ["teacher_engineering_scaffolding"],
+                        "reasons": reasons,
                     }
                 )
     return findings
@@ -322,8 +356,18 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
     return report
 
 
-def collect_repair_hints(sample: dict[str, Any]) -> dict[str, Any]:
+def collect_repair_hints(
+    sample: dict[str, Any],
+    *,
+    only_molclaw_tool: bool = False,
+    dropped_local_tool_context: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "sample_id": sample.get("id"),
-        "editable_findings": _assistant_prose_findings(sample),
+        "only_molclaw_tool": only_molclaw_tool,
+        "dropped_local_tool_context": dropped_local_tool_context or [],
+        "editable_findings": _assistant_prose_findings(
+            sample,
+            only_molclaw_tool=only_molclaw_tool,
+        ),
     }

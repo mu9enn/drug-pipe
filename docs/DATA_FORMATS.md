@@ -133,15 +133,22 @@ validity 或 rejection reasons。rich final 只能来自 agent prediction、raw 
 react_trajectories.jsonl
 curation_audit.jsonl
 rejected.jsonl
-quarantine.jsonl          # 仅有内容时
 run_manifest.json
 ```
 
-`task_answer_valid` 只来自 evaluator；KG/E2E evaluator 仅接收 prediction、parse error
-与 task contract，不接收 raw session、return code、timeout 或 tool/observation counts。
-`execution_valid`/`training_trace_valid` 来自 `python_clean`；final/observation consistency 由
-`invariants.py` 只读验证。只有 LLM clean 内部的 final acceptance gate 决定
-accepted/rejected/quarantine，不存在 deterministic accepted 或第二个聚合 authority。
+`task_answer_valid` 只表示 `parsed_answer.parse_error` 是否为空。Evaluator 仍是 benchmark
+metrics 和 `aggregate_eligible` 的唯一 owner，但其 invalid SMILES、重复、长度或空预测等
+finding 只进入 audit，不参与清洗准入。`execution_valid`、`task_answer_valid` 和
+`training_trace_valid` 都由 `python_clean` 产生；final/observation consistency 由
+`invariants.py` 只读记录。LLM clean 内部的 final acceptance gate 只把这三个 gate 投影为
+accepted/rejected，不存在 quarantine 或第二个准入 authority。
+
+默认 canonical ReAct 保留 MolClaw 与受支持的本地工具
+`Read/Write/Edit/Bash/Grep/Glob/Skill`；其中 `Skill` 只允许 L1 tool-level skill，Bash
+受任务 workspace 限制。Teacher runtime sidecar（如 `question.json`、`run_meta.json`、
+`complete_session.jsonl`、`CLAUDE.md`）和非 L1 skills catalog 访问会成对移除，避免
+benchmark label 与层级脚手架通过 observation 回流。显式 `--only-molclaw-tool` 会成对
+移除所有非 MolClaw call 和 observation，但不改变 A/B/C gate 或 record ID。
 
 ## Shared Decision State
 

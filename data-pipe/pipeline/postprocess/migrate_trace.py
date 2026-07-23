@@ -80,9 +80,6 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
             execution_valid=True,
             task_answer_valid=True,
             training_trace_valid=True,
-            llm_clean_status="not_run",
-            llm_clean_findings=[],
-            invariant_findings=[],
         )
         audits.append(
             {
@@ -122,8 +119,17 @@ def migrate_legacy_sft(source: Path, output_dir: Path) -> dict[str, Any]:
     return report
 
 
-def migrate_raw_reference(source_root: Path, output_dir: Path) -> dict[str, Any]:
-    result = python_clean(source_root.resolve(), output_dir.resolve())
+def migrate_raw_reference(
+    source_root: Path,
+    output_dir: Path,
+    *,
+    only_molclaw_tool: bool = False,
+) -> dict[str, Any]:
+    result = python_clean(
+        source_root.resolve(),
+        output_dir.resolve(),
+        only_molclaw_tool=only_molclaw_tool,
+    )
     report = {
         **result,
         "migration_mode": "raw_reference_to_python_drafts",
@@ -144,11 +150,16 @@ def main() -> None:
     raw = subparsers.add_parser("raw-reference")
     raw.add_argument("--source-root", required=True)
     raw.add_argument("--output-dir", required=True)
+    raw.add_argument("--only-molclaw-tool", action="store_true")
     args = parser.parse_args()
     if args.mode == "legacy-sft":
         result = migrate_legacy_sft(Path(args.source), Path(args.output_dir))
     else:
-        result = migrate_raw_reference(Path(args.source_root), Path(args.output_dir))
+        result = migrate_raw_reference(
+            Path(args.source_root),
+            Path(args.output_dir),
+            only_molclaw_tool=args.only_molclaw_tool,
+        )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

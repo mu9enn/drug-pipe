@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
@@ -104,16 +105,36 @@ def apply_restricted_patch(
             findings.append(f"edit_target_not_assistant:{message_index}")
             continue
         content = str(message.get("content") or "")
+        thought_count = len(list(THOUGHT_RE.finditer(content)))
+        for edit in edits:
+            segment_index = int(edit["segment_index"])
+            if edit["segment_type"] == "thought" and segment_index >= thought_count:
+                findings.append(f"thought_index_out_of_range:{message_index}:{segment_index}")
+            if edit["segment_type"] == "final_summary":
+                matches = list(FINAL_RE.finditer(content))
+                if segment_index != 0:
+                    findings.append(f"invalid_final_summary_target:{message_index}")
+                elif len(matches) != 1:
+                    findings.append(f"final_answer_count_for_edit:{message_index}:{len(matches)}")
+                else:
+                    try:
+                        payload = json.loads(matches[0].group(1))
+                    except json.JSONDecodeError:
+                        payload = None
+                    if not isinstance(payload, dict) or not isinstance(payload.get("summary"), str):
+                        findings.append(f"final_summary_not_editable:{message_index}")
+    if findings:
+        return copy.deepcopy(source), list(dict.fromkeys(findings)), []
+
+    for message_index, edits in edits_by_message.items():
+        message = messages[message_index]
+        content = str(message.get("content") or "")
         thought_edits = {
             int(edit["segment_index"]): str(edit["replacement"]).strip()
             for edit in edits if edit["segment_type"] == "thought"
         }
         final_edits = [edit for edit in edits if edit["segment_type"] == "final_summary"]
-        thought_count = len(list(THOUGHT_RE.finditer(content)))
-        for segment_index in thought_edits:
-            if segment_index >= thought_count:
-                findings.append(f"thought_index_out_of_range:{message_index}:{segment_index}")
-        if thought_edits and not findings:
+        if thought_edits:
             current = -1
 
             def replace_thought(match: re.Match[str]) -> str:
@@ -136,28 +157,17 @@ def apply_restricted_patch(
             if not content.strip():
                 findings.append(f"thought_deletion_would_empty_message:{message_index}")
         if final_edits:
-            if len(final_edits) != 1 or int(final_edits[0]["segment_index"]) != 0:
-                findings.append(f"invalid_final_summary_target:{message_index}")
             matches = list(FINAL_RE.finditer(content))
-            if len(matches) != 1:
-                findings.append(f"final_answer_count_for_edit:{message_index}:{len(matches)}")
-            else:
-                try:
-                    payload = json.loads(matches[0].group(1))
-                except json.JSONDecodeError:
-                    payload = None
-                if not isinstance(payload, dict) or not isinstance(payload.get("summary"), str):
-                    findings.append(f"final_summary_not_editable:{message_index}")
-                elif not findings:
-                    payload["summary"] = str(final_edits[0]["replacement"]).strip()
-                    content = FINAL_RE.sub(
-                        lambda _match: f"<final_answer>{_serialize(payload)}</final_answer>",
-                        content,
-                        count=1,
-                    )
-                    actions.append(
-                        {"message_index": message_index, "segment_type": "final_summary", "segment_index": 0}
-                    )
+            payload = json.loads(matches[0].group(1))
+            payload["summary"] = str(final_edits[0]["replacement"]).strip()
+            content = FINAL_RE.sub(
+                lambda _match: f"<final_answer>{_serialize(payload)}</final_answer>",
+                content,
+                count=1,
+            )
+            actions.append(
+                {"message_index": message_index, "segment_type": "final_summary", "segment_index": 0}
+            )
         message["content"] = content
     if findings:
         return copy.deepcopy(source), findings, []
@@ -165,7 +175,15 @@ def apply_restricted_patch(
     findings.extend(react_schema_findings(candidate))
     if findings:
         return copy.deepcopy(source), list(dict.fromkeys(findings)), []
-    return candidate, [], actions
+    edited_targets = {
+        (action["message_index"], action["segment_type"], action["segment_index"])
+        for action in actions
+    }
+    findings.extend(
+        f"unresolved_repair_target:{target[0]}:{target[1]}:{target[2]}"
+        for target in sorted(allowed - edited_targets)
+    )
+    return candidate, findings, actions
 
 
 def build_claude_patch_provider(
@@ -253,19 +271,45 @@ def clean_draft(
     python_audit: dict[str, Any],
     patch_provider: PatchProvider,
 ) -> dict[str, Any]:
+    source_schema_findings = react_schema_findings(source)
+    if source_schema_findings:
+        raise ValueError(
+            f"invalid Python-clean draft schema for {source.get('id')!r}: "
+            + ", ".join(source_schema_findings)
+        )
     llm_findings: list[str] = []
-    patch, llm_report = patch_provider(source, python_audit.get("repair_hints") or {})
-    if patch is None:
+    repair_hints = python_audit.get("repair_hints") or {}
+    editable_findings = repair_hints.get("editable_findings") or []
+    if not editable_findings:
+        patch = None
+        llm_report = {"status": "not_required", "findings": []}
+        candidate = copy.deepcopy(source)
+        actions = []
+        llm_status = "not_required"
+    else:
+        patch, llm_report = patch_provider(source, repair_hints)
+    if editable_findings and patch is None:
         llm_findings.extend(llm_report.get("findings") or ["patch_provider_failed"])
         candidate = copy.deepcopy(source)
-        actions: list[dict[str, Any]] = []
-        llm_status = "failed"
-    else:
+        actions = []
+        llm_status = "failed_fallback"
+    elif editable_findings:
         candidate, apply_findings, actions = apply_restricted_patch(
-            source, patch, python_audit.get("repair_hints") or {}
+            source, patch, repair_hints
         )
         llm_findings.extend(apply_findings)
-        llm_status = "unsafe_patch" if apply_findings else "cleaned"
+        unresolved_only = bool(apply_findings) and all(
+            finding.startswith("unresolved_repair_target:")
+            for finding in apply_findings
+        )
+        if not apply_findings:
+            llm_status = "cleaned"
+        elif unresolved_only and actions:
+            llm_status = "partially_cleaned"
+        elif unresolved_only:
+            llm_status = "incomplete_patch"
+        else:
+            llm_status = "unsafe_patch_fallback"
     invariant_report = validate_final_record(candidate)
     immutable_findings = compare_immutable_facts(source, candidate)
     prose_findings = [
@@ -280,10 +324,6 @@ def clean_draft(
         execution_valid=bool(python_audit.get("execution_valid")),
         task_answer_valid=bool(python_audit.get("task_answer_valid")),
         training_trace_valid=bool(python_audit.get("training_trace_valid")),
-        llm_clean_status="cleaned" if llm_status == "cleaned" else "failed",
-        llm_clean_findings=llm_findings,
-        invariant_findings=final_findings,
-        llm_clean_required=True,
     )
     return {
         "record": candidate,
@@ -297,7 +337,7 @@ def clean_draft(
                 "status": llm_status,
                 "findings": llm_findings,
                 "actions": actions,
-                **({"patch": patch} if patch is not None else {}),
+                **({"patch": patch} if editable_findings and patch is not None else {}),
             },
             "final_invariants": invariant_report,
             "immutable_findings": immutable_findings,
@@ -318,10 +358,6 @@ def _finalize_python_rejection(audit: dict[str, Any]) -> dict[str, Any]:
         execution_valid=bool(audit.get("execution_valid")),
         task_answer_valid=bool(audit.get("task_answer_valid")),
         training_trace_valid=bool(audit.get("training_trace_valid")),
-        llm_clean_status="not_run",
-        llm_clean_findings=[],
-        invariant_findings=[],
-        llm_clean_required=True,
     )
     return {
         **audit,
@@ -351,6 +387,13 @@ def llm_clean(
         python_rejected, python_rejected_parse_errors = read_jsonl(python_rejected_path)
     else:
         python_rejected, python_rejected_parse_errors = [], []
+    input_problems = [
+        *(f"draft:{item}" for item in input_rejected),
+        *(f"audit:{item}" for item in audit_parse_rejected),
+        *(f"python_rejected:{item}" for item in python_rejected_parse_errors),
+    ]
+    if input_problems:
+        raise ValueError("invalid cleaning input JSONL: " + "; ".join(input_problems))
     audits_by_id = {str(row.get("id") or ""): row for row in audit_rows}
     debug_root = output_root / "debug"
     provider = patch_provider or build_claude_patch_provider(
@@ -358,52 +401,40 @@ def llm_clean(
     )
     processed: list[dict[str, Any]] = []
     finalized_python_rejected = [_finalize_python_rejection(row) for row in python_rejected]
-    draft_rejected: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = [
-        *finalized_python_rejected,
-        *input_rejected,
-        *audit_parse_rejected,
-        *python_rejected_parse_errors,
-    ]
+    rejected: list[dict[str, Any]] = [*finalized_python_rejected]
     for draft in drafts:
         if limit > 0 and len(processed) >= limit:
             break
         record_id = str(draft.get("id") or "")
         schema_errors = react_schema_findings(draft)
         python_audit = audits_by_id.get(record_id)
-        if schema_errors or python_audit is None or python_audit.get("python_status") != "python_valid":
-            invalid_audit = {
-                **(python_audit or {"id": record_id}),
-                "final_status": "rejected",
-                "final_status_authority": "final_acceptance_gate",
-                "final_status_reasons": schema_errors or ["missing_or_invalid_python_audit"],
-            }
-            draft_rejected.append(invalid_audit)
-            rejected.append(invalid_audit)
-            continue
+        if schema_errors:
+            raise ValueError(
+                f"invalid Python-clean draft schema for {record_id!r}: "
+                + ", ".join(schema_errors)
+            )
+        if python_audit is None or python_audit.get("python_status") != "python_valid":
+            raise ValueError(f"missing or invalid Python audit for draft {record_id!r}")
         processed.append(clean_draft(draft, python_audit, provider))
 
     accepted = [item for item in processed if item["audit"]["final_status"] == "accepted"]
-    quarantine = [item["audit"] for item in processed if item["audit"]["final_status"] == "quarantine"]
+    llm_status_hist = Counter(
+        str((item["audit"].get("llm_clean") or {}).get("status") or "unknown")
+        for item in processed
+    )
     final_audits = [
         *finalized_python_rejected,
-        *draft_rejected,
         *(item["audit"] for item in processed),
     ]
     outputs = {
         "react_trajectories": output_root / "react_trajectories.jsonl",
         "curation_audit": output_root / "curation_audit.jsonl",
         "rejected": output_root / "rejected.jsonl",
-        "quarantine": output_root / "quarantine.jsonl",
         "run_manifest": output_root / "run_manifest.json",
     }
     write_jsonl(outputs["react_trajectories"], [item["record"] for item in accepted])
     write_jsonl(outputs["curation_audit"], final_audits)
     write_jsonl(outputs["rejected"], rejected)
-    if quarantine:
-        write_jsonl(outputs["quarantine"], quarantine)
-    elif outputs["quarantine"].exists():
-        outputs["quarantine"].unlink()
     repo_root = Path(__file__).resolve().parents[3]
     manifest = {
         **base_manifest(step="llm_clean", source=input_path, repo_root=repo_root),
@@ -413,13 +444,14 @@ def llm_clean(
         "processed_count": len(processed),
         "accepted_count": len(accepted),
         "rejected_count": len(rejected),
-        "quarantine_count": len(quarantine),
+        "llm_clean_status_hist": dict(llm_status_hist),
+        "llm_fallback_count": sum(
+            llm_status_hist.get(status, 0)
+            for status in ("failed_fallback", "unsafe_patch_fallback", "incomplete_patch")
+        ),
         "claude_bin": claude_bin,
         "timeout_sec": timeout_sec,
-        "outputs": {
-            name: str(path) for name, path in outputs.items()
-            if name != "quarantine" or quarantine
-        },
+        "outputs": {name: str(path) for name, path in outputs.items()},
     }
     write_json(outputs["run_manifest"], manifest)
     return manifest

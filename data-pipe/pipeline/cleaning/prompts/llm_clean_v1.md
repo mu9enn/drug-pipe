@@ -22,25 +22,38 @@ Use `message_index` to identify the message and `segment_index` to identify the
 zero-based occurrence of that segment type inside the message. For
 `final_summary`, `segment_index` must be `0`.
 
-Repair only the segments listed in `repair_hints.json`. Every entry in
-`editable_findings` must be addressed by exactly one matching edit; do not omit
-a flagged segment merely because other nearby segments were cleaned. Remove teacher-only
-engineering scaffolding such as Claude Code Read/Write/Edit operations, skills
-or `.claude/skills` inspection, `run_log.md`, `result.md`, `results.md`, execution
-logs, result reports, and file inventories. If a flagged thought mixes scientific
-reasoning with engineering scaffolding, remove only the scaffolding and preserve
-the scientific decision, tool motivation, parameters, failure diagnosis,
-replanning, uncertainty, and evidence-grounded conclusion.
+Repair only the segments listed in `repair_hints.json`. Address every entry in
+`editable_findings` when it can be repaired without changing an immutable fact.
+If one entry cannot be repaired safely, omit that edit; the pipeline will keep
+the source prose and record an unresolved audit finding.
+
+In the default mode, remove explicit L2/L3 workflow or methodology
+orchestration and narration for teacher-only runtime sidecars or non-L1 skill
+catalog inspection. Teacher-only sidecars include `question.json`,
+`parsed_answer.json`, `run_meta.json`, `complete_session.jsonl`, `prompt.txt`,
+and `CLAUDE.md`. L1 tool-level skills and real task file operations are part of
+the student runtime and must be preserved. In particular, do not remove or
+rewrite a segment merely because it uses Read, Write, Edit, Bash, Grep, Glob, an
+L1 Skill, `run_log.md`, `result.md`, `results.md`, an execution log, a result
+report, or a file inventory.
+
+If `repair_hints.json` sets `only_molclaw_tool` to true, the Python step has
+removed local tool calls. In that mode only, a reason named
+`local_tool_narration_removed_in_only_molclaw_mode` means the corresponding
+narration should also be removed. Preserve any scientific decision, MolClaw
+tool motivation, parameters, failure diagnosis, replanning, uncertainty, and
+evidence-grounded conclusion from a mixed thought.
 
 Do not deduplicate thoughts merely because they are similar. Do not impose a
 thought-count or length target, and do not generally compress scientific
 reasoning.
 
-For a thought that contains only teacher scaffolding or final-answer preparation
-with no scientific decision or evidence, set `replacement` to the empty string
-to delete that thought. Use a non-empty replacement for a mixed thought and keep
-its scientific content. Never delete a thought that contains useful scientific
-reasoning, a real tool motivation, failure diagnosis, or evidence.
+For a thought that contains only flagged L2/L3 orchestration, or only
+mode-specific local-tool narration in `only_molclaw_tool` mode, set
+`replacement` to the empty string. Use a non-empty replacement for a mixed
+thought and keep its scientific content. Never delete a thought that contains
+useful scientific reasoning, a real MolClaw tool motivation, failure diagnosis,
+or evidence.
 
 When a hint says `premature_completion_before_tool`, the thought appears before
 the named tool call but claims that operation already completed. Rewrite it as a
@@ -52,15 +65,12 @@ In the final summary, refer only to canonical `<artifact:...>` references that
 already exist in `source_trajectory.json`. Never introduce a server path, an
 unobserved workspace filename, or an engineering report as the task result.
 
-Before writing the patch, check every replacement and remove all teacher-only
-terms, including `skills`, `.claude`, `run_log.md`, `result.md`, `results.md`,
-`file inventory`, `local workspace`, `Claude Code`, any numbered `Phase`, `ls -la`, and
-Read/Write/Edit used as file tools. Do not paraphrase scaffolding into another
-engineering task. Delete pure “compile final results,” “prepare final answer,”
-and similar process-only thoughts. For a mixed segment, replace “Final
-verification of the complete file inventory” with a scientific statement such
-as “The repaired structure is ready for downstream analysis,” not with another
-statement about files or reports.
+Before writing the patch, check that every replacement resolves the exact
+reason listed for that segment. Do not turn L2/L3 orchestration into a
+paraphrased hierarchy instruction. Do not broadly delete phases, skills, files,
+logs, reports, or local-tool operations: those are allowed unless the hint
+explicitly identifies L2/L3 orchestration, a teacher-only sidecar/non-L1
+catalog, or file narration in `only_molclaw_tool` mode.
 
 Never modify or restate as an edit:
 

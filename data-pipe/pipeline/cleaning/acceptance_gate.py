@@ -1,19 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
-
 
 def decide_final_status(
     *,
     execution_valid: bool,
     task_answer_valid: bool,
     training_trace_valid: bool,
-    llm_clean_status: str,
-    llm_clean_findings: list[str],
-    invariant_findings: list[str],
-    llm_clean_required: bool = False,
-) -> dict[str, Any]:
-    """The sole authority for accepted/rejected/quarantine."""
+) -> dict[str, object]:
+    """Assign accepted/rejected from the three Python gates only."""
     rejection_reasons: list[str] = []
     if not execution_valid:
         rejection_reasons.append("execution_invalid")
@@ -25,20 +19,6 @@ def decide_final_status(
         return {
             "final_status": "rejected",
             "reasons": rejection_reasons,
-            "authority": "final_acceptance_gate",
-        }
-
-    quarantine_reasons: list[str] = []
-    if llm_clean_status in {"failed", "unsafe_patch"}:
-        quarantine_reasons.append(f"llm_clean_{llm_clean_status}")
-    if llm_clean_required and llm_clean_status != "cleaned":
-        quarantine_reasons.append("llm_clean_required_but_not_completed")
-    quarantine_reasons.extend(f"llm_clean:{finding}" for finding in llm_clean_findings)
-    quarantine_reasons.extend(f"invariant:{finding}" for finding in invariant_findings)
-    if quarantine_reasons:
-        return {
-            "final_status": "quarantine",
-            "reasons": list(dict.fromkeys(quarantine_reasons)),
             "authority": "final_acceptance_gate",
         }
     return {

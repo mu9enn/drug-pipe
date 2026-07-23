@@ -87,7 +87,7 @@ class RestrictedPatchTest(unittest.TestCase):
             ],
         }
         cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
-        self.assertEqual(findings, [])
+        self.assertEqual(findings, ["unresolved_repair_target:4:final_summary:0"])
         self.assertNotIn("<thought>", cleaned["messages"][2]["content"])
         self.assertIn("<tool_call>", cleaned["messages"][2]["content"])
         self.assertEqual(actions[0]["operation"], "delete")
@@ -139,7 +139,7 @@ class RestrictedPatchTest(unittest.TestCase):
         self.assertEqual(actions, [])
         self.assertTrue(any("edit_target_not_in_python_hints" in finding for finding in findings))
 
-    def test_missing_patch_is_quarantined_by_one_final_gate(self) -> None:
+    def test_missing_patch_falls_back_and_is_accepted_by_python_gates(self) -> None:
         source = sample_record()
         audit = {
             "id": "sample-1",
@@ -154,11 +154,12 @@ class RestrictedPatchTest(unittest.TestCase):
             return None, {"status": "failed", "findings": ["missing_llm_clean_patch_file"]}
 
         result = clean_draft(source, audit, missing)
-        self.assertEqual(result["audit"]["final_status"], "quarantine")
+        self.assertEqual(result["audit"]["final_status"], "accepted")
         self.assertEqual(result["audit"]["final_status_authority"], "final_acceptance_gate")
+        self.assertEqual(result["audit"]["llm_clean"]["status"], "failed_fallback")
         self.assertEqual(result["record"], source)
 
-    def test_remaining_premature_claim_is_quarantined_and_safe_rewrite_is_accepted(self) -> None:
+    def test_remaining_premature_claim_is_audited_and_safe_rewrite_is_accepted(self) -> None:
         source = sample_record()
         source["messages"][2]["content"] = (
             "<thought>Transfer complete.</thought>\n"
@@ -191,9 +192,10 @@ class RestrictedPatchTest(unittest.TestCase):
                 "findings": [],
             }
 
-        quarantined = clean_draft(source, audit, no_rewrite)
-        self.assertEqual(quarantined["audit"]["final_status"], "quarantine")
-        self.assertTrue(quarantined["audit"]["final_invariants"]["prose_findings"])
+        incomplete = clean_draft(source, audit, no_rewrite)
+        self.assertEqual(incomplete["audit"]["final_status"], "accepted")
+        self.assertEqual(incomplete["audit"]["llm_clean"]["status"], "incomplete_patch")
+        self.assertTrue(incomplete["audit"]["final_invariants"]["prose_findings"])
 
         def safe_rewrite(_source, _hints):
             return {
@@ -213,6 +215,115 @@ class RestrictedPatchTest(unittest.TestCase):
         self.assertEqual(accepted["audit"]["final_status"], "accepted")
         self.assertEqual(compare_immutable_facts(source, accepted["record"]), [])
 
+    def test_partial_safe_patch_is_applied_and_unresolved_targets_are_audited(self) -> None:
+        source = sample_record()
+        audit = {
+            "id": "sample-1",
+            "python_status": "python_valid",
+            "execution_valid": True,
+            "task_answer_valid": True,
+            "training_trace_valid": True,
+            "repair_hints": repair_hints(),
+        }
+
+        def partial(_source, _hints):
+            return {
+                "schema_version": "llm_clean_patch_v1",
+                "sample_id": "sample-1",
+                "edits": [
+                    {
+                        "message_index": 2,
+                        "segment_type": "thought",
+                        "segment_index": 0,
+                        "replacement": "Use the scientific evidence to guide the next call.",
+                    }
+                ],
+            }, {"status": "patch_received", "findings": []}
+
+        result = clean_draft(source, audit, partial)
+        self.assertEqual(result["audit"]["final_status"], "accepted")
+        self.assertEqual(result["audit"]["llm_clean"]["status"], "partially_cleaned")
+        self.assertIn("scientific evidence", result["record"]["messages"][2]["content"])
+        self.assertIn(
+            "unresolved_repair_target:4:final_summary:0",
+            result["audit"]["llm_clean"]["findings"],
+        )
+
+    def test_no_hints_skips_provider_and_is_not_required(self) -> None:
+        source = sample_record()
+        called = False
+
+        def should_not_run(_source, _hints):
+            nonlocal called
+            called = True
+            raise AssertionError("provider must not run")
+
+        result = clean_draft(
+            source,
+            {
+                "id": "sample-1",
+                "python_status": "python_valid",
+                "execution_valid": True,
+                "task_answer_valid": True,
+                "training_trace_valid": True,
+                "repair_hints": {"sample_id": "sample-1", "editable_findings": []},
+            },
+            should_not_run,
+        )
+        self.assertFalse(called)
+        self.assertEqual(result["audit"]["llm_clean"]["status"], "not_required")
+        self.assertEqual(result["audit"]["final_status"], "accepted")
+
+    def test_unsafe_patch_falls_back_without_rejecting_sample(self) -> None:
+        source = sample_record()
+
+        def unsafe(_source, _hints):
+            return {
+                "schema_version": "llm_clean_patch_v1",
+                "sample_id": "sample-1",
+                "edits": [
+                    {
+                        "message_index": 2,
+                        "segment_type": "thought",
+                        "segment_index": 0,
+                        "replacement": "<tool_call>{}</tool_call>",
+                    }
+                ],
+            }, {"status": "patch_received", "findings": []}
+
+        result = clean_draft(
+            source,
+            {
+                "id": "sample-1",
+                "python_status": "python_valid",
+                "execution_valid": True,
+                "task_answer_valid": True,
+                "training_trace_valid": True,
+                "repair_hints": repair_hints(),
+            },
+            unsafe,
+        )
+        self.assertEqual(result["record"], source)
+        self.assertEqual(result["audit"]["llm_clean"]["status"], "unsafe_patch_fallback")
+        self.assertEqual(result["audit"]["final_status"], "accepted")
+
+    def test_invalid_python_draft_schema_fails_cleaning_command(self) -> None:
+        source = sample_record()
+        source["schema_version"] = "broken"
+        with self.assertRaisesRegex(ValueError, "invalid Python-clean draft schema"):
+            clean_draft(
+                source,
+                {
+                    "id": "sample-1",
+                    "python_status": "python_valid",
+                    "execution_valid": True,
+                    "task_answer_valid": True,
+                    "training_trace_valid": True,
+                    "repair_hints": {"editable_findings": []},
+                },
+                lambda _source, _hints: (None, {}),
+            )
+
     def test_final_outputs_include_python_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -230,6 +341,9 @@ class RestrictedPatchTest(unittest.TestCase):
             final_rejected = json.loads((final_root / "rejected.jsonl").read_text())
             self.assertEqual(final_rejected["final_status"], "rejected")
             self.assertEqual(final_rejected["final_status_authority"], "final_acceptance_gate")
+            self.assertNotIn("quarantine_count", manifest)
+            self.assertNotIn("quarantine", manifest["outputs"])
+            self.assertFalse((final_root / "quarantine.jsonl").exists())
 
 
 class InvariantTest(unittest.TestCase):
@@ -237,7 +351,7 @@ class InvariantTest(unittest.TestCase):
         long_science = "ADRA2A receptor evidence remains relevant. " * 80
         sample = sample_record()
         sample["messages"][2]["content"] = (
-            "<thought>Use the observed ADRA2A structure, then write run_log.md.</thought>\n"
+            "<thought>Use the observed ADRA2A structure after consulting the L2 docking workflow.</thought>\n"
             f"<thought>{long_science}</thought>\n"
             "<thought>Transfer complete.</thought>\n"
             "<thought>Encode the repaired structure for transfer.</thought>\n"
@@ -245,13 +359,13 @@ class InvariantTest(unittest.TestCase):
         )
         sample["messages"][4]["content"] = (
             '<final_answer>{"evidence":[{"value":1}],"result":"done",'
-            '"summary":"ADRA2A was repaired; result.md was also written.",'
+            '"summary":"ADRA2A was repaired after following the L3 methodology skill.",'
             '"task_type":"kg"}</final_answer>'
         )
         hints = collect_repair_hints(sample)["editable_findings"]
         targets = {(item["message_index"], item["segment_type"], item["segment_index"]): item for item in hints}
         self.assertIn((2, "thought", 0), targets)
-        self.assertIn("teacher_engineering_scaffolding", targets[(2, "thought", 0)]["reasons"])
+        self.assertIn("l2_l3_teacher_orchestration", targets[(2, "thought", 0)]["reasons"])
         self.assertNotIn((2, "thought", 1), targets)
         self.assertIn((2, "thought", 2), targets)
         self.assertTrue(
@@ -259,6 +373,41 @@ class InvariantTest(unittest.TestCase):
         )
         self.assertNotIn((2, "thought", 3), targets)
         self.assertIn((4, "final_summary", 0), targets)
+
+    def test_default_allows_l1_file_tools_and_only_molclaw_mode_hints_narration(self) -> None:
+        sample = sample_record()
+        sample["messages"][2]["content"] = (
+            "<thought>Read the L1 tool skill, then append evidence to run_log.md "
+            "and write result.md.</thought>\n"
+            '<tool_call>{"arguments":{},"tool_name":"Read"}</tool_call>'
+        )
+        default_hints = collect_repair_hints(sample)
+        self.assertEqual(default_hints["editable_findings"], [])
+
+        only_hints = collect_repair_hints(sample, only_molclaw_tool=True)
+        self.assertTrue(only_hints["only_molclaw_tool"])
+        self.assertEqual(len(only_hints["editable_findings"]), 1)
+        self.assertIn(
+            "local_tool_narration_removed_in_only_molclaw_mode",
+            only_hints["editable_findings"][0]["reasons"],
+        )
+
+    def test_teacher_sidecar_narration_is_cleaned_but_run_logs_are_allowed(self) -> None:
+        sample = sample_record()
+        sample["messages"][2]["content"] = (
+            "<thought>Read question.json and inspect the skills directory before starting.</thought>\n"
+            "<thought>Write the measured score to run_log.md.</thought>\n"
+            '<tool_call>{"arguments":{},"tool_name":"x"}</tool_call>'
+        )
+        hints = collect_repair_hints(sample)["editable_findings"]
+        self.assertEqual(
+            [(item["message_index"], item["segment_index"]) for item in hints],
+            [(2, 0)],
+        )
+        self.assertIn(
+            "teacher_sidecar_or_skill_catalog_narration",
+            hints[0]["reasons"],
+        )
 
     def test_detects_observation_status_and_final_conflicts(self) -> None:
         sample = sample_record()
@@ -288,13 +437,25 @@ class AcceptanceGateTest(unittest.TestCase):
             execution_valid=True,
             task_answer_valid=True,
             training_trace_valid=True,
-            llm_clean_status="cleaned",
-            llm_clean_findings=[],
-            invariant_findings=[],
-            llm_clean_required=True,
         )
         self.assertEqual(decision["final_status"], "accepted")
         self.assertEqual(decision["authority"], "final_acceptance_gate")
+
+    def test_llm_and_invariant_findings_are_not_acceptance_inputs(self) -> None:
+        decision = decide_final_status(
+            execution_valid=True,
+            task_answer_valid=True,
+            training_trace_valid=True,
+        )
+        self.assertEqual(decision["final_status"], "accepted")
+        self.assertEqual(decision["reasons"], [])
+        with self.assertRaises(TypeError):
+            decide_final_status(
+                execution_valid=True,
+                task_answer_valid=True,
+                training_trace_valid=True,
+                llm_clean_status="failed",
+            )
 
 
 if __name__ == "__main__":

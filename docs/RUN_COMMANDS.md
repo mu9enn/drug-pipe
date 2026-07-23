@@ -50,7 +50,7 @@ bash pipeline/claude_agent/run_execute.sh \
   --run-dataset --task vs --dataset-csv molbench/molbench-vs-30.csv
 ```
 
-两步清洗与 canonical ReAct：
+三段逻辑清洗与 canonical ReAct（前两段由同一个 Python 命令完成）：
 
 ```bash
 PYTHONPATH=. python -m pipeline.cleaning.python_clean \
@@ -63,12 +63,16 @@ PYTHONPATH=. python -m pipeline.cleaning.llm_clean \
   --output-root results/cleaned
 ```
 
-也可用 `bash scripts/run_cleaning.sh` 连续执行同样两步。LLM 只写
+默认 Python 结构化保留 MolClaw 和受支持的本地文件工具。仅需要 MolClaw 轨迹时，给
+`python_clean` 或 `run_cleaning.sh` 显式增加 `--only-molclaw-tool`；该参数不改变
+A/B/C gate 的 accepted/rejected 数量。
+
+也可用 `bash scripts/run_cleaning.sh` 连续执行同样三段逻辑。LLM 只写
 `llm_clean_patch.json`，Python 验证并应用白名单 prose edits；stdout 不作为数据接口。
 
 输出训练接口为 `results/cleaned/react_trajectories.jsonl`；审计为同目录
-`curation_audit.jsonl`，拒绝与隔离分别为 `rejected.jsonl`、条件生成的
-`quarantine.jsonl`。
+`curation_audit.jsonl`，A/B/C gate 拒绝记录为 `rejected.jsonl`。LLM 失败时回退
+Python draft，不产生 quarantine。
 
 历史 trace 确定性迁移：
 
@@ -80,6 +84,12 @@ python pipeline/postprocess/migrate_trace.py legacy-sft \
 python pipeline/postprocess/migrate_trace.py raw-reference \
   --source-root /path/to/historical/results \
   --output-dir /tmp/drug_pipe_convergence/migrated/react_raw
+
+# 可选：只保留 MolClaw call/observation
+python pipeline/postprocess/migrate_trace.py raw-reference \
+  --source-root /path/to/historical/results \
+  --output-dir /tmp/drug_pipe_convergence/migrated/react_raw_molclaw_only \
+  --only-molclaw-tool
 ```
 
 `raw-reference` 只产生 `python_drafts.jsonl`，随后仍必须运行 `pipeline.cleaning.llm_clean`。

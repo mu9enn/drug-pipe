@@ -61,6 +61,37 @@ def load_session_events(path: Path) -> tuple[list[dict[str, Any]], int, bool]:
     return events, malformed, last_nonempty.startswith("[runner-error]")
 
 
+def terminal_execution_findings(events: list[dict[str, Any]]) -> list[str]:
+    """Report agent-level terminal failures without inspecting tool results."""
+    terminal = next(
+        (
+            event
+            for event in reversed(events)
+            if str(event.get("type") or "").strip().lower() == "result"
+        ),
+        None,
+    )
+    if terminal is None:
+        return []
+
+    findings: list[str] = []
+    if terminal.get("is_error") is True:
+        findings.append("terminal_result_error")
+
+    api_status = terminal.get("api_error_status")
+    if api_status not in (None, ""):
+        findings.append(f"terminal_api_error:{api_status}")
+
+    subtype = str(terminal.get("subtype") or "").strip().lower()
+    if subtype.startswith("error") or subtype.startswith("fail"):
+        findings.append(f"terminal_subtype:{subtype}")
+
+    reason = str(terminal.get("terminal_reason") or "").strip().lower()
+    if reason.startswith(("abort", "error", "fail")):
+        findings.append(f"terminal_reason:{reason}")
+    return list(dict.fromkeys(findings))
+
+
 def discover_run_dirs(results_root: Path) -> list[Path]:
     root = results_root.resolve()
     if (root / "run_config.json").is_file():

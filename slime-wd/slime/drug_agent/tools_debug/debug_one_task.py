@@ -14,11 +14,17 @@ from typing import Any
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.constants import CANONICAL_REACT_DATA, DATA_ROOT, DRUG_AGENT_RUNS_ROOT
+from drug_agent.constants import (
+    CANONICAL_REACT_DATA,
+    DATA_ROOT,
+    DRUG_AGENT_L1_SKILLS_ROOT,
+    DRUG_AGENT_RUNS_ROOT,
+)
 from drug_agent.offline_guard import assert_tool_environment_allowed
 from drug_agent.protocol.parse_policy import parse_action_with_policy
 from drug_agent.protocol.action_schema import ACTION_FINAL_ANSWER, ACTION_TOOL_CALL
 from drug_agent.tools.tool_executor import MCPToolExecutor
+from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry, load_allowlist
 from drug_agent.tools.tool_success import make_validation_failed_result
 from drug_agent.tools_debug.sglang_launcher import detect_sglang_launch_command
@@ -38,6 +44,10 @@ DEBUG_FORMAT_REMINDER = (
     "Schema:\n"
     '{"type":"tool_call","tool_name":"...","arguments":{...}} OR '
     '{"type":"final_answer","answer":{"summary":"...","evidence":[],"result":{},"ranked_molecules":[]}}'
+)
+DEBUG_LOCAL_TOOL_REMINDER = (
+    "\nAvailable local tools: Read, Write, Edit, Bash, Grep, Glob, and Skill. "
+    "They are confined to this debug task workspace; Skill exposes read-only L1 tools only."
 )
 
 
@@ -154,17 +164,24 @@ def _extract_messages(row: dict[str, Any]) -> list[dict[str, str]]:
     return []
 
 
-def _augment_messages_for_strict_json(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+def _augment_messages_for_strict_json(
+    messages: list[dict[str, str]],
+    *,
+    local_tools_enabled: bool,
+) -> list[dict[str, str]]:
     out = [dict(m) for m in messages]
     if not out:
         return out
 
     # Reinforce strict JSON and disable reasoning mode for Qwen-family chat templates.
-    out[0]["content"] = (out[0].get("content") or "") + "\n\n" + DEBUG_FORMAT_REMINDER
+    reminder = DEBUG_FORMAT_REMINDER
+    if local_tools_enabled:
+        reminder += DEBUG_LOCAL_TOOL_REMINDER
+    out[0]["content"] = (out[0].get("content") or "") + "\n\n" + reminder
 
     for idx in range(len(out) - 1, -1, -1):
         if out[idx].get("role") == "user":
-            out[idx]["content"] = (out[idx].get("content") or "") + "\n\n" + DEBUG_FORMAT_REMINDER
+            out[idx]["content"] = (out[idx].get("content") or "") + "\n\n" + reminder
             break
     return out
 
@@ -181,12 +198,23 @@ def _sample_context(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(allowed_tools_raw, list):
         allowed_tools_raw = []
     allowed_tools = [normalize_tool_name(x) for x in allowed_tools_raw if isinstance(x, str) and x.strip()]
+    local_tools_enabled = os.environ.get("DRUG_AGENT_ENABLE_LOCAL_TOOLS", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    if local_tools_enabled:
+        for tool_name in LOCAL_TOOL_NAMES:
+            if tool_name not in allowed_tools:
+                allowed_tools.append(tool_name)
 
     return {
         "task_id": env_kwargs.get("task_id") or metadata.get("task_id"),
         "task_type": env_kwargs.get("task_type") or metadata.get("task_type"),
         "data_source": env_kwargs.get("data_source") or metadata.get("data_source"),
         "allowed_tools": allowed_tools,
+        "local_tools_enabled": local_tools_enabled,
         "max_steps": env_kwargs.get("max_steps") if isinstance(env_kwargs.get("max_steps"), int) else None,
     }
 
@@ -339,7 +367,10 @@ def main() -> int:
             output["latency_sec"] = round(time.monotonic() - started, 6)
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 1
-        messages = _augment_messages_for_strict_json(messages)
+        messages = _augment_messages_for_strict_json(
+            messages,
+            local_tools_enabled=bool(context["local_tools_enabled"]),
+        )
 
         base_url = args.sglang_base_url.rstrip("/")
         model_path_for_launch: Path | None = None
@@ -407,7 +438,12 @@ def main() -> int:
                 print(json.dumps(output, ensure_ascii=False, indent=2))
                 return 1
             executor = MCPToolExecutor(connect_on_init=False)
-            registry = ToolRegistry(executor=executor, allowlist=allowlist, allow_all=args.allow_all)
+            registry = ToolRegistry(
+                executor=executor,
+                allowlist=allowlist,
+                allow_all=args.allow_all,
+                include_local_tools=bool(context["local_tools_enabled"]),
+            )
         else:
             registry = None
 
@@ -428,6 +464,14 @@ def main() -> int:
         trace_root = ensure_dir(_default_runs_root() / args.run_name)
         trace_path = trace_root / "debug_one_task_trace.jsonl"
         output["trace_path"] = str(trace_path)
+        local_executor = (
+            LocalToolExecutor(trace_root / "workspace", DRUG_AGENT_L1_SKILLS_ROOT)
+            if context["local_tools_enabled"]
+            else None
+        )
+        output["result"]["workspace"] = (
+            str(local_executor.workspace) if local_executor is not None else None
+        )
 
         steps: list[dict[str, Any]] = []
         num_invalid = 0
@@ -499,7 +543,11 @@ def main() -> int:
                             args_reason=reason_args,
                         )
                     else:
-                        tool_result = executor.execute(tool_name, tool_args)
+                        tool_result = registry.execute(
+                            tool_name,
+                            tool_args,
+                            local_executor=local_executor,
+                        )
 
                 transport_ok = bool(tool_result.get("transport_ok"))
                 tool_schema_valid = bool(tool_result.get("tool_schema_valid"))

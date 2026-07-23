@@ -18,6 +18,7 @@ def _evaluate_file(path: Path, task: str) -> Dict[str, Any]:
     metric_values: dict[str, list[float]] = {}
     invalid_hist: Counter[str] = Counter()
     valid_count = 0
+    task_answer_valid_count = 0
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -30,9 +31,11 @@ def _evaluate_file(path: Path, task: str) -> Dict[str, Any]:
         )
         entry["metrics"] = result["metrics"]
         entry["task_answer_valid"] = result["task_answer_valid"]
+        entry["aggregate_eligible"] = result["aggregate_eligible"]
         entry["eval_audit"] = result["audit"]
         entry["eval_audit"]["invalid_reasons"] = result["invalid_reasons"]
         eligible = bool(result["aggregate_eligible"])
+        task_answer_valid_count += int(bool(result["task_answer_valid"]))
         valid_count += int(eligible)
         invalid_hist.update(result["invalid_reasons"])
         for name, value in result["metrics"].items():
@@ -70,7 +73,8 @@ def _evaluate_file(path: Path, task: str) -> Dict[str, Any]:
         "audit": {
             "rdkit_available": chemistry is not None,
             "rdkit_error": chemistry_error,
-            "task_answer_valid_count": valid_count,
+            "task_answer_valid_count": task_answer_valid_count,
+            "aggregate_eligible_count": valid_count,
             "invalid_reason_hist": dict(invalid_hist),
         },
     }
