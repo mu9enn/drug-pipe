@@ -57,6 +57,14 @@ slime-wd/outputs/
 slime-wd/slime-origin/
 tool-kg/runs/
 
+# Small, reviewed training-format references are versioned; real outputs stay ignored.
+!slime-wd/outputs/
+slime-wd/outputs/*
+!slime-wd/outputs/slime_drug_agent_data/
+slime-wd/outputs/slime_drug_agent_data/*
+!slime-wd/outputs/slime_drug_agent_data/format_examples/
+!slime-wd/outputs/slime_drug_agent_data/format_examples/**
+
 # Local editor and temporary files
 .idea/
 .vscode/

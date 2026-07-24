@@ -1,0 +1,1 @@
+{"source": "../outputs/slime_drug_agent_data/format_examples/source/canonical_react.jsonl", "record_index": 0, "source_id": "react_pf_303eea476077228e", "assistant_index": 5, "skip_reason": "no_molclaw_tool_calls", "details": {"non_molclaw_tool_call_count": 0, "has_final_answer": true}}

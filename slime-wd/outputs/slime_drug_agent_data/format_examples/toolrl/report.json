@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "input_path": "../outputs/slime_drug_agent_data/format_examples/source/canonical_react.jsonl",
+  "output_path": "../outputs/slime_drug_agent_data/format_examples/toolrl/toolrl_steps.jsonl",
+  "skipped_report_path": "../outputs/slime_drug_agent_data/format_examples/toolrl/skipped.jsonl",
+  "counts": {
+    "kept": 1,
+    "skip_no_molclaw_tool_calls": 1
+  },
+  "per_task_type": {
+    "pf": 1
+  },
+  "kept_rows": 1,
+  "skipped_rows": 1,
+  "sample_preview": [
+    {
+      "source_id": "react_pf_303eea476077228e",
+      "task_type": "pf",
+      "assistant_index": 2,
+      "prompt_message_count": 2,
+      "target_tool_call_count": 3,
+      "tool_names": [
+        "calculate_mol_basic_info",
+        "calculate_mol_hbond",
+        "calculate_mol_hydrophobicity"
+      ],
+      "label_tool_call_count": 3
+    }
+  ]
+}
