@@ -6,7 +6,8 @@ from pathlib import PurePosixPath
 from typing import Any
 
 
-ARTIFACT_RE = re.compile(r"<artifact:[^>]+>")
+ARTIFACT_RE = re.compile(r"<artifact:[A-Za-z0-9._/-]+>")
+MALFORMED_ARTIFACT_RE = re.compile(r"<artifact:(?![A-Za-z0-9._/-]+>)[^\s\"'<>]*")
 ABSOLUTE_PATH_RE = re.compile(
     r"(?<![\w<:/])/(?!/)(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+"
 )
@@ -93,6 +94,49 @@ def sanitize_artifact_paths(value: Any, path_map: dict[str, str]) -> Any:
     if isinstance(value, dict):
         return {str(key): sanitize_artifact_paths(item, path_map) for key, item in value.items()}
     return value
+
+
+def artifact_references(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return set(ARTIFACT_RE.findall(value))
+    if isinstance(value, (list, tuple)):
+        return set().union(*(artifact_references(item) for item in value)) if value else set()
+    if isinstance(value, dict):
+        return set().union(*(artifact_references(item) for item in value.values())) if value else set()
+    return set()
+
+
+def replace_unknown_artifact_references(
+    value: Any,
+    known_references: set[str],
+    *,
+    replacement: str = "[unavailable server path]",
+) -> tuple[Any, set[str]]:
+    """Remove final-only artifact refs without changing retained execution facts."""
+    unknown: set[str] = set()
+
+    def replace_text(text: str) -> str:
+        def replace(match: re.Match[str]) -> str:
+            reference = match.group(0)
+            if reference in known_references:
+                return reference
+            unknown.add(reference)
+            return replacement
+
+        return ARTIFACT_RE.sub(replace, text)
+
+    def walk(item: Any) -> Any:
+        if isinstance(item, str):
+            return replace_text(item)
+        if isinstance(item, list):
+            return [walk(child) for child in item]
+        if isinstance(item, tuple):
+            return [walk(child) for child in item]
+        if isinstance(item, dict):
+            return {str(key): walk(child) for key, child in item.items()}
+        return item
+
+    return walk(value), unknown
 
 
 def _meaningful_error(value: Any) -> bool:

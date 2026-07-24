@@ -9,7 +9,7 @@ import unittest
 PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
 from cleaning.invariants import validate_final_record  # noqa: E402
-from cleaning.react_builder import reconstruct_react_messages  # noqa: E402
+from cleaning.react_builder import _compact_observation, reconstruct_react_messages  # noqa: E402
 from cleaning.trace_parser import discover_rollout_samples  # noqa: E402
 
 
@@ -104,7 +104,7 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertEqual(stats["dropped_observation_count"], 1)
         self.assertEqual(stats["orphan_observation_count"], 0)
         self.assertEqual(stats["dropped_tool_reason_hist"], {"only_molclaw_tool": 1})
-        self.assertEqual(len(stats["only_molclaw_repair_hints"]), 1)
+        self.assertNotIn("only_molclaw_repair_hints", stats)
 
     def test_unpaired_calls_are_not_retained(self) -> None:
         events = [
@@ -551,6 +551,54 @@ class ReactConstructorTest(unittest.TestCase):
         )
         self.assertEqual(payload["result"], "<artifact:structure/fixed.pdb>")
 
+    def test_final_only_server_artifact_is_replaced_with_neutral_text(self) -> None:
+        events = [
+            assistant_event(
+                {
+                    "type": "tool_use",
+                    "id": "c1",
+                    "name": "mcp__molclaw-scp__is_valid_smiles",
+                    "input": {"smiles": "CCO"},
+                }
+            ),
+            user_event(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "c1",
+                    "content": {"status": "success", "valid": True},
+                }
+            ),
+            assistant_event(
+                {
+                    "type": "text",
+                    "text": "A failed environment directory was /root/lwj/work/output.pdb.",
+                }
+            ),
+        ]
+        messages, stats = reconstruct_react_messages(
+            events,
+            question_text="Validate and report.",
+            final_answer="See /root/lwj/work/output.pdb.",
+            task="e2e",
+        )
+        payload = json.loads(
+            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
+        )
+        self.assertNotIn("<artifact:", json.dumps(payload))
+        self.assertIn("[unavailable server path]", json.dumps(payload))
+        self.assertEqual(
+            stats["unknown_final_artifacts_removed"],
+            ["<artifact:structure/output.pdb>"],
+        )
+
+    def test_observation_preview_never_splits_artifact_token(self) -> None:
+        value = "x" * 45 + "<artifact:structure/long-output-name.pdb>" + "y" * 100
+        compacted, changed, _ = _compact_observation(value, 60)
+        self.assertTrue(changed)
+        preview = compacted["text_preview"]
+        self.assertIn("<artifact:structure/long-output-name.pdb>", preview)
+        self.assertNotRegex(preview, r"<artifact:[^>]*$")
+
     def test_vs_ranking_is_repaired_from_complete_same_context_quickvina_scores(self) -> None:
         common = {
             "pdb_file_path": "/data/receptor.pdb",
@@ -614,7 +662,7 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertEqual(stats["resolved_final_answer"]["ranked_smiles"], ["CCC", "AAA", "BBB"])
         self.assertEqual(stats["vs_ranking_repair"]["status"], "repaired")
 
-    def test_vs_ranking_repair_skips_ambiguous_context_or_higher_order_evidence(self) -> None:
+    def test_vs_ranking_uses_best_score_across_contexts_and_puts_missing_last(self) -> None:
         events = [
             assistant_event(
                 {
@@ -629,6 +677,12 @@ class ReactConstructorTest(unittest.TestCase):
                     "name": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
                     "input": {"smiles": "BBB", "pocket_center_x": 2},
                 },
+                {
+                    "type": "tool_use",
+                    "id": "a-retry",
+                    "name": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+                    "input": {"smiles": "AAA", "pocket_center_x": 3},
+                },
             ),
             user_event(
                 {
@@ -641,19 +695,90 @@ class ReactConstructorTest(unittest.TestCase):
                     "tool_use_id": "b",
                     "content": {"status": "success", "docking_affinity_value": -6.0},
                 },
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "a-retry",
+                    "content": {"status": "success", "docking_affinity_value": -9.0},
+                },
             ),
         ]
-        _, stats = reconstruct_react_messages(
+        messages, stats = reconstruct_react_messages(
+            events,
+            question_text="Rank",
+            final_answer=["MISSING", "BBB", "AAA", "MISSING"],
+            task="vs",
+        )
+        payload = json.loads(
+            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
+        )
+        self.assertEqual(payload["ranked_smiles"], ["AAA", "BBB", "MISSING", "MISSING"])
+        self.assertEqual(payload["selected_smiles"], "AAA")
+        self.assertEqual(stats["vs_ranking_repair"]["status"], "repaired")
+        self.assertEqual(
+            stats["vs_ranking_repair"]["molecules"]["AAA"]["best_score"],
+            -9.0,
+        )
+        self.assertEqual(stats["vs_ranking_repair"]["missing_scores"], ["MISSING"])
+
+    def test_successful_higher_order_rescoring_keeps_recorded_ranking(self) -> None:
+        events = [
+            assistant_event(
+                {
+                    "type": "tool_use",
+                    "id": "a",
+                    "name": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+                    "input": {"smiles": "AAA"},
+                },
+                {
+                    "type": "tool_use",
+                    "id": "b",
+                    "name": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+                    "input": {"smiles": "BBB"},
+                },
+                {
+                    "type": "tool_use",
+                    "id": "rescore",
+                    "name": "mcp__molclaw-scp__equiscore_rescore",
+                    "input": {"candidates": ["AAA", "BBB"]},
+                },
+            ),
+            user_event(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "a",
+                    "content": {"status": "success", "docking_affinity_value": -9.0},
+                },
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "b",
+                    "content": {"status": "success", "docking_affinity_value": -6.0},
+                },
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "rescore",
+                    "content": {"status": "success", "ranking": ["BBB", "AAA"]},
+                },
+            ),
+        ]
+        messages, stats = reconstruct_react_messages(
             events,
             question_text="Rank",
             final_answer=["BBB", "AAA"],
             task="vs",
         )
-        self.assertEqual(stats["resolved_final_answer"], ["BBB", "AAA"])
-        self.assertEqual(stats["vs_ranking_repair"]["status"], "skipped")
-        self.assertEqual(
-            stats["vs_ranking_repair"]["reason"],
-            "ranking_uses_different_quickvina_contexts",
+        payload = json.loads(
+            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
+        )
+        self.assertEqual(payload["ranked_smiles"], ["BBB", "AAA"])
+        self.assertEqual(stats["vs_ranking_repair"]["reason"], "higher_order_ranking_evidence_present")
+        sample = {
+            "schema_version": "drug_agent_sft_react_json_v1",
+            "id": "vs-higher-order",
+            "messages": messages,
+        }
+        self.assertNotIn(
+            "vs_ranking_inconsistent_with_tool_scores",
+            validate_final_record(sample)["errors"],
         )
 
     def test_path_sanitization_does_not_rewrite_smiles_stereochemistry(self) -> None:

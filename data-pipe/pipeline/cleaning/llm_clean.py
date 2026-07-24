@@ -42,25 +42,9 @@ def _safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._") or "sample"
 
 
-def _editable_targets(repair_hints: dict[str, Any]) -> set[tuple[int, str, int]]:
-    targets: set[tuple[int, str, int]] = set()
-    for item in repair_hints.get("editable_findings") or []:
-        if not isinstance(item, dict):
-            continue
-        targets.add(
-            (
-                int(item.get("message_index", -1)),
-                str(item.get("segment_type") or ""),
-                int(item.get("segment_index", -1)),
-            )
-        )
-    return targets
-
-
 def apply_restricted_patch(
     source: dict[str, Any],
     patch: dict[str, Any],
-    repair_hints: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     findings = patch_schema_findings(patch)
     actions: list[dict[str, Any]] = []
@@ -68,7 +52,6 @@ def apply_restricted_patch(
         return copy.deepcopy(source), findings, actions
     if patch.get("sample_id") != source.get("id"):
         return copy.deepcopy(source), ["patch_sample_id_mismatch"], actions
-    allowed = _editable_targets(repair_hints)
     edits_by_message: dict[int, list[dict[str, Any]]] = {}
     seen: set[tuple[int, str, int]] = set()
     for edit in patch.get("edits") or []:
@@ -77,9 +60,6 @@ def apply_restricted_patch(
             findings.append(f"duplicate_edit_target:{target}")
             continue
         seen.add(target)
-        if target not in allowed:
-            findings.append(f"edit_target_not_in_python_hints:{target}")
-            continue
         replacement = str(edit["replacement"]).strip()
         if edit["segment_type"] == "final_summary" and not replacement:
             findings.append(f"empty_final_summary_replacement:{target}")
@@ -175,14 +155,6 @@ def apply_restricted_patch(
     findings.extend(react_schema_findings(candidate))
     if findings:
         return copy.deepcopy(source), list(dict.fromkeys(findings)), []
-    edited_targets = {
-        (action["message_index"], action["segment_type"], action["segment_index"])
-        for action in actions
-    }
-    findings.extend(
-        f"unresolved_repair_target:{target[0]}:{target[1]}:{target[2]}"
-        for target in sorted(allowed - edited_targets)
-    )
     return candidate, findings, actions
 
 
@@ -194,11 +166,11 @@ def build_claude_patch_provider(
 ) -> PatchProvider:
     prompt = (PROMPT_DIR / "llm_clean_v1.md").read_text(encoding="utf-8")
 
-    def provide(source: dict[str, Any], repair_hints: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    def provide(source: dict[str, Any], cleaning_context: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         sample_dir = debug_root / _safe_name(str(source.get("id") or "sample"))
         sample_dir.mkdir(parents=True, exist_ok=True)
         write_json(sample_dir / "source_trajectory.json", source)
-        write_json(sample_dir / "repair_hints.json", repair_hints)
+        write_json(sample_dir / "cleaning_context.json", cleaning_context)
         shutil.copy2(EXAMPLE_DIR / "react_trajectory_v1.example.json", sample_dir)
         shutil.copy2(EXAMPLE_DIR / "llm_clean_patch_v1.example.json", sample_dir)
         shutil.copy2(SCHEMA_DIR / "llm_clean_patch_v1.schema.json", sample_dir)
@@ -289,57 +261,40 @@ def clean_draft(
             + ", ".join(source_schema_findings)
         )
     llm_findings: list[str] = []
-    repair_hints = python_audit.get("repair_hints") or {}
-    editable_findings = repair_hints.get("editable_findings") or []
-    if not editable_findings:
-        patch = None
-        llm_report = {"status": "not_required", "findings": []}
-        candidate = copy.deepcopy(source)
-        actions = []
-        llm_status = "not_required"
-    else:
-        patch, llm_report = patch_provider(source, repair_hints)
-    if editable_findings and patch is None:
+    cleaning_context = {
+        "only_molclaw_tool": bool(
+            (python_audit.get("trace_stats") or {}).get("only_molclaw_tool")
+        )
+    }
+    patch, llm_report = patch_provider(source, cleaning_context)
+    if patch is None:
         llm_findings.extend(llm_report.get("findings") or ["patch_provider_failed"])
         candidate = copy.deepcopy(source)
         actions = []
         llm_status = "failed_fallback"
-    elif editable_findings:
-        candidate, apply_findings, actions = apply_restricted_patch(
-            source, patch, repair_hints
-        )
+    else:
+        candidate, apply_findings, actions = apply_restricted_patch(source, patch)
         llm_findings.extend(apply_findings)
-        unresolved_only = bool(apply_findings) and all(
-            finding.startswith("unresolved_repair_target:")
-            for finding in apply_findings
-        )
-        if not apply_findings:
-            llm_status = "cleaned"
-        elif unresolved_only and actions:
-            llm_status = "partially_cleaned"
-        elif unresolved_only:
-            llm_status = "incomplete_patch"
-        else:
+        if apply_findings:
             llm_status = "unsafe_patch_fallback"
+        elif actions:
+            llm_status = "cleaned"
+        else:
+            llm_status = "not_required"
     invariant_report = validate_final_record(candidate)
     immutable_findings = compare_immutable_facts(source, candidate)
-    prose_findings = [
-        f"prose:{finding['message_index']}:{finding['segment_type']}:{finding['segment_index']}:"
-        f"{','.join(finding['reasons'])}"
-        for finding in invariant_report["prose_findings"]
-    ]
-    final_findings = list(
-        dict.fromkeys(invariant_report["errors"] + prose_findings + immutable_findings)
-    )
     decision = decide_final_status(
         execution_valid=bool(python_audit.get("execution_valid")),
         task_answer_valid=bool(python_audit.get("task_answer_valid")),
         training_trace_valid=bool(python_audit.get("training_trace_valid")),
     )
+    retained_python_audit = {
+        key: value for key, value in python_audit.items() if key != "repair_hints"
+    }
     return {
         "record": candidate,
         "audit": {
-            **python_audit,
+            **retained_python_audit,
             "final_status": decision["final_status"],
             "final_status_authority": decision["authority"],
             "final_status_reasons": decision["reasons"],
@@ -348,7 +303,10 @@ def clean_draft(
                 "status": llm_status,
                 "findings": llm_findings,
                 "actions": actions,
-                **({"patch": patch} if editable_findings and patch is not None else {}),
+                "cleaning_context": cleaning_context,
+                "residual_prose_findings": invariant_report["prose_findings"],
+                "residual_prose_finding_count": len(invariant_report["prose_findings"]),
+                **({"patch": patch} if patch is not None else {}),
             },
             "final_invariants": invariant_report,
             "immutable_findings": immutable_findings,
@@ -458,7 +416,11 @@ def llm_clean(
         "llm_clean_status_hist": dict(llm_status_hist),
         "llm_fallback_count": sum(
             llm_status_hist.get(status, 0)
-            for status in ("failed_fallback", "unsafe_patch_fallback", "incomplete_patch")
+            for status in ("failed_fallback", "unsafe_patch_fallback")
+        ),
+        "residual_prose_finding_count": sum(
+            int((item["audit"].get("llm_clean") or {}).get("residual_prose_finding_count") or 0)
+            for item in processed
         ),
         "claude_bin": claude_bin,
         "timeout_sec": timeout_sec,

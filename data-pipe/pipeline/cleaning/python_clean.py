@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pipeline.cleaning.invariants import collect_repair_hints, validate_final_record
+from pipeline.cleaning.invariants import validate_final_record
 from pipeline.cleaning.io import base_manifest, write_json, write_jsonl
 from pipeline.cleaning.models import REACT_SCHEMA_VERSION, react_schema_findings
 from pipeline.cleaning.react_builder import (
@@ -188,11 +188,6 @@ def clean_sample(
         "task_evaluator_canonical": evaluation.get("canonical", {}),
         "task_evaluator_error": evaluator_error,
         "python_invariants": invariant_report,
-        "repair_hints": collect_repair_hints(
-            draft,
-            only_molclaw_tool=only_molclaw_tool,
-            dropped_local_tool_context=trace_stats.get("dropped_local_tool_context") or [],
-        ),
     }
     return {"draft": draft, "audit": audit}
 

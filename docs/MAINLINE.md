@@ -82,7 +82,8 @@ skills 只读，受限 Bash 不启动 shell 且禁止网络、解释器、删除
 
 OPD、VERL bundle、legacy action-JSON SFT 和 legacy online PPO/GRPO 不属于当前主线。
 
-Python clean 先用 A/B/C gate 筛选，再把 canonical draft 和确定性 repair hints 交给 LLM；ground truth、benchmark
+Python clean 先用 A/B/C gate 筛选，再生成 canonical draft。所有 Python-valid draft 都交给 LLM
+自行检查可编辑 prose，不再由 Python 生成逐段 repair hints；ground truth、benchmark
 metrics 和 evaluator 结果只进入 audit。LLM 返回最小 patch，不能重写 tool call、observation、
 prediction 或完整 trajectory。
 

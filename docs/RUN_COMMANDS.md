@@ -77,8 +77,9 @@ PYTHONPATH=. python -m pipeline.cleaning.llm_clean \
 `python_clean` 或 `run_cleaning.sh` 显式增加 `--only-molclaw-tool`；该参数不改变
 A/B/C gate 的 accepted/rejected 数量。
 
-也可用 `bash scripts/run_cleaning.sh` 连续执行同样三段逻辑。LLM 只写
-`llm_clean_patch.json`，Python 验证并应用白名单 prose edits；stdout 不作为数据接口。
+也可用 `bash scripts/run_cleaning.sh` 连续执行同样三段逻辑。每条 Python-valid draft
+都会由 LLM 自行检查 prose；LLM 只写 `llm_clean_patch.json`，Python 只允许修改已有
+thought/final summary 并用 immutable/schema checks 保护执行事实；stdout 不作为数据接口。
 
 输出训练接口为 `results/cleaned/react_trajectories.jsonl`；审计为同目录
 `curation_audit.jsonl`，A/B/C gate 拒绝记录为 `rejected.jsonl`。LLM 失败时回退

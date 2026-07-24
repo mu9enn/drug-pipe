@@ -7,18 +7,22 @@ from typing import Any
 
 from pipeline.cleaning.artifacts import (
     ABSOLUTE_PATH_RE,
-    ARTIFACT_RE,
+    MALFORMED_ARTIFACT_RE,
     RELATIVE_PATH_RE,
+    artifact_references,
     inspect_observation_status,
 )
 from pipeline.cleaning.models import react_schema_findings
+from pipeline.cleaning.vs_ranking import (
+    rank_by_best_quickvina_score,
+    successful_quickvina_result,
+)
 
 
 TOOL_CALL_RE = re.compile(r"<tool_call>([\s\S]*?)</tool_call>")
 OBSERVATION_RE = re.compile(r'<observation\s+tool_name="([^"]+)">([\s\S]*?)</observation>')
 THOUGHT_RE = re.compile(r"<thought>([\s\S]*?)</thought>")
 FINAL_RE = re.compile(r"<final_answer>([\s\S]*?)</final_answer>")
-SUCCESS_CLAIM_RE = re.compile(r"(?i)\b(success(?:ful(?:ly)?)?|completed|produced|saved|written)\b")
 L2_L3_ORCHESTRATION_RE = re.compile(
     r"(?ix)(?:"
     r"(?:\.claude(?:/|\\)skills|skills?)[^\n]{0,100}\bL[23](?:[-_/ ][A-Za-z0-9.-]+)?\b|"
@@ -48,7 +52,7 @@ TEACHER_SIDECAR_NARRATION_RE = re.compile(
     r"\b(?:skills?\s+(?:directory|catalog|hierarchy)|\.claude/skills)\b"
     r")"
 )
-MOLECULE_KEYS = ("smiles", "ligand", "molecule", "candidate")
+HIGHER_ORDER_RANKING_MARKERS = ("equiscore", "consensus")
 
 
 def _parse_json(text: str) -> Any:
@@ -60,36 +64,6 @@ def _parse_json(text: str) -> Any:
 
 def _serialize(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-
-
-def _upcoming_tool_name(content: str, after: int) -> str | None:
-    match = TOOL_CALL_RE.search(content, after)
-    if not match:
-        return None
-    payload = _parse_json(match.group(1))
-    return str(payload.get("tool_name") or "") if isinstance(payload, dict) else None
-
-
-def _premature_completion_claim(text: str, upcoming_tool: str | None) -> bool:
-    tool = str(upcoming_tool or "").lower()
-    if "server_file_to_base64" in tool or "base64_to_server_file" in tool:
-        operation = r"(?:file\s+)?(?:transfer|conversion)|file\s+transferr?ed"
-    elif "retrieve" in tool:
-        operation = r"retriev(?:al|e|ed)"
-    elif "fix" in tool or "repair" in tool:
-        operation = r"repair(?:ed)?|fix(?:ed)?"
-    elif "dock" in tool or "quickvina" in tool:
-        operation = r"dock(?:ing|ed)?"
-    else:
-        return False
-    return bool(
-        re.search(
-            rf"(?i)\b(?:{operation})\b[^\n.]{{0,30}}\b(?:complete|completed|successful|succeeded)\b|"
-            rf"\b(?:successfully|already)\b[^\n.]{{0,20}}\b(?:{operation})\b|"
-            rf"\bfile\s+(?:was\s+)?transferred\b",
-            text,
-        )
-    )
 
 
 def _assistant_prose_findings(
@@ -111,9 +85,6 @@ def _assistant_prose_findings(
                 reasons.append("teacher_sidecar_or_skill_catalog_narration")
             if only_molclaw_tool and LOCAL_TOOL_NARRATION_RE.search(text):
                 reasons.append("local_tool_narration_removed_in_only_molclaw_mode")
-            upcoming_tool = _upcoming_tool_name(content, match.end())
-            if _premature_completion_claim(text, upcoming_tool):
-                reasons.append(f"premature_completion_before_tool:{upcoming_tool}")
             if reasons:
                 findings.append(
                     {
@@ -221,20 +192,6 @@ def compare_immutable_facts(source: dict[str, Any], candidate: dict[str, Any]) -
     return findings
 
 
-def _molecule_from_arguments(arguments: Any) -> str | None:
-    if not isinstance(arguments, dict):
-        return None
-    for key in MOLECULE_KEYS:
-        value = arguments.get(key)
-        if isinstance(value, str) and value.strip() and "<artifact:" not in value:
-            return value.strip()
-    for value in arguments.values():
-        nested = _molecule_from_arguments(value) if isinstance(value, dict) else None
-        if nested:
-            return nested
-    return None
-
-
 def _find_numeric(value: Any, preferred_keys: set[str] | None = None) -> list[float]:
     numbers: list[float] = []
     if isinstance(value, dict):
@@ -260,18 +217,11 @@ def _check_final_consistency(
         report["errors"].append("missing_structured_final_answer")
         return
     final_text = _serialize(final_payload)
-    observation_text = _serialize(observations)
-    missing_artifacts = sorted(set(ARTIFACT_RE.findall(final_text)) - set(ARTIFACT_RE.findall(observation_text)))
+    known_artifacts = artifact_references(calls) | artifact_references(observations)
+    missing_artifacts = sorted(artifact_references(final_text) - known_artifacts)
     if missing_artifacts:
         report["errors"].append("final_references_unknown_artifact")
         report["missing_artifacts"] = missing_artifacts
-
-    last_failed = bool(
-        observations and inspect_observation_status(observations[-1]["payload"])["is_error"]
-    )
-    summary = str(final_payload.get("summary") or "")
-    if last_failed and SUCCESS_CLAIM_RE.search(summary):
-        report["errors"].append("final_claims_success_after_failed_critical_tool")
 
     final_numbers = _find_numeric(final_payload.get("evidence"), {"score", "affinity", "value", "count"})
     observed_numbers = _find_numeric([item["payload"] for item in observations])
@@ -289,19 +239,29 @@ def _check_final_consistency(
     if not isinstance(ranking, list):
         report["errors"].append("vs_final_missing_ranking")
         return
-    scores: dict[str, float] = {}
+    if any(
+        any(marker in str(call.get("tool_name") or "").lower() for marker in HIGHER_ORDER_RANKING_MARKERS)
+        and not inspect_observation_status(observation["payload"])["is_error"]
+        for call, observation in zip(calls, observations)
+    ):
+        return
+    quickvina_results: list[dict[str, Any]] = []
     for call, observation in zip(calls, observations):
-        tool_name = str(call.get("tool_name") or "").lower()
-        if "dock" not in tool_name and "quickvina" not in tool_name:
-            continue
-        molecule = _molecule_from_arguments(call.get("arguments"))
-        values = _find_numeric(observation["payload"], {"score", "affinity"})
-        if molecule and values and not inspect_observation_status(observation["payload"])["is_error"]:
-            scores[molecule] = values[0]
-    scored = [(str(molecule), scores[str(molecule)]) for molecule in ranking if str(molecule) in scores]
-    if any(current[1] < previous[1] for previous, current in zip(scored, scored[1:])):
+        result = successful_quickvina_result(
+            str(call.get("tool_name") or ""),
+            call.get("arguments"),
+            observation["payload"],
+        )
+        if result is not None:
+            quickvina_results.append(result)
+    expected, score_audit = rank_by_best_quickvina_score(
+        [str(molecule) for molecule in ranking],
+        quickvina_results,
+    )
+    if expected != [str(molecule) for molecule in ranking]:
         report["errors"].append("vs_ranking_inconsistent_with_tool_scores")
-        report["vs_scored_ranking"] = scored
+        report["vs_expected_ranking"] = expected
+        report["vs_quickvina_score_audit"] = score_audit
 
 
 def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
@@ -321,6 +281,8 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         content = str(message.get("content") or "")
         if ABSOLUTE_PATH_RE.search(content) or RELATIVE_PATH_RE.search(content):
             report["errors"].append(f"message_{message_index}_unsanitized_path")
+        if MALFORMED_ARTIFACT_RE.search(content):
+            report["errors"].append(f"message_{message_index}_malformed_artifact_reference")
 
     pending: deque[str] = deque(str(call.get("tool_name") or "") for call in parts["calls"])
     for observation in parts["observations"]:
@@ -354,20 +316,3 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         "prose_findings": len(report["prose_findings"]),
     }
     return report
-
-
-def collect_repair_hints(
-    sample: dict[str, Any],
-    *,
-    only_molclaw_tool: bool = False,
-    dropped_local_tool_context: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    return {
-        "sample_id": sample.get("id"),
-        "only_molclaw_tool": only_molclaw_tool,
-        "dropped_local_tool_context": dropped_local_tool_context or [],
-        "editable_findings": _assistant_prose_findings(
-            sample,
-            only_molclaw_tool=only_molclaw_tool,
-        ),
-    }

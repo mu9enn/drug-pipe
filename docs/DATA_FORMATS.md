@@ -163,6 +163,19 @@ finding 只进入 audit，不参与清洗准入。`execution_valid`、`task_answ
 `invariants.py` 只读记录。LLM clean 内部的 final acceptance gate 只把这三个 gate 投影为
 accepted/rejected，不存在 quarantine 或第二个准入 authority。
 
+LLM clean 不再消费 Python 生成的逐段 repair target。它检查每条 Python-valid trajectory
+的全部 thought 与 final summary；空 patch 记为 `not_required`，失败或不安全 patch 回退
+Python draft。残留的 L2/L3 或 teacher-sidecar prose 只写 audit，不改变 A/B/C 准入。
+
+VS 的 QuickVina 排序以每个 SMILES 在整条轨迹中的成功
+`docking_affinity_value` 最小值（最负、最佳 pose）为准，不以 pocket/protein context
+一致作为硬门槛。已有分数的分子先按最佳分数升序排列；缺少成功分数的分子保持原相对
+顺序并置于末尾；重复 SMILES 保留。context、全部重试分数和选中的最佳分数写入 audit。
+
+Canonical artifact token 仅允许 `<artifact:[A-Za-z0-9._/-]+>`。Observation compaction
+不得截断 token；final 中不被保留 call argument 或 observation 支持的 artifact ref 会在
+Python 结构化时替换为中性 unavailable-path 文本。
+
 默认 canonical ReAct 保留 MolClaw 与受支持的本地工具
 `Read/Write/Edit/Bash/Grep/Glob/Skill`；其中 `Skill` 只允许 L1 tool-level skill，Bash
 受任务 workspace 限制。Teacher runtime sidecar（如 `question.json`、`run_meta.json`、

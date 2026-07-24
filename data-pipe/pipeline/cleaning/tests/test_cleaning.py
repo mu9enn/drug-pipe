@@ -11,7 +11,7 @@ PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
 
 from cleaning.acceptance_gate import decide_final_status  # noqa: E402
-from cleaning.invariants import collect_repair_hints, compare_immutable_facts, validate_final_record  # noqa: E402
+from cleaning.invariants import compare_immutable_facts, validate_final_record  # noqa: E402
 from cleaning.llm_clean import (  # noqa: E402
     apply_restricted_patch,
     build_claude_patch_provider,
@@ -57,16 +57,6 @@ def sample_record() -> dict:
     }
 
 
-def repair_hints() -> dict:
-    return {
-        "sample_id": "sample-1",
-        "editable_findings": [
-            {"message_index": 2, "segment_type": "thought", "segment_index": 0},
-            {"message_index": 4, "segment_type": "final_summary", "segment_index": 0},
-        ],
-    }
-
-
 class ContractTest(unittest.TestCase):
     def test_examples_validate_against_machine_schemas(self) -> None:
         trajectory = json.loads((EXAMPLE_DIR / "react_trajectory_v1.example.json").read_text(encoding="utf-8"))
@@ -77,7 +67,7 @@ class ContractTest(unittest.TestCase):
 
 
 class RestrictedPatchTest(unittest.TestCase):
-    def test_empty_replacement_deletes_only_a_flagged_scaffolding_thought(self) -> None:
+    def test_empty_replacement_deletes_only_the_targeted_thought(self) -> None:
         source = sample_record()
         patch = {
             "schema_version": "llm_clean_patch_v1",
@@ -91,14 +81,14 @@ class RestrictedPatchTest(unittest.TestCase):
                 }
             ],
         }
-        cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
-        self.assertEqual(findings, ["unresolved_repair_target:4:final_summary:0"])
+        cleaned, findings, actions = apply_restricted_patch(source, patch)
+        self.assertEqual(findings, [])
         self.assertNotIn("<thought>", cleaned["messages"][2]["content"])
         self.assertIn("<tool_call>", cleaned["messages"][2]["content"])
         self.assertEqual(actions[0]["operation"], "delete")
         self.assertEqual(compare_immutable_facts(source, cleaned), [])
 
-    def test_patch_changes_only_whitelisted_prose(self) -> None:
+    def test_patch_changes_only_existing_editable_prose(self) -> None:
         source = sample_record()
         patch = {
             "schema_version": "llm_clean_patch_v1",
@@ -118,14 +108,14 @@ class RestrictedPatchTest(unittest.TestCase):
                 },
             ],
         }
-        cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
+        cleaned, findings, actions = apply_restricted_patch(source, patch)
         self.assertEqual(findings, [])
         self.assertEqual(len(actions), 2)
         self.assertEqual(compare_immutable_facts(source, cleaned), [])
         self.assertIn("recorded result", cleaned["messages"][2]["content"])
         self.assertIn("completed successfully", cleaned["messages"][4]["content"])
 
-    def test_patch_cannot_target_unflagged_or_inject_protocol(self) -> None:
+    def test_patch_cannot_inject_protocol_tags(self) -> None:
         source = sample_record()
         patch = {
             "schema_version": "llm_clean_patch_v1",
@@ -139,10 +129,10 @@ class RestrictedPatchTest(unittest.TestCase):
                 }
             ],
         }
-        cleaned, findings, actions = apply_restricted_patch(source, patch, repair_hints())
+        cleaned, findings, actions = apply_restricted_patch(source, patch)
         self.assertEqual(cleaned, source)
         self.assertEqual(actions, [])
-        self.assertTrue(any("edit_target_not_in_python_hints" in finding for finding in findings))
+        self.assertTrue(any("replacement_contains_protocol_tag" in finding for finding in findings))
 
     def test_missing_patch_falls_back_and_is_accepted_by_python_gates(self) -> None:
         source = sample_record()
@@ -152,7 +142,6 @@ class RestrictedPatchTest(unittest.TestCase):
             "execution_valid": True,
             "task_answer_valid": True,
             "training_trace_valid": True,
-            "repair_hints": repair_hints(),
         }
 
         def missing(_source, _hints):
@@ -163,63 +152,6 @@ class RestrictedPatchTest(unittest.TestCase):
         self.assertEqual(result["audit"]["final_status_authority"], "final_acceptance_gate")
         self.assertEqual(result["audit"]["llm_clean"]["status"], "failed_fallback")
         self.assertEqual(result["record"], source)
-
-    def test_remaining_premature_claim_is_audited_and_safe_rewrite_is_accepted(self) -> None:
-        source = sample_record()
-        source["messages"][2]["content"] = (
-            "<thought>Transfer complete.</thought>\n"
-            '<tool_call>{"arguments":{"file_path":"<artifact:structure/fixed.pdb>"},'
-            '"tool_name":"server_file_to_base64"}</tool_call>'
-        )
-        source["messages"][3]["content"] = (
-            '<observation tool_name="server_file_to_base64">'
-            '{"content":{"status":"success","value":1},"is_error":false,'
-            '"status":"success","tool_name":"server_file_to_base64"}</observation>'
-        )
-        source["messages"][4]["content"] = (
-            '<final_answer>{"evidence":[{"value":1}],"result":"done",'
-            '"summary":"The recorded transfer produced the requested artifact.",'
-            '"task_type":"kg"}</final_answer>'
-        )
-        hints = collect_repair_hints(source)
-        audit = {
-            "id": "sample-1",
-            "python_status": "python_valid",
-            "execution_valid": True,
-            "task_answer_valid": True,
-            "training_trace_valid": True,
-            "repair_hints": hints,
-        }
-
-        def no_rewrite(_source, _hints):
-            return {"schema_version": "llm_clean_patch_v1", "sample_id": "sample-1", "edits": []}, {
-                "status": "patch_received",
-                "findings": [],
-            }
-
-        incomplete = clean_draft(source, audit, no_rewrite)
-        self.assertEqual(incomplete["audit"]["final_status"], "accepted")
-        self.assertEqual(incomplete["audit"]["llm_clean"]["status"], "incomplete_patch")
-        self.assertTrue(incomplete["audit"]["final_invariants"]["prose_findings"])
-
-        def safe_rewrite(_source, _hints):
-            return {
-                "schema_version": "llm_clean_patch_v1",
-                "sample_id": "sample-1",
-                "edits": [
-                    {
-                        "message_index": 2,
-                        "segment_type": "thought",
-                        "segment_index": 0,
-                        "replacement": "Encode the repaired structure for transfer from the server.",
-                    }
-                ],
-            }, {"status": "patch_received", "findings": []}
-
-        accepted = clean_draft(source, audit, safe_rewrite)
-        self.assertEqual(accepted["audit"]["final_status"], "accepted")
-        self.assertEqual(compare_immutable_facts(source, accepted["record"]), [])
-
 
 class ClaudePatchCaptureTest(unittest.TestCase):
     def _fake_claude(self, root: Path, *, emit_stream: bool = True) -> Path:
@@ -249,7 +181,7 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 debug_root=root / "debug",
                 timeout_sec=5,
             )
-            patch, metadata = provider(sample_record(), repair_hints())
+            patch, metadata = provider(sample_record(), {"only_molclaw_tool": False})
             self.assertIsNotNone(patch)
             self.assertEqual(metadata["status"], "patch_received")
             self.assertTrue(metadata["raw_session_valid"])
@@ -258,6 +190,8 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             self.assertEqual(attempt.read_bytes(), canonical.read_bytes())
             self.assertFalse((canonical.parent / "claude_stdout.txt").exists())
             self.assertFalse((canonical.parent / "claude_stderr.txt").exists())
+            self.assertTrue((canonical.parent / "cleaning_context.json").is_file())
+            self.assertFalse((canonical.parent / "repair_hints.json").exists())
 
     def test_invalid_raw_stream_falls_back_even_if_patch_exists(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -267,12 +201,12 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 debug_root=root / "debug",
                 timeout_sec=5,
             )
-            patch, metadata = provider(sample_record(), repair_hints())
+            patch, metadata = provider(sample_record(), {"only_molclaw_tool": False})
             self.assertIsNone(patch)
             self.assertIn("raw_session_invalid", metadata["findings"])
             self.assertTrue(Path(metadata["attempt_session_file"]).is_file())
 
-    def test_partial_safe_patch_is_applied_and_unresolved_targets_are_audited(self) -> None:
+    def test_safe_partial_patch_is_applied_without_python_target_allowlist(self) -> None:
         source = sample_record()
         audit = {
             "id": "sample-1",
@@ -280,7 +214,6 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             "execution_valid": True,
             "task_answer_valid": True,
             "training_trace_valid": True,
-            "repair_hints": repair_hints(),
         }
 
         def partial(_source, _hints):
@@ -299,21 +232,23 @@ class ClaudePatchCaptureTest(unittest.TestCase):
 
         result = clean_draft(source, audit, partial)
         self.assertEqual(result["audit"]["final_status"], "accepted")
-        self.assertEqual(result["audit"]["llm_clean"]["status"], "partially_cleaned")
+        self.assertEqual(result["audit"]["llm_clean"]["status"], "cleaned")
         self.assertIn("scientific evidence", result["record"]["messages"][2]["content"])
-        self.assertIn(
-            "unresolved_repair_target:4:final_summary:0",
-            result["audit"]["llm_clean"]["findings"],
-        )
+        self.assertEqual(result["audit"]["llm_clean"]["findings"], [])
 
-    def test_no_hints_skips_provider_and_is_not_required(self) -> None:
+    def test_every_python_valid_sample_calls_provider_and_empty_patch_is_not_required(self) -> None:
         source = sample_record()
         called = False
 
-        def should_not_run(_source, _hints):
+        def empty_patch(_source, context):
             nonlocal called
             called = True
-            raise AssertionError("provider must not run")
+            self.assertFalse(context["only_molclaw_tool"])
+            return {
+                "schema_version": "llm_clean_patch_v1",
+                "sample_id": "sample-1",
+                "edits": [],
+            }, {"status": "patch_received", "findings": []}
 
         result = clean_draft(
             source,
@@ -323,11 +258,10 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 "execution_valid": True,
                 "task_answer_valid": True,
                 "training_trace_valid": True,
-                "repair_hints": {"sample_id": "sample-1", "editable_findings": []},
             },
-            should_not_run,
+            empty_patch,
         )
-        self.assertFalse(called)
+        self.assertTrue(called)
         self.assertEqual(result["audit"]["llm_clean"]["status"], "not_required")
         self.assertEqual(result["audit"]["final_status"], "accepted")
 
@@ -356,7 +290,6 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 "execution_valid": True,
                 "task_answer_valid": True,
                 "training_trace_valid": True,
-                "repair_hints": repair_hints(),
             },
             unsafe,
         )
@@ -376,7 +309,6 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                     "execution_valid": True,
                     "task_answer_valid": True,
                     "training_trace_valid": True,
-                    "repair_hints": {"editable_findings": []},
                 },
                 lambda _source, _hints: (None, {}),
             )
@@ -404,14 +336,11 @@ class ClaudePatchCaptureTest(unittest.TestCase):
 
 
 class InvariantTest(unittest.TestCase):
-    def test_hints_are_targeted_to_teacher_scaffolding_and_premature_claims(self) -> None:
-        long_science = "ADRA2A receptor evidence remains relevant. " * 80
+    def test_prose_audit_targets_teacher_orchestration_without_timeline_rules(self) -> None:
         sample = sample_record()
         sample["messages"][2]["content"] = (
             "<thought>Use the observed ADRA2A structure after consulting the L2 docking workflow.</thought>\n"
-            f"<thought>{long_science}</thought>\n"
             "<thought>Transfer complete.</thought>\n"
-            "<thought>Encode the repaired structure for transfer.</thought>\n"
             '<tool_call>{"arguments":{},"tool_name":"server_file_to_base64"}</tool_call>'
         )
         sample["messages"][4]["content"] = (
@@ -419,35 +348,24 @@ class InvariantTest(unittest.TestCase):
             '"summary":"ADRA2A was repaired after following the L3 methodology skill.",'
             '"task_type":"kg"}</final_answer>'
         )
-        hints = collect_repair_hints(sample)["editable_findings"]
-        targets = {(item["message_index"], item["segment_type"], item["segment_index"]): item for item in hints}
+        findings = validate_final_record(sample)["prose_findings"]
+        targets = {
+            (item["message_index"], item["segment_type"], item["segment_index"]): item
+            for item in findings
+        }
         self.assertIn((2, "thought", 0), targets)
         self.assertIn("l2_l3_teacher_orchestration", targets[(2, "thought", 0)]["reasons"])
         self.assertNotIn((2, "thought", 1), targets)
-        self.assertIn((2, "thought", 2), targets)
-        self.assertTrue(
-            any(reason.startswith("premature_completion_before_tool") for reason in targets[(2, "thought", 2)]["reasons"])
-        )
-        self.assertNotIn((2, "thought", 3), targets)
         self.assertIn((4, "final_summary", 0), targets)
 
-    def test_default_allows_l1_file_tools_and_only_molclaw_mode_hints_narration(self) -> None:
+    def test_default_allows_l1_file_tools_and_logs(self) -> None:
         sample = sample_record()
         sample["messages"][2]["content"] = (
             "<thought>Read the L1 tool skill, then append evidence to run_log.md "
             "and write result.md.</thought>\n"
             '<tool_call>{"arguments":{},"tool_name":"Read"}</tool_call>'
         )
-        default_hints = collect_repair_hints(sample)
-        self.assertEqual(default_hints["editable_findings"], [])
-
-        only_hints = collect_repair_hints(sample, only_molclaw_tool=True)
-        self.assertTrue(only_hints["only_molclaw_tool"])
-        self.assertEqual(len(only_hints["editable_findings"]), 1)
-        self.assertIn(
-            "local_tool_narration_removed_in_only_molclaw_mode",
-            only_hints["editable_findings"][0]["reasons"],
-        )
+        self.assertEqual(validate_final_record(sample)["prose_findings"], [])
 
     def test_teacher_sidecar_narration_is_cleaned_but_run_logs_are_allowed(self) -> None:
         sample = sample_record()
@@ -456,7 +374,7 @@ class InvariantTest(unittest.TestCase):
             "<thought>Write the measured score to run_log.md.</thought>\n"
             '<tool_call>{"arguments":{},"tool_name":"x"}</tool_call>'
         )
-        hints = collect_repair_hints(sample)["editable_findings"]
+        hints = validate_final_record(sample)["prose_findings"]
         self.assertEqual(
             [(item["message_index"], item["segment_index"]) for item in hints],
             [(2, 0)],
@@ -466,7 +384,7 @@ class InvariantTest(unittest.TestCase):
             hints[0]["reasons"],
         )
 
-    def test_detects_observation_status_and_final_conflicts(self) -> None:
+    def test_detects_observation_status_but_not_final_success_after_tool_error(self) -> None:
         sample = sample_record()
         sample["messages"][3]["content"] = (
             '<observation tool_name="x">'
@@ -479,13 +397,22 @@ class InvariantTest(unittest.TestCase):
         )
         report = validate_final_record(sample)
         self.assertIn("observation_status_conflict", report["errors"])
-        self.assertIn("final_claims_success_after_failed_critical_tool", report["errors"])
+        self.assertNotIn("final_claims_success_after_failed_critical_tool", report["errors"])
 
     def test_validation_is_read_only(self) -> None:
         sample = sample_record()
         before = copy.deepcopy(sample)
         validate_final_record(sample)
         self.assertEqual(sample, before)
+
+    def test_malformed_artifact_reference_is_reported(self) -> None:
+        sample = sample_record()
+        sample["messages"][2]["content"] = (
+            "<thought>Inspect <artifact:structure/truncated.pdb before continuing.</thought>\n"
+            '<tool_call>{"arguments":{},"tool_name":"x"}</tool_call>'
+        )
+        report = validate_final_record(sample)
+        self.assertIn("message_2_malformed_artifact_reference", report["errors"])
 
 
 class AcceptanceGateTest(unittest.TestCase):

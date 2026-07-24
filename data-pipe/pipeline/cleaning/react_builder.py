@@ -9,9 +9,31 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from pipeline.cleaning.artifacts import inspect_observation_status, sanitize_artifact_paths
+    from pipeline.cleaning.artifacts import (
+        ARTIFACT_RE,
+        artifact_references,
+        inspect_observation_status,
+        replace_unknown_artifact_references,
+        sanitize_artifact_paths,
+    )
+    from pipeline.cleaning.vs_ranking import (
+        QUICKVINA_TOOL,
+        rank_by_best_quickvina_score,
+        successful_quickvina_result,
+    )
 except ImportError:
-    from cleaning.artifacts import inspect_observation_status, sanitize_artifact_paths
+    from cleaning.artifacts import (
+        ARTIFACT_RE,
+        artifact_references,
+        inspect_observation_status,
+        replace_unknown_artifact_references,
+        sanitize_artifact_paths,
+    )
+    from cleaning.vs_ranking import (
+        QUICKVINA_TOOL,
+        rank_by_best_quickvina_score,
+        successful_quickvina_result,
+    )
 
 
 MOLCLAW_PREFIX = "mcp__molclaw-scp__"
@@ -39,7 +61,6 @@ TEACHER_SIDECAR_NAMES = frozenset(
         "run_meta.json",
     }
 )
-QUICKVINA_TOOL = "molecule_docking_quickvina_fullprocess"
 HIGHER_ORDER_RANKING_MARKERS = ("equiscore", "consensus")
 CANONICAL_SYSTEM_PROMPT = """You are a scientific agent operating under the canonical ReAct protocol.
 Use only recorded MolClaw calls and supported local file/skill calls from the recorded execution.
@@ -76,7 +97,6 @@ OUTPUT_ARTIFACT_KEYS = ("output_file", "output_path", "artifact")
 DELIVERABLE_FILE_RE = re.compile(
     r"(?i)(?:<artifact:[^>]+>|(?<![\w.-])[\w.-]+\.(?:pdb|cif|mmcif|sdf|mol|mol2|pdbqt|csv|tsv|json|npy|npz|pt|pkl))"
 )
-ARTIFACT_REF_RE = re.compile(r"<artifact:[^>]+>")
 
 
 def bare_tool_name(raw_name: str) -> str | None:
@@ -261,10 +281,19 @@ def _compact_observation(value: Any, max_chars: int) -> tuple[Any, bool, int]:
             "item_count": len(value),
             "items_preview": value[:3],
         }, True, original_chars
+    preview_limit = min(max_chars, 1000)
+    preview = str(value)[:preview_limit]
+    last_open = preview.rfind("<artifact:")
+    if last_open >= 0 and ">" not in preview[last_open:]:
+        closing = str(value).find(">", preview_limit)
+        if closing >= 0 and ARTIFACT_RE.fullmatch(str(value)[last_open : closing + 1]):
+            preview = str(value)[: closing + 1]
+        else:
+            preview = preview[:last_open].rstrip()
     return {
         "compacted": True,
         "original_size_chars": original_chars,
-        "text_preview": str(value)[: min(max_chars, 1000)],
+        "text_preview": preview,
     }, True, original_chars
 
 
@@ -364,7 +393,7 @@ def _evidence_summary(observations: list[dict[str, Any]]) -> list[dict[str, Any]
 
 
 def _artifact_refs(value: Any) -> list[str]:
-    return ARTIFACT_REF_RE.findall(_serialize(value))
+    return sorted(artifact_references(value))
 
 
 def _values_for_key(value: Any, key: str) -> list[Any]:
@@ -414,15 +443,6 @@ def _replace_ranking(value: Any, ranking: list[str]) -> Any:
     return updated
 
 
-def _quickvina_context(arguments: dict[str, Any]) -> str:
-    context = {
-        key: value
-        for key, value in arguments.items()
-        if key not in {"smiles", "ligand_smiles", "molecule", "compound"}
-    }
-    return _serialize(context)
-
-
 def _repair_vs_ranking(
     final_answer: Any,
     quickvina_results: list[dict[str, Any]],
@@ -441,41 +461,16 @@ def _repair_vs_ranking(
         audit.update(status="skipped", reason="higher_order_ranking_evidence_present")
         return final_answer, audit
 
-    by_smiles: dict[str, list[dict[str, Any]]] = {}
-    for result in quickvina_results:
-        smiles = result.get("smiles")
-        score = result.get("score")
-        if isinstance(smiles, str) and smiles and isinstance(score, (int, float)):
-            by_smiles.setdefault(smiles, []).append(result)
-
-    selected: list[dict[str, Any]] = []
-    for smiles in ranking:
-        records = by_smiles.get(smiles, [])
-        scores = {float(record["score"]) for record in records}
-        contexts = {str(record["context"]) for record in records}
-        if not records:
-            audit.update(status="skipped", reason=f"missing_successful_quickvina_score:{smiles}")
-            return final_answer, audit
-        if len(scores) != 1:
-            audit.update(status="skipped", reason=f"conflicting_quickvina_scores:{smiles}")
-            return final_answer, audit
-        if len(contexts) != 1:
-            audit.update(status="skipped", reason=f"conflicting_quickvina_contexts:{smiles}")
-            return final_answer, audit
-        selected.append(records[-1])
-
-    if len({str(record["context"]) for record in selected}) != 1:
-        audit.update(status="skipped", reason="ranking_uses_different_quickvina_contexts")
-        return final_answer, audit
-
-    scores = {smiles: float(record["score"]) for smiles, record in zip(ranking, selected)}
-    repaired = sorted(ranking, key=lambda smiles: scores[smiles])
-    audit["scores"] = scores
+    repaired, score_audit = rank_by_best_quickvina_score(ranking, quickvina_results)
+    audit.update(score_audit)
     audit["repaired_ranking"] = repaired
     if repaired == ranking:
-        audit["reason"] = "already_matches_quickvina_scores"
+        audit["reason"] = "already_matches_best_quickvina_scores"
         return final_answer, audit
-    audit.update(status="repaired", reason="sorted_by_quickvina_affinity_ascending")
+    audit.update(
+        status="repaired",
+        reason="scored_by_best_quickvina_affinity_then_missing_in_original_order",
+    )
     return _replace_ranking(final_answer, repaired), audit
 
 
@@ -557,7 +552,6 @@ def reconstruct_react_messages(
     compacted_observations = 0
     error_status_conflicts: list[dict[str, Any]] = []
     assistant_text_after_last_observation: list[str] = []
-    only_molclaw_repair_hints: list[dict[str, Any]] = []
     quickvina_results: list[dict[str, Any]] = []
     higher_order_ranking_seen = False
     buffered_observations: list[dict[str, Any]] = []
@@ -629,14 +623,6 @@ def reconstruct_react_messages(
                                 "reason": drop_reason or "unsupported",
                             }
                         )
-                        if only_molclaw_tool and drop_reason == "only_molclaw_tool" and event_texts:
-                            only_molclaw_repair_hints.append(
-                                {
-                                    "event_index": event_index,
-                                    "removed_tool": raw_name,
-                                    "reason": "remove narration that only describes the removed local tool; preserve scientific reasoning",
-                                }
-                            )
                         continue
                     if call_id not in paired_result_ids:
                         dropped_call_ids.add(call_id)
@@ -721,22 +707,14 @@ def reconstruct_react_messages(
                         "original_size_chars": original_chars,
                     }
                 if call["tool_kind"] == "molclaw":
-                    if call["name"] == QUICKVINA_TOOL and not observation["is_error"]:
-                        score_values = _values_for_key(parsed, "docking_affinity_value")
-                        smiles = call["arguments"].get("smiles")
-                        try:
-                            score = float(score_values[-1]) if score_values and score_values[-1] is not None else None
-                        except (TypeError, ValueError):
-                            score = None
-                        if isinstance(smiles, str) and score is not None:
-                            quickvina_results.append(
-                                {
-                                    "tool_use_id": call_id,
-                                    "smiles": smiles,
-                                    "score": score,
-                                    "context": _quickvina_context(call["arguments"]),
-                                }
-                            )
+                    quickvina_result = successful_quickvina_result(
+                        call["name"],
+                        call["arguments"],
+                        parsed,
+                        tool_use_id=call_id,
+                    )
+                    if quickvina_result is not None:
+                        quickvina_results.append(quickvina_result)
                     if any(marker in call["name"].lower() for marker in HIGHER_ORDER_RANKING_MARKERS):
                         if not observation["is_error"]:
                             higher_order_ranking_seen = True
@@ -779,6 +757,14 @@ def reconstruct_react_messages(
         ),
         path_map,
     )
+    known_artifacts = artifact_references(
+        [call["arguments"] for call in retained_calls.values()]
+        + observations_for_final
+    )
+    payload, unknown_final_artifacts = replace_unknown_artifact_references(
+        payload,
+        known_artifacts,
+    )
     messages.append(
         {
             "role": "assistant",
@@ -811,8 +797,7 @@ def reconstruct_react_messages(
         "artifact_mappings": path_map,
         "used_raw_system_prompt": bool(_raw_system_prompt(events)),
         "only_molclaw_tool": only_molclaw_tool,
-        "only_molclaw_repair_hints": only_molclaw_repair_hints,
-        "dropped_local_tool_context": only_molclaw_repair_hints,
+        "unknown_final_artifacts_removed": sorted(unknown_final_artifacts),
         "vs_ranking_repair": vs_ranking_repair,
         "resolved_final_answer": resolved_final_answer,
         "final_payload": payload,
