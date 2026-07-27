@@ -10,21 +10,12 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.protocol.action_parser import parse_action
-from drug_agent.protocol.action_schema import ACTION_FINAL_ANSWER, ACTION_TOOL_CALL
-from drug_agent.protocol.parse_policy import extract_json_object_candidate, parse_action_with_policy
 from drug_agent.protocol.react_protocol import (
-    PROTOCOL_ACTION_JSON,
     PROTOCOL_AUTO,
     PROTOCOL_REACT_JSON,
     detect_sft_protocol,
     parse_react_sequence,
 )
-
-
-def _is_tool_response_user_text(text: str) -> bool:
-    s = text.strip()
-    return s.startswith("<tool_response>") and s.endswith("</tool_response>")
 
 
 def _preview_messages(messages: Any, limit: int = 6) -> Any:
@@ -41,118 +32,6 @@ def _roles(messages: Any) -> list[str]:
         if isinstance(item, dict) and isinstance(item.get("role"), str):
             out.append(item["role"])
     return out
-
-
-def validate_structure(messages: Any) -> list[str]:
-    reasons: list[str] = []
-
-    if not isinstance(messages, list) or not messages:
-        return ["messages_empty_or_not_list"]
-
-    roles = []
-    for msg in messages:
-        if not isinstance(msg, dict):
-            reasons.append("message_not_object")
-            continue
-        role = msg.get("role")
-        content = msg.get("content")
-        roles.append(role)
-
-        if role not in {"system", "user", "assistant"}:
-            reasons.append("unsupported_role")
-        if not isinstance(content, str):
-            reasons.append("content_not_string")
-        elif not content.strip():
-            reasons.append("content_empty")
-
-    if roles and roles[0] != "system" and roles[0] != "user":
-        reasons.append("bad_first_role")
-
-    first_non_system = next((r for r in roles if r != "system"), None)
-    if first_non_system is not None and first_non_system != "user":
-        reasons.append("first_non_system_not_user")
-
-    has_user = any(
-        isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content").strip()
-        for m in messages
-    )
-    has_assistant = any(
-        isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str) and m.get("content").strip()
-        for m in messages
-    )
-
-    if not has_user:
-        reasons.append("no_nonempty_user_turn")
-    if not has_assistant:
-        reasons.append("no_nonempty_assistant_turn")
-
-    users = [
-        m
-        for m in messages
-        if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content").strip()
-    ]
-    if users and not any(not _is_tool_response_user_text(m["content"]) for m in users):
-        reasons.append("no_user_query_only_tool_response_users")
-
-    return sorted(set(reasons))
-
-
-def audit_assistant_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
-    counts = Counter()
-    samples: list[dict[str, Any]] = []
-    if not isinstance(messages, list):
-        return counts, samples
-
-    for turn_idx, msg in enumerate(messages):
-        if not isinstance(msg, dict) or msg.get("role") != "assistant":
-            continue
-        content = msg.get("content")
-        if not isinstance(content, str) or not content.strip():
-            continue
-
-        counts["assistant_total"] += 1
-        if "```" in content:
-            counts["assistant_contains_code_fence"] += 1
-        if "<think>" in content or "</think>" in content:
-            counts["assistant_contains_think"] += 1
-
-        strict = parse_action(content)
-        if not strict.ok:
-            counts["assistant_strict_action_failed"] += 1
-        elif strict.action_type == ACTION_TOOL_CALL:
-            counts["assistant_tool_call_total"] += 1
-        elif strict.action_type == ACTION_FINAL_ANSWER:
-            counts["assistant_final_answer_total"] += 1
-
-        permissive, parse_recovery, normalized, parse_source = parse_action_with_policy(
-            content, parse_recovery_enabled=True
-        )
-        recovered = isinstance(parse_recovery, dict) and parse_recovery.get("recovered") is True
-        if recovered:
-            counts["assistant_uses_recovery"] += 1
-
-        has_embedded_json = False
-        candidate = extract_json_object_candidate(content)
-        if candidate and candidate.strip() != content.strip():
-            has_embedded_json = True
-            counts["assistant_contains_prose_plus_json"] += 1
-
-        if (not strict.ok) or recovered or has_embedded_json:
-            samples.append(
-                {
-                    "turn_index": turn_idx,
-                    "strict_ok": strict.ok,
-                    "strict_error_type": strict.error_type,
-                    "strict_error_message": strict.error_message,
-                    "permissive_ok": permissive.ok,
-                    "parse_source": parse_source,
-                    "parse_recovery": parse_recovery,
-                    "has_embedded_json": has_embedded_json,
-                    "normalized_preview": normalized[:300],
-                    "content_preview": content[:300],
-                }
-            )
-    return counts, samples
 
 
 def _coerce_int(value: Any) -> int:
@@ -230,6 +109,7 @@ def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
     seen_react_turn = False
     seen_final_answer = False
 
+    previous_role = None
     for turn_idx, msg in enumerate(messages):
         if not isinstance(msg, dict):
             continue
@@ -238,6 +118,21 @@ def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
         content = msg.get("content")
         if not isinstance(content, str) or not content.strip():
             continue
+
+        if role == "assistant" and previous_role == "assistant":
+            counts["react_json_parse_failed"] += 1
+            samples.append(
+                {
+                    "turn_index": turn_idx,
+                    "role": role,
+                    "strict_ok": False,
+                    "strict_error_type": "ReactSequenceError",
+                    "strict_error_message": "consecutive assistant turns require an intervening user/observation turn",
+                    "parse_source": "sequence",
+                    "content_preview": content[:300],
+                }
+            )
+        previous_role = role
 
         if role == "system":
             continue
@@ -440,7 +335,7 @@ def main() -> int:
         "--protocol",
         type=str,
         default=PROTOCOL_AUTO,
-        choices=[PROTOCOL_AUTO, PROTOCOL_ACTION_JSON, PROTOCOL_REACT_JSON],
+        choices=[PROTOCOL_AUTO, PROTOCOL_REACT_JSON],
         help="SFT message protocol to validate. auto detects per record.",
     )
     parser.add_argument("--tokenizer", type=str, default=None, help="Optional HF tokenizer path for apply_chat_template validation")
@@ -467,7 +362,6 @@ def main() -> int:
     protocol_counter = Counter()
     sft_counts = Counter()
     cleaning_counts = Counter()
-    legacy_protocol_used = False
     react_protocol_used = False
 
     cleaning_alias_map = {
@@ -490,68 +384,55 @@ def main() -> int:
             record_protocol = detect_sft_protocol(obj)
 
         protocol_counter[record_protocol] += 1
-        if record_protocol == PROTOCOL_REACT_JSON:
-            react_protocol_used = True
-            assistant_counts, assistant_issues = audit_react_actions(messages)
+        react_protocol_used = True
+        assistant_counts, assistant_issues = audit_react_actions(messages)
+
+        reasons = []
+        if not isinstance(messages, list) or not messages:
+            reasons.append("messages_empty_or_not_list")
         else:
-            legacy_protocol_used = True
-            assistant_counts, assistant_issues = audit_assistant_actions(messages)
+            roles = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    reasons.append("message_not_object")
+                    continue
+                role = msg.get("role")
+                content = msg.get("content")
+                roles.append(role)
+                if role not in {"system", "user", "assistant"}:
+                    reasons.append("unsupported_role")
+                if not isinstance(content, str):
+                    reasons.append("content_not_string")
+                elif not content.strip():
+                    reasons.append("content_empty")
 
-        if record_protocol == PROTOCOL_ACTION_JSON:
-            reasons = validate_structure(messages)
-            for r in reasons:
-                reason_counter[r] += 1
-        else:
-            reasons = []
-            if not isinstance(messages, list) or not messages:
-                reasons.append("messages_empty_or_not_list")
-            else:
-                roles = []
-                for msg in messages:
-                    if not isinstance(msg, dict):
-                        reasons.append("message_not_object")
-                        continue
-                    role = msg.get("role")
-                    content = msg.get("content")
-                    roles.append(role)
-                    if role not in {"system", "user", "assistant"}:
-                        reasons.append("unsupported_role")
-                    if not isinstance(content, str):
-                        reasons.append("content_not_string")
-                    elif not content.strip():
-                        reasons.append("content_empty")
+            if roles and roles[0] != "system" and roles[0] != "user":
+                reasons.append("bad_first_role")
+            first_non_system = next((r for r in roles if r != "system"), None)
+            if first_non_system is not None and first_non_system != "user":
+                reasons.append("first_non_system_not_user")
 
-                if roles and roles[0] != "system" and roles[0] != "user":
-                    reasons.append("bad_first_role")
-                first_non_system = next((r for r in roles if r != "system"), None)
-                if first_non_system is not None and first_non_system != "user":
-                    reasons.append("first_non_system_not_user")
-
-                has_user = any(
-                    isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content").strip()
-                    for m in messages
-                )
-                has_assistant = any(
-                    isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str) and m.get("content").strip()
-                    for m in messages
-                )
-                if not has_user:
-                    reasons.append("no_nonempty_user_turn")
-                if not has_assistant:
-                    reasons.append("no_nonempty_assistant_turn")
+            has_user = any(
+                isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content").strip()
+                for m in messages
+            )
+            has_assistant = any(
+                isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str) and m.get("content").strip()
+                for m in messages
+            )
+            if not has_user:
+                reasons.append("no_nonempty_user_turn")
+            if not has_assistant:
+                reasons.append("no_nonempty_assistant_turn")
 
         assistant_counter.update(assistant_counts)
 
-        if record_protocol == PROTOCOL_REACT_JSON:
-            report = _load_cleaning_report(metadata)
-            report_counts = _collect_count_aliases(report, cleaning_alias_map)
-            record_counts = _merge_record_counts(assistant_counts, report_counts)
-            cleaning_counts.update(report_counts)
-            for key, value in record_counts.items():
-                sft_counts[key] += int(value)
-        else:
-            for key, value in assistant_counts.items():
-                sft_counts[key] += int(value)
+        report = _load_cleaning_report(metadata)
+        report_counts = _collect_count_aliases(report, cleaning_alias_map)
+        record_counts = _merge_record_counts(assistant_counts, report_counts)
+        cleaning_counts.update(report_counts)
+        for key, value in record_counts.items():
+            sft_counts[key] += int(value)
 
         if assistant_issues:
             for issue in assistant_issues:
@@ -567,59 +448,28 @@ def main() -> int:
                     }
                 )
 
-        if record_protocol == PROTOCOL_ACTION_JSON:
-            strict_failed = int(assistant_counts.get("assistant_strict_action_failed") or 0) > 0
-            think_found = int(assistant_counts.get("assistant_contains_think") or 0) > 0
-            code_fence_found = int(assistant_counts.get("assistant_contains_code_fence") or 0) > 0
-            prose_plus_json = int(assistant_counts.get("assistant_contains_prose_plus_json") or 0) > 0
-            uses_recovery = int(assistant_counts.get("assistant_uses_recovery") or 0) > 0
-
-            if reasons or strict_failed or think_found or code_fence_found or prose_plus_json or uses_recovery:
-                bad_reasons = list(reasons)
-                if strict_failed:
-                    bad_reasons.append("assistant_strict_action_failed")
-                if think_found:
-                    bad_reasons.append("assistant_contains_think")
-                if code_fence_found:
-                    bad_reasons.append("assistant_contains_code_fence")
-                if prose_plus_json:
-                    bad_reasons.append("assistant_contains_prose_plus_json")
-                if uses_recovery:
-                    bad_reasons.append("assistant_uses_recovery")
-
-                bad.append(
-                    {
-                        "line": i,
-                        "index": i,
-                        "task_id": metadata.get("task_id"),
-                        "roles": _roles(messages),
-                        "reasons": sorted(set(bad_reasons)),
-                        "preview": _preview_messages(messages),
-                    }
-                )
-        else:
-            report_counts = _collect_count_aliases(_load_cleaning_report(metadata), cleaning_alias_map)
-            merged_counts = _merge_record_counts(assistant_counts, report_counts)
-            react_reasons = list(reasons)
-            parse_failed = int(merged_counts.get("react_json_parse_failed") or 0) > 0
-            orphan_tool_results = int(merged_counts.get("orphan_tool_results") or 0) > 0
-            if parse_failed or orphan_tool_results:
-                if parse_failed:
-                    react_reasons.append("react_json_parse_failed")
-                if orphan_tool_results:
-                    react_reasons.append("orphan_tool_results")
-                for reason in react_reasons:
-                    reason_counter[reason] += 1
-                bad.append(
-                    {
-                        "line": i,
-                        "index": i,
-                        "task_id": metadata.get("task_id"),
-                        "roles": _roles(messages),
-                        "reasons": sorted(set(react_reasons)),
-                        "preview": _preview_messages(messages),
-                    }
-                )
+        report_counts = _collect_count_aliases(_load_cleaning_report(metadata), cleaning_alias_map)
+        merged_counts = _merge_record_counts(assistant_counts, report_counts)
+        react_reasons = list(reasons)
+        parse_failed = int(merged_counts.get("react_json_parse_failed") or 0) > 0
+        orphan_tool_results = int(merged_counts.get("orphan_tool_results") or 0) > 0
+        if parse_failed or orphan_tool_results:
+            if parse_failed:
+                react_reasons.append("react_json_parse_failed")
+            if orphan_tool_results:
+                react_reasons.append("orphan_tool_results")
+            for reason in react_reasons:
+                reason_counter[reason] += 1
+            bad.append(
+                {
+                    "line": i,
+                    "index": i,
+                    "task_id": metadata.get("task_id"),
+                    "roles": _roles(messages),
+                    "reasons": sorted(set(react_reasons)),
+                    "preview": _preview_messages(messages),
+                }
+            )
 
     apply_template_failed = []
     chat_template_import_failed: dict[str, Any] | None = None
@@ -700,7 +550,7 @@ def main() -> int:
         "protocol_mode": args.protocol,
         "protocol_counts": protocol_counts,
         "detected_protocol": detected_protocol,
-        "deprecated_legacy_protocol": bool(legacy_protocol_used and not react_protocol_used),
+        "deprecated_legacy_protocol": False,
         "total_sessions": len(records),
         "total_sft_samples": len(records),
         "assistant_total": assistant_total,

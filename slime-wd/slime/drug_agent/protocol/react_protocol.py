@@ -5,11 +5,9 @@ import re
 from typing import Any
 
 PROTOCOL_AUTO = "auto"
-PROTOCOL_ACTION_JSON = "action_json"
 PROTOCOL_REACT_JSON = "react_json"
 SUPPORTED_SFT_PROTOCOLS = {
     PROTOCOL_AUTO,
-    PROTOCOL_ACTION_JSON,
     PROTOCOL_REACT_JSON,
 }
 
@@ -61,23 +59,10 @@ def _validate_tool_call(payload: dict[str, Any]) -> tuple[bool, str | None, str 
 
 
 def _validate_final_answer(payload: dict[str, Any]) -> tuple[bool, str | None, str | None]:
-    answer = payload.get("answer")
-    if isinstance(answer, dict):
-        if "summary" not in answer or not isinstance(answer.get("summary"), str):
-            return False, "ReactSchemaError", "`answer.summary` must be a string"
-        if "evidence" not in answer or not isinstance(answer.get("evidence"), list):
-            return False, "ReactSchemaError", "`answer.evidence` must be a list"
-        if "result" not in answer or not isinstance(answer.get("result"), dict):
-            return False, "ReactSchemaError", "`answer.result` must be an object"
-        ranked = answer.get("ranked_molecules")
-        if ranked is not None and not isinstance(ranked, list):
-            return False, "ReactSchemaError", "`answer.ranked_molecules` must be a list when provided"
-        return True, None, None
-
     # Data-Pipe's canonical ReAct contract is task-specific and intentionally
-    # does not reuse the online action-JSON {"answer": ...} envelope.
-    if not isinstance(payload.get("summary"), str):
-        return False, "ReactSchemaError", "canonical `final_answer.summary` must be a string"
+    # does not reuse the removed online action-JSON {"answer": ...} envelope.
+    if "summary" in payload and not isinstance(payload.get("summary"), str):
+        return False, "ReactSchemaError", "canonical `final_answer.summary` must be a string when provided"
     if not isinstance(payload.get("evidence"), list):
         return False, "ReactSchemaError", "canonical `final_answer.evidence` must be a list"
     task_type = str(payload.get("task_type") or "").lower()
@@ -368,17 +353,91 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
     }
 
 
+def parse_runtime_decision(text: str) -> dict[str, Any]:
+    """Parse one model generation into the canonical runtime decision shape."""
+    parsed = parse_react_sequence(text, role="assistant")
+    if not parsed.get("ok"):
+        return {
+            "ok": False,
+            "decision_type": None,
+            "thoughts": [],
+            "tool_calls": [],
+            "final_answer": None,
+            "error_type": parsed.get("error_type"),
+            "error_message": parsed.get("error_message"),
+            "raw_text": text,
+        }
+
+    blocks = parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else []
+    thoughts = [str(block.get("body") or "") for block in blocks if block.get("kind") == "thought"]
+    tool_calls = [
+        {
+            "tool_name": str(block.get("tool_name") or ""),
+            "arguments": block.get("arguments") if isinstance(block.get("arguments"), dict) else {},
+            "raw_payload": block.get("payload") if isinstance(block.get("payload"), dict) else {},
+        }
+        for block in blocks
+        if block.get("kind") == "tool_call"
+    ]
+    finals = [block.get("payload") for block in blocks if block.get("kind") == "final_answer"]
+    unsupported = [block.get("kind") for block in blocks if block.get("kind") not in {"thought", "tool_call", "final_answer"}]
+    error = None
+    if unsupported:
+        error = f"unsupported assistant block(s): {unsupported}"
+    elif tool_calls and finals:
+        error = "tool_call and final_answer cannot appear in the same assistant generation"
+    elif len(finals) > 1:
+        error = "assistant generation must contain at most one final_answer"
+    elif not tool_calls and not finals:
+        error = "assistant generation must contain a tool_call or final_answer"
+    if error:
+        return {
+            "ok": False,
+            "decision_type": None,
+            "thoughts": thoughts,
+            "tool_calls": tool_calls,
+            "final_answer": finals[-1] if finals else None,
+            "error_type": "ReactDecisionError",
+            "error_message": error,
+            "raw_text": text,
+        }
+    return {
+        "ok": True,
+        "decision_type": "tool_call" if tool_calls else "final_answer",
+        "thoughts": thoughts,
+        "tool_calls": tool_calls,
+        "final_answer": finals[-1] if finals else None,
+        "error_type": None,
+        "error_message": None,
+        "raw_text": text,
+    }
+
+
+def project_final_answer(payload: dict[str, Any], task_type: str | None = None) -> Any:
+    """Project canonical terminal payload to the task-facing benchmark answer."""
+    if not isinstance(payload, dict):
+        raise ValueError("final_answer payload must be an object")
+    resolved_task = str(payload.get("task_type") or task_type or "").strip().lower()
+    if resolved_task == "vs":
+        return payload.get("ranked_smiles")
+    if resolved_task == "ac":
+        return payload.get("answer_smiles")
+    if resolved_task == "pf":
+        return payload.get("selected_smiles")
+    if resolved_task in {"kg", "e2e"}:
+        return payload.get("result")
+    raise ValueError(f"unsupported final_answer task_type: {resolved_task or '<missing>'}")
+
+
 def detect_sft_protocol(record: dict[str, Any]) -> str:
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     schema_version = str(metadata.get("schema_version") or "").strip().lower()
     explicit_protocol = str(metadata.get("protocol") or "").strip().lower()
 
-    if explicit_protocol in {PROTOCOL_ACTION_JSON, PROTOCOL_REACT_JSON}:
+    if explicit_protocol == PROTOCOL_REACT_JSON:
         return explicit_protocol
     if "react" in schema_version:
         return PROTOCOL_REACT_JSON
-    if "action" in schema_version or "legacy" in schema_version:
-        return PROTOCOL_ACTION_JSON
 
     messages = record.get("messages")
     if isinstance(messages, list):
@@ -391,7 +450,4 @@ def detect_sft_protocol(record: dict[str, Any]) -> str:
             stripped = content.strip()
             if any(tag in stripped for tag in ("<thought>", "<tool_call>", "<final_answer>", "<observation")):
                 return PROTOCOL_REACT_JSON
-            if stripped.startswith("{") and '"type"' in stripped:
-                return PROTOCOL_ACTION_JSON
-
-    return PROTOCOL_ACTION_JSON
+    return PROTOCOL_REACT_JSON

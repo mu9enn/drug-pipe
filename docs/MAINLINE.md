@@ -57,7 +57,11 @@ flowchart TD
 
 ## Offline / online 边界
 
-SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state 上生成下一步 action。生成 action 不会被执行，也不会取得新 observation。正式训练入口在启动 Ray 前加载 `offline_training_env.sh`，清除 MolClaw credentials，并由 MCP client/executor fail closed。
+SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state 上生成下一步 decision。
+XML ReAct 是训练、online inference 和显式 debug 的唯一 agent protocol；一个 assistant generation
+输出 thought 加一个或多个 tool call，或 thought 加一个 final answer。生成 decision 在 formal
+training 中不会被执行，也不会取得新 observation。正式训练入口在启动 Ray 前加载
+`offline_training_env.sh`，清除 MolClaw credentials，并由 MCP client/executor fail closed。
 
 真实工具交互只允许在 Data-Pipe 执行层和显式 online debug 中发生。VS、AC、PF、E2E、KG
 统一连接固定命名的 `molclaw-scp`，不保留 task-specific MCP server。
@@ -68,6 +72,10 @@ Slime online inference 与 `debug_one_task.py` 可同时使用 MolClaw 和逐任
 `Read/Write/Edit/Bash/Grep/Glob/L1 Skill`。本地路径被限制在 sample workspace，L1
 skills 只读，受限 Bash 不启动 shell 且禁止网络、解释器、删除、提权、进程控制与路径逃逸。
 这不会改变 formal SFT、ToolRL、GAD 的 offline boundary 或 reward 定义。
+
+ToolRL 默认使用 official reward baseline，MolClaw-adapted reward 是显式实验模式；两者共享
+converter、decision parser 和 trainer。GAD 默认 pure discriminator reward，Stage 3 必须同时
+提供配对 manifest 中的 generator SFT warmup 与 discriminator warmup checkpoint。
 
 ## 显式兼容层
 

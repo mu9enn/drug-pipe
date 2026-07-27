@@ -4,8 +4,16 @@ import json
 from typing import Any
 
 from drug_agent.constants import DEFAULT_SYSTEM_PROMPT
-from drug_agent.protocol.action_schema import ACTION_FORMAT_DOC
 from drug_agent.utils import normalize_tool_name
+
+
+REACT_FORMAT_DOC = (
+    "Reasoning: <thought>...</thought>\n"
+    "Tool decision: <tool_call>{\"tool_name\":\"...\",\"arguments\":{...}}</tool_call> "
+    "(one or more calls are allowed)\n"
+    "Terminal decision: <final_answer>{\"task_type\":\"...\", ...}</final_answer>\n"
+    "Never mix tool_call and final_answer in the same assistant generation."
+)
 
 
 def build_system_prompt() -> str:
@@ -28,12 +36,10 @@ def build_user_prompt_payload(
         "inputs": inputs,
         "allowed_tools": [normalize_tool_name(x) for x in allowed_tools if isinstance(x, str) and x.strip()],
         "max_steps": max_steps,
-        "required_action_format": ACTION_FORMAT_DOC,
+        "required_action_format": REACT_FORMAT_DOC,
         "output_constraints": {
-            "json_only": True,
             "no_markdown_code_fence": True,
-            "no_xml": True,
-            "single_json_object": True,
+            "canonical_react_xml": True,
             "enable_thinking": False,
         },
     }

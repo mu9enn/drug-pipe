@@ -139,10 +139,15 @@ Step 1 的内部接口为 `python_drafts.jsonl`。其中每条已经通过确定
     {"role": "user", "content": "..."},
     {"role": "assistant", "content": "<thought>...</thought><tool_call>...</tool_call>"},
     {"role": "user", "content": "<observation tool_name=\"...\">...</observation>"},
-    {"role": "assistant", "content": "<final_answer>...</final_answer>"}
+    {"role": "assistant", "content": "<thought>final analysis</thought><final_answer>...</final_answer>"}
   ]
 }
 ```
+
+`<final_answer>` 是 Drug-Pipe 主动选择的 canonical terminal-decision 表示，不是 Claude Code
+stream-json 原始协议。最终 reasoning 与结构化 final 必须属于同一个 assistant generation；
+没有 user/observation 分隔的连续 assistant turn 非法。Final 的 task-specific result 和 evidence
+由 Python authority 构造，`summary` 可选且不得复制完整 thought。
 
 训练文件不含 source path、return code、ground truth、benchmark metrics、evaluator
 validity 或 rejection reasons。rich final 只能来自 agent prediction、raw assistant final
@@ -204,6 +209,9 @@ benchmark label 与层级脚手架通过 observation 回流。显式 `--only-mol
 
 SFT 直接消费 canonical ReAct `messages`，使用 `--loss-mask-type qwen3_5` 实现 assistant-only loss。
 
-ToolRL 每行包含 `prompt`、`label`、`metadata`、`target_assistant`、`target_tool_calls`；reward 只对生成文本与 reference calls 做 format/schema/reference match。
+ToolRL v2 每行包含 `decision_type=tool_call|final_answer`、`prompt`、`label`、`metadata`、
+`target_assistant`，以及对应的 `target_tool_calls` 或 `target_final_answer`。默认
+`TOOLRL_REWARD_MODE=official`；`molclaw` 是同一 trainer 的领域适配模式。
 
-GAD 每行包含 `prompt/state_messages`、`teacher_response`、`label`、`metadata`。GAD 保留 tool-call 与 final-answer decisions，并拥有 negative cache、discriminator 与 reward 组合。
+GAD 每行包含 `prompt/state_messages`、`teacher_response`、`label`、`metadata`。GAD 保留
+tool-call 与 final-answer decisions；`GAD_REWARD_MODE=pure|rule|hybrid`，默认 pure。

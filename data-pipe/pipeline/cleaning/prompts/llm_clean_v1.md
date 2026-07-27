@@ -13,11 +13,11 @@ Read these files before doing anything:
 Write exactly one file named `llm_clean_patch.json`. Do not modify any input
 file. Your conversational response is ignored.
 
-Inspect every existing thought and the final summary yourself. The patch may
+Inspect every existing thought and, only when present, the optional final summary. The patch may
 edit only:
 
 - prose inside an existing `<thought>...</thought>` segment;
-- the existing string value of `summary` inside `<final_answer>`.
+- the existing string value of `summary` inside `<final_answer>`; never create a new summary.
 
 Use `message_index` to identify the message and `segment_index` to identify the
 zero-based occurrence of that segment type inside the message. For
@@ -54,7 +54,7 @@ reasoning. A tool failure is valid execution evidence and may be followed by
 diagnosis, replanning, and eventual success; never rewrite the trajectory merely
 to hide such a failure.
 
-In the final summary, use only canonical `<artifact:...>` references already
+When an optional final summary exists, use only canonical `<artifact:...>` references already
 present in `source_trajectory.json`. Never introduce a server path, an
 unobserved workspace filename, a teacher sidecar, or an engineering report as
 the scientific task result.

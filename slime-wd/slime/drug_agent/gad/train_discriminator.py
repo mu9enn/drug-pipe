@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 from pathlib import Path
@@ -34,6 +35,7 @@ def main() -> int:
     parser.add_argument("--pairs", required=True, help="JSONL negative cache with aligned teacher/student responses")
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--generator-warmup-checkpoint", required=True)
     parser.add_argument("--resume", default=None)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=2)
@@ -41,6 +43,10 @@ def main() -> int:
     parser.add_argument("--max-length", type=int, default=4096)
     parser.add_argument("--save-interval", type=int, default=50)
     args = parser.parse_args()
+
+    generator_checkpoint = Path(args.generator_warmup_checkpoint).resolve()
+    if not generator_checkpoint.exists():
+        raise FileNotFoundError(f"generator warmup checkpoint does not exist: {generator_checkpoint}")
 
     input_rows = read_jsonl(args.pairs)
     rows = _valid_pairs(input_rows)
@@ -73,6 +79,23 @@ def main() -> int:
             if step % args.save_interval == 0:
                 discriminator.save(str(output / f"step_{step:06d}"))
     discriminator.save(str(output / "latest"))
+    pairs_path = Path(args.pairs)
+    digest = hashlib.sha256(pairs_path.read_bytes()).hexdigest()
+    manifest = {
+        "schema_version": "drug_agent_gad_warmup_v1",
+        "generator_warmup_checkpoint": str(generator_checkpoint),
+        "generator_model_source": generator_checkpoint.name,
+        "discriminator_base_model": str(Path(args.model_path).resolve()),
+        "discriminator_warmup_checkpoint": str((output / "latest").resolve()),
+        "pairs_path": str(pairs_path.resolve()),
+        "pairs_sha256": digest,
+        "valid_pair_count": len(rows),
+        "warmup_steps": step,
+    }
+    (output / "warmup_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return 0
 
 

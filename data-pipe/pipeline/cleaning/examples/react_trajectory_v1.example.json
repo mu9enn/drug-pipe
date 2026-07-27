@@ -34,7 +34,7 @@
     },
     {
       "role": "assistant",
-      "content": "<final_answer>{\"evidence\":[{\"status\":\"success\",\"tool_name\":\"fix_pdb\"}],\"result\":\"<artifact:pdbfixer/example_fixed.pdb>\",\"summary\":\"The example structure was retrieved and repaired successfully.\",\"task_type\":\"kg\"}</final_answer>",
+      "content": "<thought>The recorded repair observation supports returning the repaired structure.</thought>\n<final_answer>{\"evidence\":[{\"status\":\"success\",\"tool_name\":\"fix_pdb\"}],\"result\":\"<artifact:pdbfixer/example_fixed.pdb>\",\"task_type\":\"kg\"}</final_answer>",
       "step_loss_mask": 1
     }
   ]

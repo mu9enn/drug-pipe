@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from drug_agent.protocol.react_protocol import parse_react_sequence
+from drug_agent.protocol.react_protocol import parse_react_sequence, parse_runtime_decision, project_final_answer
 
 
 class CanonicalFinalAnswerTest(unittest.TestCase):
@@ -49,7 +49,7 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
             with self.subTest(task_type=payload["task_type"]):
                 self.assertTrue(self._parse(payload)["ok"])
 
-    def test_keeps_action_style_final_compatibility(self) -> None:
+    def test_rejects_legacy_action_style_final(self) -> None:
         parsed = self._parse(
             {
                 "answer": {
@@ -60,7 +60,7 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
                 }
             }
         )
-        self.assertTrue(parsed["ok"])
+        self.assertFalse(parsed["ok"])
 
     def test_rejects_incomplete_task_specific_final(self) -> None:
         parsed = self._parse(
@@ -68,6 +68,24 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
         )
         self.assertFalse(parsed["ok"])
         self.assertIn("ranked_smiles", str(parsed["error_message"]))
+
+    def test_runtime_accepts_multiple_calls_and_rejects_mixed_terminal_types(self) -> None:
+        multiple = parse_runtime_decision(
+            '<thought>inspect</thought>'
+            '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>'
+            '<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>'
+        )
+        self.assertTrue(multiple["ok"])
+        self.assertEqual([call["tool_name"] for call in multiple["tool_calls"]], ["Read", "fix_pdb"])
+        mixed = parse_runtime_decision(
+            '<tool_call>{"tool_name":"fix_pdb","arguments":{}}</tool_call>'
+            '<final_answer>{"task_type":"kg","result":{},"evidence":[]}</final_answer>'
+        )
+        self.assertFalse(mixed["ok"])
+
+    def test_projects_task_specific_final(self) -> None:
+        self.assertEqual(project_final_answer({"task_type": "vs", "ranked_smiles": ["CCO"]}), ["CCO"])
+        self.assertEqual(project_final_answer({"task_type": "kg", "result": "artifact"}), "artifact")
 
 
 if __name__ == "__main__":

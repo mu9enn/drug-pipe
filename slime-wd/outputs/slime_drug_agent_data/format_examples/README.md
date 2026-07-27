@@ -5,10 +5,10 @@ dataset and are the only files below `slime-wd/outputs/` allowed into Git.
 The four main examples use indented JSON for human review. Production datasets
 remain newline-delimited JSONL.
 
-The source is `react_pf_303eea476077228e`, the shortest serialized record among
-the 98 completed LLM-clean trajectories available from copied0721 when this
-example was generated. It has six messages and produces non-empty views for
-SFT, ToolRL, and GAD.
+The source is `react_pf_303eea476077228e`, the shortest eligible record in the
+current 373-record canonical dataset. Its final reasoning and structured final
+answer are one assistant generation, and it produces both tool-call and
+final-answer decision examples for ToolRL and GAD.
 
 ## Files
 
@@ -16,10 +16,10 @@ SFT, ToolRL, and GAD.
 - `sft/sft_messages.json`: one SFT record. It is intentionally the same
   canonical record because Slime SFT directly consumes `messages`; chat-template
   rendering, tokenization, and assistant loss masking happen in the loader.
-- `toolrl/toolrl_steps.json`: one history-only ToolRL decision state whose
-  target contains three MolClaw calls.
-- `toolrl/skipped.jsonl`: the final-answer decision omitted by ToolRL because it
-  has no MolClaw target call.
+- `toolrl/toolrl_steps.json`: two history-only ToolRL states: one tool-call
+  decision and one final-answer decision.
+- `toolrl/skipped.jsonl`: converter audit rows for decisions outside ToolRL's
+  MolClaw/final decision set; empty for this example.
 - `toolrl/report.json`: ToolRL conversion counts.
 - `gad/gad_steps.json`: a JSON array containing two history-only GAD states,
   one tool-call decision and one final-answer decision.
@@ -58,4 +58,6 @@ PYTHONPATH=. python -m drug_agent.gad.data \
 
 ToolRL and GAD both consume the shared history-only decision extractor. The
 target assistant response and every future observation are excluded from the
-state.
+state. XML ReAct is the only formal trained-agent protocol; the structured
+`<final_answer>` is a project canonical representation, not a raw Claude Code
+stream convention.

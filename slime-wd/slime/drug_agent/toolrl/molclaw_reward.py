@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -96,6 +98,112 @@ def _extract_response_text(sample: Any) -> str:
     if isinstance(response, str):
         return response
     return str(response or "")
+
+
+def _decision_type(sample: Any) -> str:
+    label = _label_dict(sample)
+    metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
+    return str(label.get("decision_type") or metadata.get("decision_type") or "tool_call")
+
+
+def _target_final_answer(sample: Any) -> Any:
+    label = _label_dict(sample)
+    metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
+    return label.get("target_final_answer", metadata.get("target_final_answer"))
+
+
+def _without_summary(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _without_summary(item) for key, item in value.items() if key != "summary"}
+    if isinstance(value, list):
+        return [_without_summary(item) for item in value]
+    return value
+
+
+def _official_match_score(left: list[Any], right: list[Any]) -> float:
+    if left == right:
+        return 1.0
+    if not left or not right:
+        return 0.0
+    left_count = Counter(json.dumps(item, sort_keys=True, ensure_ascii=False) for item in left)
+    right_count = Counter(json.dumps(item, sort_keys=True, ensure_ascii=False) for item in right)
+    intersection = sum(min(left_count[key], right_count[key]) for key in left_count.keys() & right_count.keys())
+    union = len(left) + len(right) - intersection
+    return intersection / union if union else 0.0
+
+
+def _official_tool_correctness(pred_calls: list[dict[str, Any]], gold_calls: list[dict[str, Any]]) -> float:
+    """Faithful adaptation of ToolRL's compute_tool_call_reward to canonical call keys."""
+    def normalized(call: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "name": str(call.get("tool_name") or call.get("name") or ""),
+            "parameters": call.get("arguments") if isinstance(call.get("arguments"), dict) else (
+                call.get("parameters") if isinstance(call.get("parameters"), dict) else {}
+            ),
+        }
+
+    gold = [normalized(call) for call in gold_calls]
+    pred = [normalized(call) for call in pred_calls]
+    if gold == pred:
+        return 3.0
+    score = _official_match_score([item["name"] for item in gold], [item["name"] for item in pred])
+    local_max = 1.0
+    used_pred: set[int] = set()
+    for gold_call in gold:
+        gold_name = gold_call["name"]
+        gold_params = gold_call["parameters"]
+        local_max += 1.0 + len(gold_params)
+        best_score = 0.0
+        best_index = -1
+        for index, pred_call in enumerate(pred):
+            if index in used_pred or pred_call["name"] != gold_name:
+                continue
+            pred_params = pred_call["parameters"]
+            param_score = _official_match_score(list(gold_params), list(pred_params))
+            value_score = sum(
+                1.0 for key, value in gold_params.items()
+                if key in pred_params and pred_params[key] == value
+            )
+            candidate = param_score + value_score
+            if candidate > best_score:
+                best_score = candidate
+                best_index = index
+        if best_index >= 0:
+            used_pred.add(best_index)
+            score += best_score
+    return 6.0 * score / local_max - 3.0
+
+
+def _official_reward(sample: Any, parsed: dict[str, Any], pred_calls: list[dict[str, Any]], gold_calls: list[dict[str, Any]]) -> dict[str, Any]:
+    expected = _decision_type(sample)
+    predicted = "final_answer" if parsed.get("has_final_answer") and not parsed.get("has_tool_call") else (
+        "tool_call" if parsed.get("has_tool_call") and not parsed.get("has_final_answer") else "invalid"
+    )
+    format_score = 1.0 if parsed.get("ok") and predicted == expected else 0.0
+    if expected == "final_answer":
+        gold_final = _without_summary(_target_final_answer(sample))
+        pred_final = _without_summary(parsed.get("final_answer"))
+        correctness = 3.0 if format_score and pred_final == gold_final else -3.0
+        extension = "drug_pipe_terminal_decision_extension"
+    else:
+        correctness = _official_tool_correctness(pred_calls, gold_calls) if format_score else -3.0
+        extension = None
+    return {
+        "score": format_score + correctness,
+        "format": format_score,
+        "components": {"format": format_score, "correctness": correctness},
+        "diagnostics": {
+            "reward_mode": "official",
+            "expected_decision_type": expected,
+            "predicted_decision_type": predicted,
+            "official_toolrl_extension": extension,
+            "parse_ok": bool(parsed.get("ok")),
+            "pred_call_count": len(pred_calls),
+            "gold_call_count": len(gold_calls),
+        },
+        "errors": [] if format_score else [{"type": "DecisionFormatMismatch", "message": f"expected {expected}, got {predicted}"}],
+        "warnings": [],
+    }
 
 
 def _format_reward(parsed: dict[str, Any]) -> float:
@@ -330,6 +438,16 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     pred_calls = [item for item in pred_calls if isinstance(item, dict)]
     gold_calls = [item for item in gold_calls if isinstance(item, dict)]
 
+    reward_mode = os.environ.get("TOOLRL_REWARD_MODE", "official").strip().lower()
+    if reward_mode not in {"official", "molclaw"}:
+        raise ValueError(f"unsupported TOOLRL_REWARD_MODE: {reward_mode}")
+    if reward_mode == "official":
+        out = _official_reward(sample, parsed, pred_calls, gold_calls)
+        if not isinstance(sample.metadata, dict):
+            sample.metadata = {}
+        sample.metadata["toolrl_reward"] = to_jsonable(out)
+        return out
+
     format_reward = _format_reward(parsed)
     tool_metrics = _tool_reward_components(pred_calls, gold_calls, config=config)
 
@@ -373,6 +491,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     }
 
     diagnostics = {
+        "reward_mode": "molclaw",
         "pred_call_count": num_pred,
         "gold_call_count": num_gold,
         "matched_calls": matched,

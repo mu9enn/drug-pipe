@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -21,7 +22,35 @@ def user_event(*items: dict) -> dict:
     return {"type": "user", "message": {"content": list(items)}}
 
 
+def extract_final_payload(messages: list[dict]) -> dict:
+    content = next(
+        message["content"] for message in reversed(messages)
+        if message.get("role") == "assistant" and "<final_answer>" in str(message.get("content") or "")
+    )
+    match = re.search(r"<final_answer>([\s\S]*?)</final_answer>", content)
+    assert match is not None
+    return json.loads(match.group(1))
+
+
 class ReactConstructorTest(unittest.TestCase):
+    def test_invariant_rejects_consecutive_assistant_turns(self) -> None:
+        record = {
+            "schema_version": "drug_agent_sft_react_json_v1",
+            "id": "bad-boundary",
+            "messages": [
+                {"role": "system", "content": "system", "step_loss_mask": 0},
+                {"role": "user", "content": "task", "step_loss_mask": 0},
+                {"role": "assistant", "content": "<thought>analysis</thought>", "step_loss_mask": 1},
+                {
+                    "role": "assistant",
+                    "content": '<final_answer>{"task_type":"kg","result":"x","evidence":[]}</final_answer>',
+                    "step_loss_mask": 1,
+                },
+            ],
+        }
+        errors = validate_final_record(record)["errors"]
+        self.assertTrue(any(error.startswith("consecutive_assistant_turns:") for error in errors))
+
     def test_discovers_complete_session_without_parsed_answer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             results = Path(tmp)
@@ -437,10 +466,15 @@ class ReactConstructorTest(unittest.TestCase):
             final_answer={"result": "completed"},
             task="e2e",
         )
-        final_text = messages[-1]["content"]
-        payload = json.loads(final_text.removeprefix("<final_answer>").removesuffix("</final_answer>"))
+        payload = extract_final_payload(messages)
         self.assertEqual(payload["result"], {"result": "completed"})
-        self.assertIn("Docking completed", payload["summary"])
+        self.assertNotIn("summary", payload)
+        self.assertIn("Docking completed", messages[-1]["content"])
+        self.assertIn("<final_answer>", messages[-1]["content"])
+        self.assertFalse(any(
+            left.get("role") == right.get("role") == "assistant"
+            for left, right in zip(messages, messages[1:])
+        ))
         self.assertEqual(payload["evidence"][0]["key_values"]["score"], -7.1)
         self.assertIn("<artifact:", json.dumps(payload, ensure_ascii=False))
 
@@ -500,9 +534,7 @@ class ReactConstructorTest(unittest.TestCase):
         self.assertGreaterEqual(rendered.count(source_ref), 3)
         self.assertEqual(stats["artifact_mappings"][source_path], source_ref)
         self.assertNotIn(f"{source_path}`", stats["artifact_mappings"])
-        final_payload = json.loads(
-            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
-        )
+        final_payload = extract_final_payload(messages)
         self.assertEqual(final_payload["result"], output_ref)
         self.assertNotIn("step02_P08913_6K42_fixed.pdb", json.dumps(final_payload["result"]))
         self.assertNotIn("run_log.md", json.dumps(final_payload["result"]))
@@ -546,9 +578,7 @@ class ReactConstructorTest(unittest.TestCase):
             final_answer="The repaired structure is fixed.pdb; details are in result.md.",
             task="kg",
         )
-        payload = json.loads(
-            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
-        )
+        payload = extract_final_payload(messages)
         self.assertEqual(payload["result"], "<artifact:structure/fixed.pdb>")
 
     def test_final_only_server_artifact_is_replaced_with_neutral_text(self) -> None:
@@ -581,9 +611,7 @@ class ReactConstructorTest(unittest.TestCase):
             final_answer="See /root/lwj/work/output.pdb.",
             task="e2e",
         )
-        payload = json.loads(
-            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
-        )
+        payload = extract_final_payload(messages)
         self.assertNotIn("<artifact:", json.dumps(payload))
         self.assertIn("[unavailable server path]", json.dumps(payload))
         self.assertEqual(
@@ -654,9 +682,7 @@ class ReactConstructorTest(unittest.TestCase):
             final_answer={"ranked_smiles": ["BBB", "CCC", "AAA"], "selected_smiles": "BBB"},
             task="vs",
         )
-        payload = json.loads(
-            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
-        )
+        payload = extract_final_payload(messages)
         self.assertEqual(payload["ranked_smiles"], ["CCC", "AAA", "BBB"])
         self.assertEqual(payload["selected_smiles"], "CCC")
         self.assertEqual(stats["resolved_final_answer"]["ranked_smiles"], ["CCC", "AAA", "BBB"])
@@ -708,9 +734,7 @@ class ReactConstructorTest(unittest.TestCase):
             final_answer=["MISSING", "BBB", "AAA", "MISSING"],
             task="vs",
         )
-        payload = json.loads(
-            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
-        )
+        payload = extract_final_payload(messages)
         self.assertEqual(payload["ranked_smiles"], ["AAA", "BBB", "MISSING", "MISSING"])
         self.assertEqual(payload["selected_smiles"], "AAA")
         self.assertEqual(stats["vs_ranking_repair"]["status"], "repaired")
@@ -766,9 +790,7 @@ class ReactConstructorTest(unittest.TestCase):
             final_answer=["BBB", "AAA"],
             task="vs",
         )
-        payload = json.loads(
-            messages[-1]["content"].removeprefix("<final_answer>").removesuffix("</final_answer>")
-        )
+        payload = extract_final_payload(messages)
         self.assertEqual(payload["ranked_smiles"], ["BBB", "AAA"])
         self.assertEqual(stats["vs_ranking_repair"]["reason"], "higher_order_ranking_evidence_present")
         sample = {

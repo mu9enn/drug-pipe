@@ -13,8 +13,7 @@ if __package__ is None or __package__ == "":
 
 from drug_agent.constants import CANONICAL_REACT_DATA, DRUG_AGENT_RUNS_ROOT
 from drug_agent.offline_guard import assert_tool_environment_allowed
-from drug_agent.protocol.action_parser import parse_action
-from drug_agent.protocol.action_schema import ACTION_TOOL_CALL
+from drug_agent.protocol.react_protocol import parse_runtime_decision
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry, load_allowlist
 from drug_agent.utils import append_jsonl, ensure_dir, normalize_tool_name, to_jsonable
@@ -62,26 +61,33 @@ def _extract_tool_call_candidates(messages: Any) -> list[dict[str, Any]]:
         if not isinstance(raw, str) or not raw.strip():
             continue
 
-        parsed = parse_action(raw)
-        if parsed.ok and parsed.action_type == ACTION_TOOL_CALL:
-            candidates.append(
-                {
-                    "assistant_turn_index": i,
-                    "raw_action": raw,
-                    "parse_ok": True,
-                    "parsed": parsed.to_dict(),
-                }
-            )
+        parsed = parse_runtime_decision(raw)
+        if parsed.get("ok") and parsed.get("decision_type") == "tool_call":
+            for call_index, call in enumerate(parsed.get("tool_calls") or []):
+                candidates.append(
+                    {
+                        "assistant_turn_index": i,
+                        "call_index": call_index,
+                        "raw_action": raw,
+                        "parse_ok": True,
+                        "parsed": {
+                            "ok": True,
+                            "decision_type": "tool_call",
+                            "tool_name": call.get("tool_name"),
+                            "arguments": call.get("arguments"),
+                        },
+                    }
+                )
             continue
 
         # Preserve parse failures that look like intended tool calls.
-        if '"tool_call"' in raw or "'tool_call'" in raw:
+        if "<tool_call>" in raw:
             candidates.append(
                 {
                     "assistant_turn_index": i,
                     "raw_action": raw,
                     "parse_ok": False,
-                    "parsed": parsed.to_dict(),
+                    "parsed": parsed,
                 }
             )
     return candidates

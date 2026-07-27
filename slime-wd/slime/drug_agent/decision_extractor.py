@@ -1,15 +1,10 @@
 """Pure, shared extraction of history-only ReAct decision states."""
 from __future__ import annotations
 
-import json
-import re
 from copy import deepcopy
 from typing import Any, Iterable
 
-
-TOOL_CALL_RE = re.compile(r"<tool_call>([\s\S]*?)</tool_call>")
-FINAL_ANSWER_RE = re.compile(r"<final_answer>([\s\S]*?)</final_answer>")
-MOLCLAW_PREFIX_RE = re.compile(r"^mcp__molclaw-scp__")
+from drug_agent.protocol.react_protocol import parse_runtime_decision
 
 
 def normalize_tool_call(call: dict[str, Any]) -> dict[str, Any]:
@@ -19,7 +14,7 @@ def normalize_tool_call(call: dict[str, Any]) -> dict[str, Any]:
         arguments = call.get("input")
     return {
         "tool_name_raw": raw_name,
-        "tool_name": MOLCLAW_PREFIX_RE.sub("", raw_name),
+        "tool_name": raw_name.removeprefix("mcp__molclaw-scp__"),
         "arguments": deepcopy(arguments) if isinstance(arguments, dict) else {},
         "id": str(call.get("id") or ""),
         "raw_payload": deepcopy(call),
@@ -35,46 +30,27 @@ def parse_assistant_decision(content: Any) -> dict[str, Any]:
             "final_answer": None,
             "error": "assistant_content_not_string",
         }
-    tool_blocks = TOOL_CALL_RE.findall(content)
-    final_blocks = FINAL_ANSWER_RE.findall(content)
-    tool_calls: list[dict[str, Any]] = []
-    errors: list[str] = []
-    for index, block in enumerate(tool_blocks):
-        try:
-            payload = json.loads(block.strip())
-        except json.JSONDecodeError as exc:
-            errors.append(f"tool_call_{index}_json: {exc}")
-            continue
-        if not isinstance(payload, dict):
-            errors.append(f"tool_call_{index}_not_object")
-            continue
+    runtime = parse_runtime_decision(content)
+    decision_type = runtime.get("decision_type")
+    tool_calls = []
+    for index, call in enumerate(runtime.get("tool_calls") or []):
+        payload = call.get("raw_payload") if isinstance(call.get("raw_payload"), dict) else {
+            "tool_name": call.get("tool_name"),
+            "arguments": call.get("arguments"),
+        }
         normalized = normalize_tool_call(payload)
-        if not normalized["tool_name"]:
-            errors.append(f"tool_call_{index}_missing_name")
-            continue
         normalized["index"] = index
         tool_calls.append(normalized)
-
-    final_answer: Any = None
-    if final_blocks:
-        try:
-            final_answer = json.loads(final_blocks[-1].strip())
-        except json.JSONDecodeError:
-            final_answer = final_blocks[-1].strip()
-    if tool_blocks and final_blocks:
-        errors.append("mixed_tool_call_and_final_answer")
-    if tool_blocks:
-        decision_type = "tool_call"
-    elif final_blocks:
-        decision_type = "final_answer"
-    else:
-        decision_type = None
+    final_answer = runtime.get("final_answer")
+    error = runtime.get("error_message")
+    if decision_type is None and error == "assistant generation must contain a tool_call or final_answer":
+        error = None
     return {
-        "ok": not errors,
+        "ok": error is None,
         "decision_type": decision_type,
         "tool_calls": tool_calls,
         "final_answer": final_answer,
-        "error": "; ".join(errors) if errors else None,
+        "error": error,
     }
 
 
@@ -86,6 +62,16 @@ def iter_react_decisions(messages: Iterable[dict[str, Any]]):
         parsed = parse_assistant_decision(message.get("content"))
         if parsed["decision_type"] is None:
             continue
+        if (
+            assistant_index > 0
+            and isinstance(materialized[assistant_index - 1], dict)
+            and materialized[assistant_index - 1].get("role") == "assistant"
+        ):
+            parsed = {
+                **parsed,
+                "ok": False,
+                "error": "consecutive_assistant_state_boundary",
+            }
         state_messages = []
         for item in materialized[:assistant_index]:
             if not isinstance(item, dict):

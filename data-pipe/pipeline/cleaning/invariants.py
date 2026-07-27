@@ -275,6 +275,16 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
     parts = protocol_parts(sample)
     report["errors"].extend(parts["malformed"])
     messages = sample.get("messages") if isinstance(sample.get("messages"), list) else []
+    for message_index in range(1, len(messages)):
+        previous = messages[message_index - 1]
+        current = messages[message_index]
+        if (
+            isinstance(previous, dict)
+            and isinstance(current, dict)
+            and previous.get("role") == "assistant"
+            and current.get("role") == "assistant"
+        ):
+            report["errors"].append(f"consecutive_assistant_turns:{message_index - 1}:{message_index}")
     for message_index, message in enumerate(messages):
         if not isinstance(message, dict):
             continue

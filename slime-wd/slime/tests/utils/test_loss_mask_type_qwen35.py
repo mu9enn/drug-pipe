@@ -234,3 +234,22 @@ def test_qwen3_5_matches_expected_mask_for_tool_call_flow():
         "\n</think>\n\nTOOL_CALL\n\n<tool_call>\n<function=terminal>\n<parameter=command>\nls\n</parameter>\n</function>\n</tool_call><|im_end|>\n",
         "REASONING\n</think>\n\nFINAL<|im_end|>\n",
     ]
+
+
+def test_qwen3_5_supervises_thought_and_final_in_one_canonical_generation():
+    tokenizer = FakeQwen35Tokenizer()
+    terminal = (
+        '<thought>grounded conclusion</thought>'
+        '<final_answer>{"task_type":"kg","result":"artifact","evidence":[]}</final_answer>'
+    )
+    messages = [
+        {"role": "system", "content": "SYSTEM"},
+        {"role": "user", "content": "USER"},
+        {"role": "assistant", "content": terminal},
+    ]
+    generator = MultiTurnLossMaskGenerator(tokenizer, tokenizer_type="qwen3_5")
+    token_ids, loss_mask = generator.get_loss_mask(messages)
+    selected = generator.get_text_from_loss_mask(token_ids, loss_mask)
+    assert len(selected) == 1
+    assert "<thought>grounded conclusion</thought>" in selected[0]
+    assert "<final_answer>" in selected[0]

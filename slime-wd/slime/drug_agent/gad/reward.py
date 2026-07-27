@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from drug_agent.toolrl.molclaw_reward import _reward_one
+from drug_agent.toolrl.parse_tool_calls import parse_tool_calls
 from drug_agent.utils import clamp, to_jsonable
 
 
@@ -26,9 +26,12 @@ def _state_messages(sample: Any) -> list[dict[str, Any]]:
 
 def _rule_components(args, sample: Any) -> tuple[float, float, dict[str, Any]]:
     """Compute strict format and decision-aware schema components."""
-    rule = _reward_one(args, sample)
-    diagnostics = rule.get("diagnostics") or {}
-    parse_ok = bool(diagnostics.get("parse_ok"))
+    parsed = parse_tool_calls(
+        sample.response if isinstance(sample.response, str) else str(sample.response or ""),
+        allowed_tool_names=None,
+        keep_non_molclaw=True,
+    )
+    parse_ok = bool(parsed.get("ok"))
     label = sample.label if isinstance(sample.label, dict) else {}
     metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
     decision_type = label.get("decision_type") or metadata.get("decision_type")
@@ -37,14 +40,29 @@ def _rule_components(args, sample: Any) -> tuple[float, float, dict[str, Any]]:
         schema_score = (
             1.0
             if parse_ok
-            and diagnostics.get("has_final_answer")
-            and int(diagnostics.get("molclaw_tool_call_count") or 0) == 0
+            and parsed.get("has_final_answer")
+            and int(parsed.get("tool_call_count") or 0) == 0
             else 0.0
         )
     else:
-        schema_score = float(rule.get("components", {}).get("tool_call_score") or 0.0) if parse_ok else 0.0
-        if diagnostics.get("has_final_answer"):
-            schema_score = 0.0
+        schema_score = (
+            1.0
+            if parse_ok
+            and int(parsed.get("molclaw_tool_call_count") or 0) > 0
+            and not parsed.get("has_final_answer")
+            and int(parsed.get("non_molclaw_tool_call_count") or 0) == 0
+            else 0.0
+        )
+    rule = {
+        "score": 0.5 * format_score + 0.5 * schema_score,
+        "components": {"format": format_score, "decision_schema": schema_score},
+        "diagnostics": {
+            "parse_ok": parse_ok,
+            "expected_decision_type": decision_type,
+            "has_final_answer": bool(parsed.get("has_final_answer")),
+            "molclaw_tool_call_count": int(parsed.get("molclaw_tool_call_count") or 0),
+        },
+    }
     return format_score, schema_score, rule
 
 
@@ -67,20 +85,31 @@ async def reward_func(args, sample_or_samples, **kwargs):
                 "student_weight_versions": sample.weight_versions,
             }
         )
-    raw_url = os.environ.get("GAD_DISCRIMINATOR_URL")
-    if not raw_url:
-        raise RuntimeError("GAD_DISCRIMINATOR_URL is required; no discriminator network fallback is allowed")
-    url = raw_url.rstrip("/")
-    try:
-        import aiohttp
+    reward_mode = os.environ.get("GAD_REWARD_MODE", "pure").strip().lower()
+    if reward_mode not in {"pure", "rule", "hybrid"}:
+        raise ValueError(f"unsupported GAD_REWARD_MODE: {reward_mode}")
+    result = {
+        "normalized_scores": [0.0] * len(items),
+        "raw_scores": [0.0] * len(items),
+        "version_before": None,
+        "version_after": None,
+        "metrics": {},
+    }
+    if reward_mode in {"pure", "hybrid"}:
+        raw_url = os.environ.get("GAD_DISCRIMINATOR_URL")
+        if not raw_url:
+            raise RuntimeError(f"GAD_DISCRIMINATOR_URL is required for {reward_mode} GAD reward")
+        url = raw_url.rstrip("/")
+        try:
+            import aiohttp
 
-        timeout = aiohttp.ClientTimeout(total=float(os.environ.get("GAD_RM_TIMEOUT_SEC", "600")))
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(f"{url}/score-and-update", json={"items": items}) as response:
-                response.raise_for_status()
-                result = await response.json()
-    except Exception as exc:
-        raise RuntimeError(f"GAD discriminator request failed: {type(exc).__name__}: {exc}") from exc
+            timeout = aiohttp.ClientTimeout(total=float(os.environ.get("GAD_RM_TIMEOUT_SEC", "600")))
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(f"{url}/score-and-update", json={"items": items}) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+        except Exception as exc:
+            raise RuntimeError(f"GAD discriminator request failed: {type(exc).__name__}: {exc}") from exc
 
     gad_coef = float(os.environ.get("GAD_REWARD_COEF", "0.8"))
     format_coef = float(os.environ.get("GAD_FORMAT_REWARD_COEF", "0.1"))
@@ -91,7 +120,12 @@ async def reward_func(args, sample_or_samples, **kwargs):
         samples, result["normalized_scores"], result["raw_scores"], strict=True
     ):
         format_score, tool_score, rule = _rule_components(args, sample)
-        score = clamp(gad_coef * gad_score + format_coef * format_score + tool_coef * tool_score, -final_clip, final_clip)
+        if reward_mode == "pure":
+            score = clamp(gad_score, -final_clip, final_clip)
+        elif reward_mode == "rule":
+            score = clamp(0.5 * format_score + 0.5 * tool_score, -final_clip, final_clip)
+        else:
+            score = clamp(gad_coef * gad_score + format_coef * format_score + tool_coef * tool_score, -final_clip, final_clip)
         out = {
             "score": score,
             "components": {
@@ -101,6 +135,7 @@ async def reward_func(args, sample_or_samples, **kwargs):
                 "tool_schema": tool_score,
             },
             "diagnostics": {
+                "reward_mode": reward_mode,
                 "discriminator_version_before": result["version_before"],
                 "discriminator_version_after": result["version_after"],
                 "student_weight_versions": to_jsonable(sample.weight_versions),

@@ -8,12 +8,11 @@ source "$SLIME_ENV"
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
 
-MODEL_PATH=${DISCRIMINATOR_MODEL_PATH:-$DATA/Qwen3.5-0.8B}
+MODEL_PATH=${DISCRIMINATOR_MODEL_PATH:-$DATA/Qwen3.5-4B}
 OUTPUT_DIR=${DISCRIMINATOR_OUTPUT_DIR:-$DRUG_AGENT_RUNS_ROOT/gad_discriminator_online}
 EXTRA_ARGS=()
-if [ -n "${DISCRIMINATOR_RESUME:-}" ]; then
-  EXTRA_ARGS+=(--resume "$DISCRIMINATOR_RESUME")
-fi
+: "${DISCRIMINATOR_RESUME:?Set DISCRIMINATOR_RESUME to a Stage 2 discriminator warmup checkpoint}"
+EXTRA_ARGS+=(--resume "$DISCRIMINATOR_RESUME")
 if [ ! -e "$MODEL_PATH" ]; then
   echo "Discriminator model does not exist: $MODEL_PATH" >&2
   exit 2

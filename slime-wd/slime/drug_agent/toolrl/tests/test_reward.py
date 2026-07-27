@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from types import SimpleNamespace
 
 from drug_agent.toolrl.molclaw_reward import reward_func
@@ -15,6 +16,18 @@ def _sample(response: str, label: dict, metadata: dict | None = None) -> SimpleN
     )
 
 
+def _reward(sample, mode="molclaw"):
+    previous = os.environ.get("TOOLRL_REWARD_MODE")
+    os.environ["TOOLRL_REWARD_MODE"] = mode
+    try:
+        return asyncio.run(reward_func(None, sample))
+    finally:
+        if previous is None:
+            os.environ.pop("TOOLRL_REWARD_MODE", None)
+        else:
+            os.environ["TOOLRL_REWARD_MODE"] = previous
+
+
 def test_reward_perfect_match_near_one():
     sample = _sample(
         '<thought>t</thought><tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"/tmp/a.pdb","remove_water":true}}</tool_call>',
@@ -24,7 +37,7 @@ def test_reward_perfect_match_near_one():
             ]
         },
     )
-    out = asyncio.run(reward_func(None, sample))
+    out = _reward(sample)
     assert out["score"] > 0.95
     assert out["matched_calls"] == 1
     assert out["tool_name"] > 0.9
@@ -45,7 +58,7 @@ def test_reward_order_insensitive_multi_tool_calls():
             ]
         },
     )
-    out = asyncio.run(reward_func(None, sample))
+    out = _reward(sample)
     assert out["score"] > 0.7
     assert out["matched_calls"] == 2
 
@@ -59,7 +72,7 @@ def test_reward_hyphen_tool_name_no_longer_matches_underscore():
             ]
         },
     )
-    out = asyncio.run(reward_func(None, sample))
+    out = _reward(sample)
     assert out["matched_calls"] == 0
     assert out["tool_name"] == 0.0
     assert out["score"] < 0.4
@@ -74,7 +87,7 @@ def test_reward_parameter_alias_no_longer_matches():
             ]
         },
     )
-    out = asyncio.run(reward_func(None, sample))
+    out = _reward(sample)
     assert out["matched_calls"] == 1
     assert out["param_name"] < 1.0
 
@@ -88,7 +101,7 @@ def test_reward_missing_and_extra_params_penalized():
             ]
         },
     )
-    out = asyncio.run(reward_func(None, sample))
+    out = _reward(sample)
     assert out["score"] < 0.95
     assert out["param_name"] < 1.0
 
@@ -102,6 +115,30 @@ def test_reward_bool_number_smiles_and_artifact_matching():
             ]
         },
     )
-    out = asyncio.run(reward_func(None, sample))
+    out = _reward(sample)
     assert out["score"] > 0.7
     assert out["matched_calls"] == 1
+
+
+def test_official_reward_exact_tool_match_uses_official_range():
+    sample = _sample(
+        '<thought>t</thought><tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x"}}],
+        },
+    )
+    out = _reward(sample, mode="official")
+    assert out["score"] == 4.0
+    assert out["components"]["correctness"] == 3.0
+
+
+def test_official_final_answer_extension_scores_structured_result_without_summary():
+    final = {"task_type": "kg", "result": "artifact", "evidence": []}
+    sample = _sample(
+        '<thought>done</thought><final_answer>' + __import__("json").dumps(final) + '</final_answer>',
+        {"decision_type": "final_answer", "target_final_answer": {**final, "summary": "duplicate"}},
+    )
+    out = _reward(sample, mode="official")
+    assert out["score"] == 4.0
+    assert out["diagnostics"]["official_toolrl_extension"] == "drug_pipe_terminal_decision_extension"

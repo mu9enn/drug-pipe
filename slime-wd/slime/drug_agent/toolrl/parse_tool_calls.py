@@ -128,5 +128,10 @@ def parse_tool_calls(
     result["molclaw_tool_call_count"] = len(result["molclaw_tool_calls"])
     result["non_molclaw_tool_call_count"] = len(result["non_molclaw_tool_calls"])
     result["has_tool_call"] = result["tool_call_count"] > 0
-    result["has_final_answer"] = any(isinstance(block, dict) and block.get("kind") == "final_answer" for block in result["blocks"])
+    final_blocks = [
+        block for block in result["blocks"]
+        if isinstance(block, dict) and block.get("kind") == "final_answer"
+    ]
+    result["has_final_answer"] = bool(final_blocks)
+    result["final_answer"] = final_blocks[-1].get("payload") if final_blocks else None
     return result

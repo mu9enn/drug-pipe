@@ -84,24 +84,28 @@ def _build_sample(
     parsed_assistant: dict[str, Any],
     source_path: str,
 ) -> dict[str, Any]:
+    decision_type = str(parsed_assistant.get("decision_type") or "")
     target_tool_calls = [item for item in (parsed_assistant.get("molclaw_tool_calls") or []) if isinstance(item, dict)]
+    target_final_answer = parsed_assistant.get("final_answer") if decision_type == "final_answer" else None
     tool_names = [str(item.get("tool_name") or "") for item in target_tool_calls]
     tool_names_raw = [str(item.get("tool_name_raw") or "") for item in target_tool_calls]
 
     target_assistant = _parse_target_assistant(assistant_message)
     label = {
-        "schema_version": "toolrl_step_v1",
+        "schema_version": "toolrl_step_v2",
         "source_id": record.get("id"),
         "source_path": source_path,
         "assistant_index": message_index,
         "assistant_role": assistant_message.get("role"),
         "assistant_content": assistant_message.get("content"),
         "tool_call_count": len(target_tool_calls),
+        "decision_type": decision_type,
         "target_tool_calls": target_tool_calls,
+        "target_final_answer": target_final_answer,
         "target_assistant": target_assistant,
     }
     metadata = {
-        "schema_version": "toolrl_step_v1",
+        "schema_version": "toolrl_step_v2",
         "protocol": "react_json",
         "source_id": record.get("id"),
         "source_path": source_path,
@@ -110,11 +114,13 @@ def _build_sample(
         "task_type": _infer_task_type(record, source_path),
         "prompt_message_count": len(prompt_messages),
         "target_tool_call_count": len(target_tool_calls),
+        "decision_type": decision_type,
         "tool_names": tool_names,
         "tool_names_raw": tool_names_raw,
         "allowed_tool_names": sorted(default_molclaw_allowlist()),
         "target_assistant": target_assistant,
         "target_tool_calls": target_tool_calls,
+        "target_final_answer": target_final_answer,
         "raw_record_keys": sorted([str(k) for k in record.keys()]),
     }
 
@@ -124,6 +130,7 @@ def _build_sample(
         "metadata": metadata,
         "target_assistant": target_assistant,
         "target_tool_calls": target_tool_calls,
+        "target_final_answer": target_final_answer,
     }
 
 
@@ -135,6 +142,7 @@ def _compact_preview(sample: dict[str, Any]) -> dict[str, Any]:
         "source_id": metadata.get("source_id"),
         "task_type": metadata.get("task_type"),
         "assistant_index": metadata.get("assistant_index"),
+        "decision_type": metadata.get("decision_type"),
         "prompt_message_count": metadata.get("prompt_message_count"),
         "target_tool_call_count": metadata.get("target_tool_call_count"),
         "tool_names": tool_names[:5],
@@ -197,7 +205,8 @@ def convert_react_to_toolrl_steps(
                 for item in parsed.get("tool_calls", [])
                 if isinstance(item, dict) and item.get("tool_name") in allowlist
             ]
-            if not target_tool_calls:
+            decision_type = str(decision.get("decision_type") or "")
+            if decision_type == "tool_call" and not target_tool_calls:
                 counts["skip_no_molclaw_tool_calls"] += 1
                 skipped_rows.append(
                     {
@@ -208,7 +217,7 @@ def convert_react_to_toolrl_steps(
                         "skip_reason": "no_molclaw_tool_calls",
                         "details": {
                             "non_molclaw_tool_call_count": len(parsed.get("tool_calls", [])),
-                            "has_final_answer": decision["decision_type"] == "final_answer",
+                            "has_final_answer": False,
                         },
                     }
                 )
@@ -234,11 +243,17 @@ def convert_react_to_toolrl_steps(
                 message_index=message_index,
                 prompt_messages=prompt_messages,
                 assistant_message=message,
-                parsed_assistant={**parsed, "molclaw_tool_calls": target_tool_calls},
+                parsed_assistant={
+                    **parsed,
+                    "decision_type": decision_type,
+                    "final_answer": decision.get("final_answer"),
+                    "molclaw_tool_calls": target_tool_calls,
+                },
                 source_path=str(input_path),
             )
             output_rows.append(sample)
             counts["kept"] += 1
+            counts[f"kept_{decision_type}"] += 1
             per_task_type[str(sample["metadata"].get("task_type") or "unknown")] += 1
 
     ensure_dir(output_path.parent)

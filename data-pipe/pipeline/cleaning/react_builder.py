@@ -486,7 +486,6 @@ def build_final_payload(
     if value in (None, "", []):
         value = final_text.strip()
     values = _answer_values(value)
-    summary = final_text.strip()
     evidence = _evidence_summary(observations)
     if task == "vs":
         payload: dict[str, Any] = {
@@ -509,8 +508,6 @@ def build_final_payload(
             else value
         )
         payload = {"task_type": task, "result": result}
-    if summary:
-        payload["summary"] = summary
     if evidence:
         payload["evidence"] = evidence
     return payload
@@ -564,6 +561,16 @@ def reconstruct_react_messages(
             messages[-1]["content"] = f"{messages[-1]['content']}\n{text}"
         else:
             messages.append({"role": role, "content": text, "step_loss_mask": loss_mask})
+
+    def remember_terminal_text(text: str) -> bool:
+        """Remember a terminal Claude fragment once, using conservative exact normalization."""
+        normalized = " ".join(text.split())
+        if not normalized:
+            return False
+        if any(" ".join(item.split()) == normalized for item in assistant_text_after_last_observation):
+            return False
+        assistant_text_after_last_observation.append(text)
+        return True
 
     def flush_observations() -> None:
         nonlocal reordered_observations, assistant_text_after_last_observation
@@ -661,7 +668,8 @@ def reconstruct_react_messages(
             if rendered:
                 append_turn("assistant", "\n".join(rendered), 1)
             if event_texts and retained_calls:
-                assistant_text_after_last_observation.extend(event_texts)
+                for text in event_texts:
+                    remember_terminal_text(text)
         elif event_type == "user":
             result_items = [
                 item
@@ -735,7 +743,9 @@ def reconstruct_react_messages(
             flush_observations()
             result_text = str(event.get("result") or "").strip()
             if result_text:
-                assistant_text_after_last_observation.append(sanitize_artifact_paths(result_text, path_map))
+                clean_result = sanitize_artifact_paths(result_text, path_map)
+                if remember_terminal_text(clean_result):
+                    append_turn("assistant", f"<thought>{clean_result}</thought>", 1)
 
     flush_observations()
     final_text = "\n\n".join(assistant_text_after_last_observation).strip()
@@ -765,13 +775,7 @@ def reconstruct_react_messages(
         payload,
         known_artifacts,
     )
-    messages.append(
-        {
-            "role": "assistant",
-            "content": f"<final_answer>{_serialize(payload)}</final_answer>",
-            "step_loss_mask": 1,
-        }
-    )
+    append_turn("assistant", f"<final_answer>{_serialize(payload)}</final_answer>", 1)
     messages = sanitize_artifact_paths(messages, path_map)
     if resolved_final_answer in (None, "", []):
         resolved_final_answer = payload.get("result") or payload.get("ranked_smiles") or payload.get("answer_smiles")

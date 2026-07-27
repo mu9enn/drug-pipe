@@ -21,8 +21,7 @@ from drug_agent.constants import (
     DRUG_AGENT_RUNS_ROOT,
 )
 from drug_agent.offline_guard import assert_tool_environment_allowed
-from drug_agent.protocol.parse_policy import parse_action_with_policy
-from drug_agent.protocol.action_schema import ACTION_FINAL_ANSWER, ACTION_TOOL_CALL
+from drug_agent.protocol.react_protocol import parse_runtime_decision, project_final_answer
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry, load_allowlist
@@ -37,13 +36,10 @@ REQUIRED_MCP_ENV = (
 
 DEBUG_FORMAT_REMINDER = (
     "/no_think\n"
-    "Return exactly one JSON object only.\n"
-    "No natural language text.\n"
-    "No markdown code fence.\n"
-    "No XML.\n"
-    "Schema:\n"
-    '{"type":"tool_call","tool_name":"...","arguments":{...}} OR '
-    '{"type":"final_answer","answer":{"summary":"...","evidence":[],"result":{},"ranked_molecules":[]}}'
+    "Use canonical ReAct XML. Put reasoning in <thought>...</thought>, followed by "
+    "one or more <tool_call>{\"tool_name\":\"...\",\"arguments\":{...}}</tool_call> blocks, "
+    "or one task-specific <final_answer>{...}</final_answer>. "
+    "Do not mix tool calls and final answer in one generation."
 )
 DEBUG_LOCAL_TOOL_REMINDER = (
     "\nAvailable local tools: Read, Write, Edit, Bash, Grep, Glob, and Skill. "
@@ -219,8 +215,13 @@ def _sample_context(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _serialize_observation(payload: dict[str, Any]) -> str:
-    return json.dumps({"observation": to_jsonable(payload)}, ensure_ascii=False, separators=(",", ":"))
+def _serialize_observations(payloads: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        f'<observation tool_name="{str(payload.get("tool_name") or "runtime")}">'
+        f'{json.dumps(to_jsonable(payload), ensure_ascii=False, separators=(",", ":"))}'
+        "</observation>"
+        for payload in payloads
+    )
 
 
 def _missing_mcp_env() -> list[str]:
@@ -494,95 +495,111 @@ def main() -> int:
                 max_new_tokens=args.max_new_tokens,
             )
 
-            parsed, parse_recovery, normalized_model_output, parse_source = parse_action_with_policy(
-                raw_model_output,
-                parse_recovery_enabled=True,
-            )
-            action_valid = bool(parsed.ok)
+            parsed = parse_runtime_decision(raw_model_output)
+            parse_recovery = None
+            normalized_model_output = raw_model_output
+            parse_source = "canonical_react_strict"
+            action_valid = bool(parsed.get("ok"))
             if not action_valid:
                 num_invalid += 1
 
             tool_result: dict[str, Any] | None = None
             observation = None
-            parse_error = None if parsed.ok else {
-                "error_type": parsed.error_type,
-                "error_message": parsed.error_message,
+            parse_error = None if action_valid else {
+                "error_type": parsed.get("error_type"),
+                "error_message": parsed.get("error_message"),
             }
 
-            if not parsed.ok:
+            if not action_valid:
                 observation_payload = {
-                    "type": "invalid_action",
-                    "error_type": parsed.error_type,
-                    "error_message": parsed.error_message,
-                    "raw_text": parsed.raw_text,
+                    "tool_name": "runtime",
+                    "status": "error",
+                    "is_error": True,
+                    "content": parse_error,
                 }
-                observation = _serialize_observation(observation_payload)
+                observation = _serialize_observations([observation_payload])
                 messages.append({"role": "assistant", "content": raw_model_output})
                 messages.append({"role": "user", "content": observation})
-            elif parsed.action_type == ACTION_TOOL_CALL:
-                tool_name = normalize_tool_name(parsed.tool_name)
-                tool_args = parsed.arguments if isinstance(parsed.arguments, dict) else {}
-                if args.disable_tool_call:
-                    tool_result = {
-                        "ok": False,
-                        "tool_name": tool_name,
-                        "result": None,
-                        "error": _error_payload("tool_call_disabled", "tool call is disabled by --disable-tool-call"),
-                        "latency_sec": 0.0,
-                        "metadata": {},
-                    }
-                    num_tool_error += 1
-                else:
-                    ok_name, reason_name = registry.validate_tool_name(tool_name, allowed_tools=allowed_tools)
-                    ok_args, reason_args = registry.validate_arguments_basic(tool_name, tool_args)
-                    if not ok_name or not ok_args:
-                        tool_result = make_validation_failed_result(
-                            tool_name=tool_name,
-                            message=reason_name or reason_args or "validation failed",
-                            tool_reason=reason_name,
-                            args_reason=reason_args,
-                        )
+            elif parsed.get("decision_type") == "tool_call":
+                observation_payloads = []
+                tool_results = []
+                for parsed_call in parsed.get("tool_calls") or []:
+                    tool_name = normalize_tool_name(parsed_call.get("tool_name"))
+                    tool_args = parsed_call.get("arguments") if isinstance(parsed_call.get("arguments"), dict) else {}
+                    if args.disable_tool_call:
+                        current_result = {
+                            "ok": False,
+                            "tool_name": tool_name,
+                            "result": None,
+                            "error": _error_payload("tool_call_disabled", "tool call is disabled by --disable-tool-call"),
+                            "latency_sec": 0.0,
+                            "transport_ok": True,
+                            "tool_schema_valid": True,
+                            "tool_execution_success": False,
+                            "tool_semantic_success": False,
+                            "semantic_unknown": False,
+                            "metadata": {},
+                        }
                     else:
-                        tool_result = registry.execute(
-                            tool_name,
-                            tool_args,
-                            local_executor=local_executor,
-                        )
-
-                transport_ok = bool(tool_result.get("transport_ok"))
-                tool_schema_valid = bool(tool_result.get("tool_schema_valid"))
-                tool_execution_success = bool(tool_result.get("tool_execution_success"))
-                tool_semantic_success = bool(tool_result.get("tool_semantic_success"))
-                semantic_unknown = bool(tool_result.get("semantic_unknown"))
-
-                if not tool_schema_valid:
-                    num_tool_schema_error += 1
-                if not transport_ok:
-                    num_transport_error += 1
-                if tool_execution_success:
-                    num_tool_execution_success += 1
-                if tool_semantic_success:
-                    num_tool_success += 1
-                else:
-                    num_tool_error += 1
-                    num_tool_semantic_error += 1
-                if semantic_unknown:
-                    num_tool_semantic_unknown += 1
-
-                observation = _serialize_observation(tool_result or {})
+                        ok_name, reason_name = registry.validate_tool_name(tool_name, allowed_tools=allowed_tools)
+                        ok_args, reason_args = registry.validate_arguments_basic(tool_name, tool_args)
+                        if not ok_name or not ok_args:
+                            current_result = make_validation_failed_result(
+                                tool_name=tool_name,
+                                message=reason_name or reason_args or "validation failed",
+                                tool_reason=reason_name,
+                                args_reason=reason_args,
+                            )
+                        else:
+                            current_result = registry.execute(
+                                tool_name,
+                                tool_args,
+                                local_executor=local_executor,
+                            )
+                    tool_results.append(current_result)
+                    transport_ok = bool(current_result.get("transport_ok"))
+                    tool_schema_valid = bool(current_result.get("tool_schema_valid"))
+                    tool_execution_success = bool(current_result.get("tool_execution_success"))
+                    tool_semantic_success = bool(current_result.get("tool_semantic_success"))
+                    semantic_unknown = bool(current_result.get("semantic_unknown"))
+                    num_tool_schema_error += int(not tool_schema_valid)
+                    num_transport_error += int(not transport_ok)
+                    num_tool_execution_success += int(tool_execution_success)
+                    num_tool_success += int(tool_semantic_success)
+                    num_tool_error += int(not tool_semantic_success)
+                    num_tool_semantic_error += int(not tool_semantic_success)
+                    num_tool_semantic_unknown += int(semantic_unknown)
+                    observation_payloads.append(
+                        {
+                            "tool_name": tool_name,
+                            "status": "success" if bool(current_result.get("ok")) else "error",
+                            "is_error": not bool(current_result.get("ok")),
+                            "content": {
+                                "result": to_jsonable(current_result.get("result")),
+                                "error": to_jsonable(current_result.get("error")),
+                            },
+                            "metadata": to_jsonable(current_result.get("metadata")) or {},
+                        }
+                    )
+                tool_result = {"results": tool_results}
+                observation = _serialize_observations(observation_payloads)
                 messages.append({"role": "assistant", "content": raw_model_output})
                 messages.append({"role": "user", "content": observation})
-            elif parsed.action_type == ACTION_FINAL_ANSWER:
-                final_answer = parsed.answer if isinstance(parsed.answer, dict) else {}
+            elif parsed.get("decision_type") == "final_answer":
+                final_answer = parsed.get("final_answer") if isinstance(parsed.get("final_answer"), dict) else {}
                 messages.append({"role": "assistant", "content": raw_model_output})
                 done_reason = "final_answer"
             else:
                 observation_payload = {
                     "type": "invalid_action",
                     "error_type": "unexpected_action_type",
-                    "error_message": f"unsupported action type: {parsed.action_type}",
+                    "error_message": f"unsupported decision type: {parsed.get('decision_type')}",
                 }
-                observation = _serialize_observation(observation_payload)
+                observation_payload["tool_name"] = "runtime"
+                observation_payload["status"] = "error"
+                observation_payload["is_error"] = True
+                observation_payload["content"] = {"message": observation_payload.pop("error_message")}
+                observation = _serialize_observations([observation_payload])
                 num_invalid += 1
                 messages.append({"role": "assistant", "content": raw_model_output})
                 messages.append({"role": "user", "content": observation})
@@ -597,7 +614,7 @@ def main() -> int:
                 "event": "model_step",
                 "raw_model_output": raw_model_output,
                 "model_output": normalized_model_output,
-                "parsed_action": parsed.to_dict(),
+                "parsed_action": to_jsonable(parsed),
                 "action_valid": action_valid,
                 "parse_error": parse_error,
                 "parse_recovery": parse_recovery,
@@ -647,6 +664,11 @@ def main() -> int:
                     "tool_execution_success_rate": tool_execution_success_rate,
                     "final_success_rate": final_success_rate,
                     "final_answer": to_jsonable(final_answer),
+                    "projected_final_answer": (
+                        project_final_answer(final_answer, str(task_type or ""))
+                        if isinstance(final_answer, dict)
+                        else None
+                    ),
                 }
             },
         )

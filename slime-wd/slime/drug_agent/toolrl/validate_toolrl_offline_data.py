@@ -93,18 +93,36 @@ def validate_toolrl_offline_data(
         if not isinstance(metadata, dict):
             row_errors.append("missing_metadata_object")
 
+        decision_type = None
+        if isinstance(label, dict):
+            decision_type = label.get("decision_type")
+        if not decision_type and isinstance(metadata, dict):
+            decision_type = metadata.get("decision_type")
+        if decision_type not in {"tool_call", "final_answer"}:
+            row_errors.append("invalid_decision_type")
+
         target_tool_calls = _target_tool_calls(row)
-        if not target_tool_calls:
+        if decision_type == "tool_call" and not target_tool_calls:
             row_errors.append("missing_target_tool_calls")
-        else:
+        elif decision_type == "tool_call":
             counts["target_tool_call_total"] += len(target_tool_calls)
             for call in target_tool_calls:
                 row_errors.extend(_validate_tool_call(call, allowlist))
+        elif decision_type == "final_answer":
+            target_final = None
+            if isinstance(label, dict):
+                target_final = label.get("target_final_answer")
+            if target_final is None and isinstance(metadata, dict):
+                target_final = metadata.get("target_final_answer")
+            if not isinstance(target_final, dict):
+                row_errors.append("missing_target_final_answer")
+            else:
+                counts["target_final_answer_total"] += 1
 
         allowed_names = []
         if isinstance(metadata, dict):
             allowed_names = _as_list(metadata.get("allowed_tool_names") or metadata.get("allowed_tools"))
-        if not allowed_names:
+        if decision_type == "tool_call" and not allowed_names:
             counts["missing_allowed_tool_names"] += 1
 
         if isinstance(metadata, dict):
@@ -132,6 +150,7 @@ def validate_toolrl_offline_data(
         "valid_rows": counts["valid_rows"],
         "invalid_rows": counts["invalid_rows"],
         "target_tool_call_total": counts["target_tool_call_total"],
+        "target_final_answer_total": counts["target_final_answer_total"],
         "counts": dict(counts),
         "error_preview": errors[:10],
         "required_runtime": {

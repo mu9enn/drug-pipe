@@ -32,6 +32,7 @@ async def health():
         "ok": DISCRIMINATOR is not None,
         "version": None if DISCRIMINATOR is None else DISCRIMINATOR.version,
         "model_path": None if DISCRIMINATOR is None else DISCRIMINATOR.model_path,
+        "resume_checkpoint": CONFIG.get("resume"),
     }
 
 

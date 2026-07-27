@@ -148,6 +148,7 @@ ToolRL 4B full：
 
 ```bash
 PROMPT_DATA="$OUT/toolrl/react_trajectories.toolrl_steps.jsonl" \
+TOOLRL_REWARD_MODE=official \
 bash drug_agent/toolrl/scripts/run_qwen3_5_4b_toolrl_full.sh
 ```
 
@@ -157,15 +158,25 @@ GAD Stage2/Stage3：
 PROMPT_DATA="$OUT/gad/gad_steps.jsonl" \
 bash drug_agent/gad/scripts/generate_stage2_negatives.sh
 
+GENERATOR_WARMUP_LOAD=/path/to/completed/sft/checkpoint \
+DISCRIMINATOR_MODEL_PATH="$DATA/Qwen3.5-4B" \
 bash drug_agent/gad/scripts/run_stage2_discriminator_warmup.sh
 
-DISCRIMINATOR_RESUME=/path/to/discriminator/checkpoint \
+DISCRIMINATOR_RESUME=/path/to/gad_discriminator_warmup/latest \
 bash drug_agent/gad/scripts/serve_discriminator.sh
 
 PROMPT_DATA="$OUT/gad/gad_steps.jsonl" \
+GAD_REWARD_MODE=pure \
 GAD_DISCRIMINATOR_URL=http://DISCRIMINATOR_HOST:8100 \
+STUDENT_WARMUP_LOAD=/path/to/completed/sft/checkpoint \
+DISCRIMINATOR_WARMUP_LOAD=/path/to/gad_discriminator_warmup/latest \
+GAD_WARMUP_MANIFEST=/path/to/gad_discriminator_warmup/warmup_manifest.json \
 bash drug_agent/gad/scripts/run_stage3_gad_grpo_full.sh
 ```
+
+`GAD_REWARD_MODE=rule` 不需要 discriminator service；`pure`（默认）和 `hybrid` 必须连接由
+manifest 指定 warmup checkpoint 启动的 service。标准配置为同源 Qwen3.5-4B discriminator；
+0.8B 只能通过显式 `DISCRIMINATOR_MODEL_PATH` 作为 efficiency variant 使用。
 
 Resume 使用各 launcher 已有的 `RESUME_DIR`、`TOOLRL_RESUME`、`STUDENT_RESUME`、`DISCRIMINATOR_RESUME` 变量；不要把普通初始化 checkpoint 当成 resume。
 

@@ -12,11 +12,11 @@ from drug_agent.toolrl.convert_react_to_toolrl_steps import convert_react_to_too
 
 
 TOOL = (
-    '<thought>inspect</thought><tool_call>{"name":"mcp__molclaw-scp__is_valid_smiles",'
+    '<thought>inspect</thought><tool_call>{"tool_name":"mcp__molclaw-scp__is_valid_smiles",'
     '"arguments":{"smiles_list":["CCO"]},"id":"c1"}</tool_call>'
 )
-OBS = '<observation tool_name="mcp__molclaw-scp__is_valid_smiles">{"ok":true}</observation>'
-FINAL = '<final_answer>{"answer":"done"}</final_answer>'
+OBS = '<observation tool_name="mcp__molclaw-scp__is_valid_smiles">{"status":"success","content":{"valid":true}}</observation>'
+FINAL = '<thought>done</thought><final_answer>{"task_type":"kg","result":"done","evidence":[]}</final_answer>'
 
 
 class TestSharedDecisionExtractor(unittest.TestCase):

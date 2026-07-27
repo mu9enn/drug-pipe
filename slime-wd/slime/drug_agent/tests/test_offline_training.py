@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -40,6 +41,16 @@ class TestOfflineTrainingBoundary(unittest.TestCase):
             clear=True,
         ):
             assert_offline_training_environment()
+
+    def test_formal_grpo_and_gad_checkpoint_guards_are_explicit(self):
+        root = Path(__file__).resolve().parents[1]
+        toolrl = (root / "toolrl/scripts/run_toolrl_grpo.sh").read_text(encoding="utf-8")
+        self.assertIn("N_SAMPLES_PER_PROMPT:-2", toolrl)
+        self.assertIn("requires N_SAMPLES_PER_PROMPT >= 2", toolrl)
+        gad = (root / "gad/scripts/run_stage3_gad_grpo.sh").read_text(encoding="utf-8")
+        for name in ("STUDENT_WARMUP_LOAD", "DISCRIMINATOR_WARMUP_LOAD", "GAD_WARMUP_MANIFEST"):
+            self.assertIn(f"${{{name}:?", gad)
+        self.assertNotIn("STUDENT_LOAD=${STUDENT_LOAD:-$REF_LOAD}", gad)
 
 
 if __name__ == "__main__":

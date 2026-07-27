@@ -8,12 +8,22 @@ source "$SLIME_ENV"
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
 
-: "${GAD_DISCRIMINATOR_URL:?Set GAD_DISCRIMINATOR_URL to the independent discriminator service}"
+GAD_REWARD_MODE=${GAD_REWARD_MODE:-pure}
+if [ "$GAD_REWARD_MODE" != "pure" ] && [ "$GAD_REWARD_MODE" != "rule" ] && [ "$GAD_REWARD_MODE" != "hybrid" ]; then
+  echo "GAD_REWARD_MODE must be pure, rule, or hybrid; got $GAD_REWARD_MODE" >&2
+  exit 2
+fi
+if [ "$GAD_REWARD_MODE" != "rule" ]; then
+  : "${GAD_DISCRIMINATOR_URL:?Set GAD_DISCRIMINATOR_URL for pure/hybrid GAD reward}"
+fi
+: "${STUDENT_WARMUP_LOAD:?Set STUDENT_WARMUP_LOAD to the generator SFT warmup checkpoint}"
+: "${DISCRIMINATOR_WARMUP_LOAD:?Set DISCRIMINATOR_WARMUP_LOAD to the paired discriminator warmup checkpoint}"
+: "${GAD_WARMUP_MANIFEST:?Set GAD_WARMUP_MANIFEST to Stage 2 warmup_manifest.json}"
 PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/gad/gad_steps.jsonl}
 MODEL_ARGS_FILE=${MODEL_ARGS_FILE:-scripts/models/qwen3.5-4B.sh}
 HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-4B}
 REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-4B_torch_dist}
-STUDENT_LOAD=${STUDENT_LOAD:-$REF_LOAD}
+STUDENT_LOAD=$STUDENT_WARMUP_LOAD
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-4B_gad_grpo}
 NUM_GPUS=${NUM_GPUS:-4}
 TP=${TENSOR_MODEL_PARALLEL_SIZE:-4}
@@ -26,12 +36,16 @@ MAX_PROMPT=${ROLLOUT_MAX_PROMPT_LEN:-6144}
 MAX_RESPONSE=${ROLLOUT_MAX_RESPONSE_LEN:-512}
 MAX_CONTEXT=${ROLLOUT_MAX_CONTEXT_LEN:-6656}
 mkdir -p "$SAVE_DIR"
-for path in "$PROMPT_DATA" "$STUDENT_LOAD" "$HF_CHECKPOINT" "$REF_LOAD" "$MODEL_ARGS_FILE"; do
+for path in "$PROMPT_DATA" "$STUDENT_LOAD" "$DISCRIMINATOR_WARMUP_LOAD" "$GAD_WARMUP_MANIFEST" "$HF_CHECKPOINT" "$REF_LOAD" "$MODEL_ARGS_FILE"; do
   if [ ! -e "$path" ]; then
     echo "Required Stage 3 input does not exist: $path" >&2
     exit 2
   fi
 done
+python -m drug_agent.gad.checkpoint_contract \
+  --manifest "$GAD_WARMUP_MANIFEST" \
+  --student-checkpoint "$STUDENT_LOAD" \
+  --discriminator-checkpoint "$DISCRIMINATOR_WARMUP_LOAD"
 TOTAL_SAMPLES=$((RBS * N_SAMPLES))
 if [ "$TOTAL_SAMPLES" -lt "$GBS" ] || [ $((TOTAL_SAMPLES % GBS)) -ne 0 ]; then
   echo "RBS*N_SAMPLES must be >= and divisible by GBS: RBS=$RBS N_SAMPLES=$N_SAMPLES GBS=$GBS" >&2
@@ -45,11 +59,19 @@ if [ $((NUM_GPUS % ROLLOUT_TP)) -ne 0 ]; then
   echo "NUM_GPUS must be divisible by ROLLOUT_NUM_GPUS_PER_ENGINE: NUM_GPUS=$NUM_GPUS rollout_tp=$ROLLOUT_TP" >&2
   exit 2
 fi
-if [ "${GAD_SKIP_SERVICE_HEALTHCHECK:-0}" != "1" ]; then
-  curl -fsS "${GAD_DISCRIMINATOR_URL%/}/health" >/dev/null || {
+if [ "$GAD_REWARD_MODE" != "rule" ] && [ "${GAD_SKIP_SERVICE_HEALTHCHECK:-0}" != "1" ]; then
+  HEALTH_JSON=$(curl -fsS "${GAD_DISCRIMINATOR_URL%/}/health") || {
     echo "GAD discriminator is not reachable: ${GAD_DISCRIMINATOR_URL%/}/health" >&2
     exit 2
   }
+  python - "$HEALTH_JSON" "$DISCRIMINATOR_WARMUP_LOAD" <<'PY'
+import json, pathlib, sys
+health = json.loads(sys.argv[1])
+expected = pathlib.Path(sys.argv[2]).resolve()
+actual_raw = health.get("resume_checkpoint")
+if not actual_raw or pathlib.Path(actual_raw).resolve() != expected:
+    raise SystemExit(f"GAD discriminator service checkpoint mismatch: {actual_raw} != {expected}")
+PY
 fi
 
 # TorchMemorySaver used by colocated SGLang is incompatible with expandable
@@ -74,7 +96,7 @@ pkill -9 sglang 2>/dev/null || true
 pkill -9 ray 2>/dev/null || true
 ray start --head --node-ip-address=127.0.0.1 --num-gpus "$NUM_GPUS" --disable-usage-stats --dashboard-host=0.0.0.0
 
-RUNTIME_ENV="{\"env_vars\":{\"PYTHONPATH\":\"${PYTHON_CPU_FIX_DIR}:/root/Megatron-LM/:${SLIME}:${PYTHONPATH:-}\",\"GAD_DISCRIMINATOR_URL\":\"${GAD_DISCRIMINATOR_URL}\",\"GAD_REWARD_COEF\":\"${GAD_REWARD_COEF:-0.8}\",\"GAD_FORMAT_REWARD_COEF\":\"${GAD_FORMAT_REWARD_COEF:-0.1}\",\"GAD_TOOL_REWARD_COEF\":\"${GAD_TOOL_REWARD_COEF:-0.1}\",\"GAD_FINAL_REWARD_CLIP\":\"${GAD_FINAL_REWARD_CLIP:-2.0}\",\"GAD_TRAJECTORY_LOG\":\"${SAVE_DIR}/gad_trajectories.jsonl\",\"DRUG_AGENT_TRAINING_OFFLINE\":\"1\",\"DRUG_AGENT_ALLOW_TOOL_ENV\":\"0\",\"CUDA_DEVICE_MAX_CONNECTIONS\":\"1\"}}"
+RUNTIME_ENV="{\"env_vars\":{\"PYTHONPATH\":\"${PYTHON_CPU_FIX_DIR}:/root/Megatron-LM/:${SLIME}:${PYTHONPATH:-}\",\"GAD_REWARD_MODE\":\"${GAD_REWARD_MODE}\",\"GAD_DISCRIMINATOR_URL\":\"${GAD_DISCRIMINATOR_URL:-}\",\"GAD_REWARD_COEF\":\"${GAD_REWARD_COEF:-0.8}\",\"GAD_FORMAT_REWARD_COEF\":\"${GAD_FORMAT_REWARD_COEF:-0.1}\",\"GAD_TOOL_REWARD_COEF\":\"${GAD_TOOL_REWARD_COEF:-0.1}\",\"GAD_FINAL_REWARD_CLIP\":\"${GAD_FINAL_REWARD_CLIP:-2.0}\",\"GAD_TRAJECTORY_LOG\":\"${SAVE_DIR}/gad_trajectories.jsonl\",\"DRUG_AGENT_TRAINING_OFFLINE\":\"1\",\"DRUG_AGENT_ALLOW_TOOL_ENV\":\"0\",\"CUDA_DEVICE_MAX_CONNECTIONS\":\"1\"}}"
 
 ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV" \
   -- python3 train.py \

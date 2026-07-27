@@ -5,7 +5,7 @@ from drug_agent.gad.data import convert_records
 
 TOOL = '<thought>inspect</thought><tool_call>{"tool_name":"is_valid_smiles","arguments":{"smiles_list":["CCO"]}}</tool_call>'
 OBS = '<observation tool_name="is_valid_smiles">{"ok":true,"content":{}}</observation>'
-FINAL = '<thought>finish</thought><final_answer>{"answer":{"summary":"ok","evidence":[],"result":{}}}</final_answer>'
+FINAL = '<thought>finish</thought><final_answer>{"task_type":"kg","result":{},"evidence":[]}</final_answer>'
 
 
 class TestGADData(unittest.TestCase):

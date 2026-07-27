@@ -1,12 +1,10 @@
 {
+  "source_id": "react_pf_303eea476077228e",
   "ok": true,
   "counts": {
     "kept_tool_call": 1,
     "kept_final_answer": 1
   },
   "kept": 2,
-  "skipped": 0,
-  "input": "../outputs/slime_drug_agent_data/format_examples/source/canonical_react.jsonl",
-  "output": "../outputs/slime_drug_agent_data/format_examples/gad/gad_steps.jsonl",
-  "skipped_report": "../outputs/slime_drug_agent_data/format_examples/gad/skipped.jsonl"
+  "skipped": 0
 }
