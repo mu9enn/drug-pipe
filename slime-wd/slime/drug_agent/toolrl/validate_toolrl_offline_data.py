@@ -48,14 +48,14 @@ def _target_tool_calls(row: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _validate_tool_call(call: dict[str, Any], allowlist: set[str]) -> list[str]:
+def _validate_tool_call(call: dict[str, Any], catalog_names: set[str]) -> list[str]:
     errors: list[str] = []
     tool_name = call.get("tool_name")
     arguments = call.get("arguments")
     if not isinstance(tool_name, str) or not tool_name.strip():
         errors.append("missing_tool_name")
-    elif tool_name not in allowlist:
-        errors.append("tool_not_in_molclaw_allowlist")
+    elif catalog_names and tool_name not in catalog_names:
+        errors.append("tool_not_in_offline_catalog")
     if not isinstance(arguments, dict):
         errors.append("arguments_not_object")
     return errors
@@ -69,7 +69,7 @@ def validate_toolrl_offline_data(
     errors_path: Path | None = None,
 ) -> dict[str, Any]:
     rows = _load_rows(input_path)
-    allowlist = default_molclaw_allowlist()
+    catalog_names = default_molclaw_allowlist()
     counts = Counter()
     errors: list[dict[str, Any]] = []
 
@@ -107,7 +107,7 @@ def validate_toolrl_offline_data(
         elif decision_type == "tool_call":
             counts["target_tool_call_total"] += len(target_tool_calls)
             for call in target_tool_calls:
-                row_errors.extend(_validate_tool_call(call, allowlist))
+                row_errors.extend(_validate_tool_call(call, catalog_names))
         elif decision_type == "final_answer":
             target_final = None
             if isinstance(label, dict):

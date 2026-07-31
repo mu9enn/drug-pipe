@@ -22,6 +22,9 @@ MAX_PROMPT=${ROLLOUT_MAX_PROMPT_LEN:-6144}
 MAX_RESPONSE=${ROLLOUT_MAX_RESPONSE_LEN:-512}
 MAX_CONTEXT=${ROLLOUT_MAX_CONTEXT_LEN:-6656}
 ROLLOUT_TP=${ROLLOUT_NUM_GPUS_PER_ENGINE:-1}
+SGLANG_MEM_FRACTION_STATIC=${SGLANG_MEM_FRACTION_STATIC:-0.75}
+LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
+APPLY_CHAT_TEMPLATE_KWARGS=${APPLY_CHAT_TEMPLATE_KWARGS:-'{"enable_thinking":false}'}
 export GAD_NEGATIVE_CACHE
 rm -f "$GAD_NEGATIVE_CACHE"
 for path in "$PROMPT_DATA" "$STUDENT_LOAD" "$HF_CHECKPOINT" "$REF_LOAD" "$MODEL_ARGS_FILE"; do
@@ -58,7 +61,8 @@ ray job submit --address=http://127.0.0.1:8265 \
   "${MODEL_ARGS[@]}" \
   --hf-checkpoint "$HF_CHECKPOINT" --ref-load "$REF_LOAD" --load "$STUDENT_LOAD" \
   --finetune --no-load-optim --no-load-rng --start-rollout-id 0 \
-  --prompt-data "$PROMPT_DATA" --input-key prompt --label-key label --metadata-key metadata --apply-chat-template --rollout-shuffle \
+  --prompt-data "$PROMPT_DATA" --input-key prompt --label-key label --metadata-key metadata --apply-chat-template \
+  --apply-chat-template-kwargs "$APPLY_CHAT_TEMPLATE_KWARGS" --rollout-shuffle \
   --custom-rm-path drug_agent.gad.negative_cache.zero_reward \
   --custom-rollout-log-function-path drug_agent.gad.negative_cache.log_negative_cache \
   --advantage-estimator grpo \
@@ -66,8 +70,10 @@ ray job submit --address=http://127.0.0.1:8265 \
   --rollout-max-prompt-len "$MAX_PROMPT" --rollout-max-response-len "$MAX_RESPONSE" \
   --rollout-max-context-len "$MAX_CONTEXT" --rollout-temperature "${ROLLOUT_TEMPERATURE:-0.8}" \
   --rollout-num-gpus-per-engine "$ROLLOUT_TP" \
+  --sglang-mem-fraction-static "$SGLANG_MEM_FRACTION_STATIC" \
   --global-batch-size "$RBS" --tensor-model-parallel-size "$TP" --sequence-parallel \
   --use-dynamic-batch-size --max-tokens-per-gpu "${MAX_TOKENS_PER_GPU:-4096}" \
+  --log-probs-chunk-size "$LOG_PROBS_CHUNK_SIZE" --recompute-loss-function \
   --recompute-granularity full --recompute-method uniform --recompute-num-layers 1 \
   --optimizer adam --lr 0 --lr-decay-style constant --weight-decay 0 \
   --attention-dropout 0.0 --hidden-dropout 0.0 --attention-backend flash

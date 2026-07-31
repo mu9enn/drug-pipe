@@ -38,9 +38,9 @@ class ResolvedSamplingConfig:
 
 _COMMON_FIELDS = {"mode", "prompt", "min_hops", "max_hops", "random_seed"}
 _MODE_FIELDS = {
-    "simple_toolchain_question": _COMMON_FIELDS
-    | {
+    "simple_toolchain_question": _COMMON_FIELDS | {
         "json_repair_prompt",
+        "semantic_repair_prompt",
         "target_successes",
         "max_attempts",
         "science_kb_topk",
@@ -52,20 +52,13 @@ _MODE_FIELDS = {
         "partial_edge_policy",
         "tool_leak_policy",
     },
-    "dag_closure": _COMMON_FIELDS
-    | {
-        "repair_prompt",
-        "sample_size",
-        "partial_policy",
-        "edge_profile",
-        "max_repair_rounds",
-    },
 }
 _REQUIRED_FIELDS = {
     "simple_toolchain_question": {
         "mode",
         "prompt",
         "json_repair_prompt",
+        "semantic_repair_prompt",
         "target_successes",
         "max_attempts",
         "min_hops",
@@ -76,17 +69,6 @@ _REQUIRED_FIELDS = {
         "max_repeat_compound",
         "json_repair_rounds",
         "semantic_repair_rounds",
-    },
-    "dag_closure": {
-        "mode",
-        "prompt",
-        "repair_prompt",
-        "sample_size",
-        "min_hops",
-        "max_hops",
-        "partial_policy",
-        "edge_profile",
-        "max_repair_rounds",
     },
 }
 
@@ -102,7 +84,6 @@ def _validate_resolved_profile(profile_name: str, values: dict[str, Any]) -> str
     if missing:
         raise ValueError(f"sampling profile {profile_name} is missing fields: {missing}")
     integer_fields = {
-        "sample_size",
         "target_successes",
         "max_attempts",
         "min_hops",
@@ -112,13 +93,12 @@ def _validate_resolved_profile(profile_name: str, values: dict[str, Any]) -> str
         "max_repeat_compound",
         "json_repair_rounds",
         "semantic_repair_rounds",
-        "max_repair_rounds",
     }
     for field in integer_fields.intersection(values):
         value = values[field]
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"sampling profile {profile_name}.{field} must be an integer")
-        minimum = 0 if field in {"json_repair_rounds", "semantic_repair_rounds", "max_repair_rounds"} else 1
+        minimum = 0 if field in {"json_repair_rounds", "semantic_repair_rounds"} else 1
         if value < minimum:
             raise ValueError(f"sampling profile {profile_name}.{field} must be >= {minimum}")
     random_seed = values.get("random_seed")
@@ -161,7 +141,10 @@ def resolve_sampling_profile(
     if not prompt_path.is_file():
         raise FileNotFoundError(prompt_path)
     prompt_paths = {"generation": prompt_path}
-    for key, label in [("json_repair_prompt", "json_repair"), ("repair_prompt", "semantic_repair")]:
+    for key, label in [
+        ("json_repair_prompt", "json_repair"),
+        ("semantic_repair_prompt", "semantic_repair"),
+    ]:
         configured = str(values.get(key) or "").strip()
         if not configured:
             continue

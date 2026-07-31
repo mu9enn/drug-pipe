@@ -53,7 +53,11 @@ def build_config(project_root: Path, run_id: str | None = None, server_url: str 
             or ""
         ),
         api_key=api_key or os.getenv("MOLCLAW_SCP_API_KEY", ""),
-        skills_root=_resolve_project_path(project_root, skills_root or os.getenv("MOLCLAW_SKILLS_ROOT"), "skills_full"),
+        skills_root=_resolve_project_path(
+            project_root,
+            skills_root or os.getenv("MOLCLAW_SKILLS_ROOT"),
+            "../molclaw-skills",
+        ),
         model_name=model_name,
     )
     return ProjectConfig(

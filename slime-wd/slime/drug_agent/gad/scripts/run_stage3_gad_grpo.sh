@@ -25,6 +25,7 @@ HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-4B}
 REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-4B_torch_dist}
 STUDENT_LOAD=$STUDENT_WARMUP_LOAD
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-4B_gad_grpo}
+CHECKPOINT_KEEP_LAST=${CHECKPOINT_KEEP_LAST:-2}
 NUM_GPUS=${NUM_GPUS:-4}
 TP=${TENSOR_MODEL_PARALLEL_SIZE:-4}
 NUM_ROLLOUT=${NUM_ROLLOUT:-20}
@@ -35,6 +36,9 @@ ROLLOUT_TP=${ROLLOUT_NUM_GPUS_PER_ENGINE:-1}
 MAX_PROMPT=${ROLLOUT_MAX_PROMPT_LEN:-6144}
 MAX_RESPONSE=${ROLLOUT_MAX_RESPONSE_LEN:-512}
 MAX_CONTEXT=${ROLLOUT_MAX_CONTEXT_LEN:-6656}
+SGLANG_MEM_FRACTION_STATIC=${SGLANG_MEM_FRACTION_STATIC:-0.75}
+LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
+APPLY_CHAT_TEMPLATE_KWARGS=${APPLY_CHAT_TEMPLATE_KWARGS:-'{"enable_thinking":false}'}
 mkdir -p "$SAVE_DIR"
 for path in "$PROMPT_DATA" "$STUDENT_LOAD" "$DISCRIMINATOR_WARMUP_LOAD" "$GAD_WARMUP_MANIFEST" "$HF_CHECKPOINT" "$REF_LOAD" "$MODEL_ARGS_FILE"; do
   if [ ! -e "$path" ]; then
@@ -53,6 +57,11 @@ if [ "$TOTAL_SAMPLES" -lt "$GBS" ] || [ $((TOTAL_SAMPLES % GBS)) -ne 0 ]; then
 fi
 if [ $((NUM_GPUS % TP)) -ne 0 ]; then
   echo "NUM_GPUS must be divisible by TP: NUM_GPUS=$NUM_GPUS TP=$TP" >&2
+  exit 2
+fi
+DATA_PARALLEL_SIZE=$((NUM_GPUS / TP))
+if [ $((GBS % DATA_PARALLEL_SIZE)) -ne 0 ]; then
+  echo "GLOBAL_BATCH_SIZE must be divisible by data parallel size: GBS=$GBS DP=$DATA_PARALLEL_SIZE" >&2
   exit 2
 fi
 if [ $((NUM_GPUS % ROLLOUT_TP)) -ne 0 ]; then
@@ -91,6 +100,10 @@ if [ "${STUDENT_RESUME:-0}" != "1" ]; then
 fi
 
 source "$MODEL_ARGS_FILE"
+SEQUENCE_PARALLEL_ARGS=()
+if [ "$TP" -gt 1 ]; then
+  SEQUENCE_PARALLEL_ARGS+=(--sequence-parallel)
+fi
 ray stop --force 2>/dev/null || true
 pkill -9 sglang 2>/dev/null || true
 pkill -9 ray 2>/dev/null || true
@@ -103,7 +116,9 @@ ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV"
   --actor-num-nodes 1 --actor-num-gpus-per-node "$NUM_GPUS" --colocate \
   "${MODEL_ARGS[@]}" \
   --hf-checkpoint "$HF_CHECKPOINT" --ref-load "$REF_LOAD" "${LOAD_ARGS[@]}" --save "$SAVE_DIR" --save-interval "${SAVE_INTERVAL:-5}" \
-  --prompt-data "$PROMPT_DATA" --input-key prompt --label-key label --metadata-key metadata --apply-chat-template --rollout-shuffle \
+  --save-retain-last "$CHECKPOINT_KEEP_LAST" \
+  --prompt-data "$PROMPT_DATA" --input-key prompt --label-key label --metadata-key metadata --apply-chat-template \
+  --apply-chat-template-kwargs "$APPLY_CHAT_TEMPLATE_KWARGS" --rollout-shuffle \
   --custom-rm-path drug_agent.gad.reward.reward_func --group-rm --reward-key score \
   --custom-rollout-log-function-path drug_agent.gad.trajectory_logger.log_rollout_data \
   --advantage-estimator grpo --use-kl-loss --kl-loss-coef "${KL_LOSS_COEF:-0.001}" --kl-loss-type low_var_kl \
@@ -111,8 +126,10 @@ ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV"
   --rollout-max-prompt-len "$MAX_PROMPT" --rollout-max-response-len "$MAX_RESPONSE" \
   --rollout-max-context-len "$MAX_CONTEXT" --rollout-temperature "${ROLLOUT_TEMPERATURE:-0.8}" \
   --rollout-num-gpus-per-engine "$ROLLOUT_TP" \
+  --sglang-mem-fraction-static "$SGLANG_MEM_FRACTION_STATIC" \
   --global-batch-size "$GBS" --balance-data \
-  --tensor-model-parallel-size "$TP" --sequence-parallel --use-dynamic-batch-size --max-tokens-per-gpu "${MAX_TOKENS_PER_GPU:-4096}" \
+  --tensor-model-parallel-size "$TP" "${SEQUENCE_PARALLEL_ARGS[@]}" --use-dynamic-batch-size --max-tokens-per-gpu "${MAX_TOKENS_PER_GPU:-4096}" \
+  --log-probs-chunk-size "$LOG_PROBS_CHUNK_SIZE" --recompute-loss-function \
   --recompute-granularity full --recompute-method uniform --recompute-num-layers 1 \
   --optimizer adam --lr "${STUDENT_LR:-1e-6}" --lr-decay-style constant --weight-decay 0.1 --adam-beta1 0.9 --adam-beta2 0.95 \
   --attention-dropout 0.0 --hidden-dropout 0.0 --accumulate-allreduce-grads-in-fp32 --attention-softmax-in-fp32 --attention-backend flash

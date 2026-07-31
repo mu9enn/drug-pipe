@@ -15,10 +15,14 @@ def canonical_edge_to_decision(row: dict[str, Any]) -> dict[str, Any]:
     source_authority = str(row.get("source_authority") or "")
     if source_authority == "claude_pair_adjudication":
         source_authority = "claude_adjudication"
+    if source_authority != "claude_adjudication":
+        raise ValueError(
+            "canonical edge decisions require Claude adjudication authority; "
+            f"got {source_authority!r} for pair {row.get('pair_id')!r}"
+        )
     edge_types = row.get("edge_types") if isinstance(row.get("edge_types"), list) else []
     eligible = (
-        source_authority == "claude_adjudication"
-        and row.get("relation_status") == "valid"
+        row.get("relation_status") == "valid"
         and bool(row.get("direct_transition"))
         and bool(edge_types)
     )

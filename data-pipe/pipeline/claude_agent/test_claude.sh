@@ -3,12 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$REPO_DIR/../.." && pwd)"
 cd "$REPO_DIR"
 
 PROVIDER="${CC_SWITCH_PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
-SKILLS_ROOT="$REPO_DIR/skills/skills_vs"
-SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_result.md"
+SKILLS_ROOT="$PROJECT_ROOT/molclaw-skills"
+SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_FULL.md"
 LAUNCH_SCRIPT="$REPO_DIR/claude_agent/launch_claude.sh"
 WORKDIR="$REPO_DIR/results/test_workdir"
 

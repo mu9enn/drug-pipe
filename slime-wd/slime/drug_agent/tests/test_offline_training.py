@@ -47,10 +47,17 @@ class TestOfflineTrainingBoundary(unittest.TestCase):
         toolrl = (root / "toolrl/scripts/run_toolrl_grpo.sh").read_text(encoding="utf-8")
         self.assertIn("N_SAMPLES_PER_PROMPT:-2", toolrl)
         self.assertIn("requires N_SAMPLES_PER_PROMPT >= 2", toolrl)
+        self.assertIn('APPLY_CHAT_TEMPLATE_KWARGS', toolrl)
+        self.assertIn('{"enable_thinking":false}', toolrl)
+        self.assertIn('--log-probs-chunk-size', toolrl)
+        self.assertIn('--recompute-loss-function', toolrl)
         gad = (root / "gad/scripts/run_stage3_gad_grpo.sh").read_text(encoding="utf-8")
         for name in ("STUDENT_WARMUP_LOAD", "DISCRIMINATOR_WARMUP_LOAD", "GAD_WARMUP_MANIFEST"):
             self.assertIn(f"${{{name}:?", gad)
         self.assertNotIn("STUDENT_LOAD=${STUDENT_LOAD:-$REF_LOAD}", gad)
+        self.assertIn('{"enable_thinking":false}', gad)
+        self.assertIn('--log-probs-chunk-size', gad)
+        self.assertIn('--recompute-loss-function', gad)
 
 
 if __name__ == "__main__":

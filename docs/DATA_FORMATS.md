@@ -70,7 +70,7 @@ agent 直接读取 canonical skills。
 }
 ```
 
-`legacy_scored_supplement` 默认 `eligible_for_sampling=false`。`results/graph.jsonl` 只投影 `valid + eligible_for_sampling` 的边，不修改 relation/type/confidence；其中 `confidence` 直接复制 Claude decision 的 `confidence_raw`，主线没有第二个 calibration authority。旧 core/expanded/negative/uncertain、CSV、GraphML 都是按需 compatibility export，不是默认正式产物。
+`source_authority` 必须是 `claude_adjudication`；其他 authority 会被明确拒绝。`results/graph.jsonl` 只投影 `valid + eligible_for_sampling` 的边，不修改 relation/type/confidence；其中 `confidence` 直接复制 Claude decision 的 `confidence_raw`，主线没有第二个 calibration authority。旧 core/expanded/negative/uncertain、CSV、GraphML 不属于当前主线。
 
 ## Canonical Task
 
@@ -215,3 +215,36 @@ ToolRL v2 每行包含 `decision_type=tool_call|final_answer`、`prompt`、`labe
 
 GAD 每行包含 `prompt/state_messages`、`teacher_response`、`label`、`metadata`。GAD 保留
 tool-call 与 final-answer decisions；`GAD_REWARD_MODE=pure|rule|hybrid`，默认 pure。
+
+## Online MolBench Evaluation
+
+评测启动时调用唯一 MCP server `molclaw-scp` 的 `list_tools`，并将完整名称、description 和
+JSON Schema 固化在当次 `tool_catalog.json`。其 hash 在 preflight 与 rollout worker 间必须
+一致；旧工具名不会通过 alias 静默转换。模型可见 observation 中的服务器绝对路径会变成
+稳定 `<artifact:namespace/name>`，只有 `artifact_audit.jsonl` 保存 raw path 映射。
+
+一次正式评测目录为：
+
+```text
+slime-wd/outputs/slime_drug_agent_evals/<run_name>/
+├── run_manifest.json
+├── benchmark_manifest.json
+├── tool_catalog.json
+├── molbench_eval.jsonl
+├── overlap_audit.jsonl
+├── predictions.jsonl
+├── traces.jsonl
+├── metrics.json
+├── failures.jsonl
+├── artifact_audit.jsonl
+└── workspaces/<task_id>__<sample_index>/
+```
+
+当前 held-out adapter 固定选择 MS-1 50、MS-2 33、MS-3 25 和 MO 78，共 186 题。
+MS-2 的4个 exact normalized prompt overlap 单独进入 audit；MO 源数据缺少的41条 target
+optimization 只记入 manifest。`metrics.json` 直接由外部 MolClaw 仓库现有 evaluator
+产生，Drug-Pipe 不复制或重写指标公式。
+
+未来训练数据针对实时 catalog 的确定性迁移输出 canonical ReAct、ToolRL、GAD、format
+examples、逐条 migration audit/rejected sidecar 和 `derived_data_manifest.json`。迁移只允许
+结构化且可验证的 name/argument/schema 适配；未知等价关系整条拒绝，不进入 runtime alias。

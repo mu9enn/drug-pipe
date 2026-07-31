@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 import re
@@ -11,11 +12,13 @@ from slime.rollout.sglang_rollout import GenerateState
 from slime.utils.http_utils import post
 from slime.utils.types import Sample
 
-from drug_agent.protocol.react_protocol import parse_runtime_decision, project_final_answer
+from drug_agent.protocol.react_protocol import final_answer_matches_task, parse_runtime_decision, project_final_answer
+from drug_agent.protocol.prompts import format_final_contract, format_tool_catalog, fresh_task_messages
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_WORKSPACES_ROOT
+from drug_agent.tools.artifact_registry import ArtifactRegistry
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
 from drug_agent.tools.tool_executor import MCPToolExecutor
-from drug_agent.tools.tool_registry import ToolRegistry
+from drug_agent.tools.tool_registry import ToolRegistry, catalog_sha256
 from drug_agent.tools.tool_success import make_validation_failed_result
 from drug_agent.utils import normalize_tool_name, to_jsonable
 
@@ -48,6 +51,22 @@ def _get_runtime() -> dict[str, Any]:
     return _RUNTIME
 
 
+def _verify_run_catalog(live_specs: list[dict[str, Any]]) -> str:
+    actual = catalog_sha256(live_specs)
+    expected_path = os.environ.get("DRUG_AGENT_EXPECTED_TOOL_CATALOG", "").strip()
+    if not expected_path:
+        return actual
+    with open(expected_path, "r", encoding="utf-8") as handle:
+        expected = json.load(handle)
+    expected_hash = expected.get("sha256") if isinstance(expected, dict) else None
+    if expected_hash != actual:
+        raise RuntimeError(
+            "Live molclaw-scp tool catalog changed after evaluation preflight: "
+            f"expected={expected_hash}, actual={actual}"
+        )
+    return actual
+
+
 def _resolve_context(sample: Sample) -> dict[str, Any]:
     metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
     env_kwargs = metadata.get("env_kwargs") if isinstance(metadata.get("env_kwargs"), dict) else {}
@@ -57,6 +76,7 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
     data_source = env_kwargs.get("data_source") or metadata.get("data_source") or "drug_agent"
 
     allowed_tools_raw = env_kwargs.get("allowed_tools")
+    explicit_tool_policy = isinstance(allowed_tools_raw, list) and bool(allowed_tools_raw)
     if not isinstance(allowed_tools_raw, list):
         allowed_tools_raw = []
     allowed_tools = [normalize_tool_name(x) for x in allowed_tools_raw if isinstance(x, str) and x.strip()]
@@ -72,14 +92,17 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
                 allowed_tools.append(tool_name)
 
     max_steps = env_kwargs.get("max_steps")
-    if not isinstance(max_steps, int) or max_steps <= 0:
-        max_steps = int(os.environ.get("DRUG_AGENT_MAX_STEPS", "6"))
+    if not isinstance(max_steps, int):
+        max_steps = int(os.environ.get("DRUG_AGENT_MAX_STEPS", "0"))
+    if max_steps < 0:
+        raise ValueError("max_steps must be non-negative (0 means unlimited)")
 
     return {
         "task_id": str(task_id),
         "task_type": str(task_type),
         "data_source": str(data_source),
         "allowed_tools": allowed_tools,
+        "explicit_tool_policy": explicit_tool_policy,
         "max_steps": max_steps,
         "env_kwargs": env_kwargs,
         "local_tools_enabled": local_tools_enabled,
@@ -87,7 +110,11 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
 
 
 def _augment_prompt_messages(
-    prompt: list[dict[str, Any]], *, local_tools_enabled: bool
+    prompt: list[dict[str, Any]],
+    *,
+    local_tools_enabled: bool,
+    tool_catalog: str = "",
+    final_contract: str = "",
 ) -> list[dict[str, Any]]:
     out = [dict(m) for m in prompt]
     if not out:
@@ -96,22 +123,40 @@ def _augment_prompt_messages(
     reminder = ROLLOUT_FORMAT_REMINDER
     if local_tools_enabled:
         reminder += LOCAL_TOOL_REMINDER
-    out[0]["content"] = (out[0].get("content") or "") + "\n\n" + reminder
-    for idx in range(len(out) - 1, -1, -1):
-        if out[idx].get("role") == "user":
-            out[idx]["content"] = (out[idx].get("content") or "") + "\n\n" + reminder
-            break
+    if tool_catalog:
+        reminder += "\n" + tool_catalog
+    if final_contract:
+        reminder += "\n" + final_contract
+    system_index = next((idx for idx, item in enumerate(out) if item.get("role") == "system"), None)
+    target_index = system_index if system_index is not None else 0
+    out[target_index]["content"] = (out[target_index].get("content") or "") + "\n\n" + reminder
     return out
 
 
-def _to_prompt_text(state: GenerateState, prompt: Any, *, local_tools_enabled: bool) -> str:
+def _to_prompt_text(
+    state: GenerateState,
+    prompt: Any,
+    *,
+    local_tools_enabled: bool,
+    tool_catalog: str = "",
+    final_contract: str = "",
+) -> str:
     if isinstance(prompt, str):
         reminder = ROLLOUT_FORMAT_REMINDER
         if local_tools_enabled:
             reminder += LOCAL_TOOL_REMINDER
+        if tool_catalog:
+            reminder += "\n" + tool_catalog
+        if final_contract:
+            reminder += "\n" + final_contract
         return prompt + "\n\n" + reminder
     if isinstance(prompt, list):
-        prompt = _augment_prompt_messages(prompt, local_tools_enabled=local_tools_enabled)
+        prompt = _augment_prompt_messages(
+            prompt,
+            local_tools_enabled=local_tools_enabled,
+            tool_catalog=tool_catalog,
+            final_contract=final_contract,
+        )
         try:
             return state.tokenizer.apply_chat_template(
                 prompt,
@@ -172,34 +217,64 @@ def _workspace_name(task_id: str, sample_index: Any) -> str:
     return f"{safe_task}__{safe_index}"
 
 
-async def generate(args, sample: Sample, sampling_params, evaluation: bool = False) -> Sample:
+async def _generate_impl(
+    args,
+    sample: Sample,
+    sampling_params,
+    *,
+    task_executor: MCPToolExecutor,
+    evaluation: bool = False,
+) -> Sample:
     assert not args.partial_rollout, "Partial rollout is not supported for drug_agent custom generate."
 
     state = GenerateState(args)
     runtime = _get_runtime()
-    registry: ToolRegistry = runtime["registry"]
+    authority_registry: ToolRegistry = runtime["registry"]
 
     context = _resolve_context(sample)
     task_id = context["task_id"]
     task_type = context["task_type"]
     data_source = context["data_source"]
-    allowed_tools = context["allowed_tools"]
+    live_tool_specs = await asyncio.to_thread(authority_registry.list_tools)
+    if not live_tool_specs:
+        raise RuntimeError("molclaw-scp list_tools returned an empty catalog")
+    tool_catalog_hash = _verify_run_catalog(live_tool_specs)
+    if context["explicit_tool_policy"]:
+        allowed_tools = context["allowed_tools"]
+    else:
+        allowed_tools = [str(spec["name"]) for spec in live_tool_specs]
+    allowed_specs = [spec for spec in live_tool_specs if spec.get("name") in set(allowed_tools)]
+    tool_catalog = format_tool_catalog(allowed_specs)
+    final_contract = format_final_contract(task_type)
+    registry = ToolRegistry(
+        executor=task_executor,
+        include_local_tools=context["local_tools_enabled"],
+    )
+    registry.install_catalog(live_tool_specs)
     max_steps = context["max_steps"]
     local_executor = None
     workspace = None
     if context["local_tools_enabled"]:
         workspace = DRUG_AGENT_WORKSPACES_ROOT / _workspace_name(task_id, sample.index)
         local_executor = LocalToolExecutor(workspace, DRUG_AGENT_L1_SKILLS_ROOT)
+    artifact_registry = ArtifactRegistry(workspace or (DRUG_AGENT_WORKSPACES_ROOT / _workspace_name(task_id, sample.index)))
     rollout_mode = "canonical_react_strict"
     parse_recovery_enabled = False
     allow_parse_recovery_override = False
 
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
+    source_prompt = sample.prompt
+    if evaluation and isinstance(source_prompt, list):
+        source_prompt = fresh_task_messages(source_prompt)
+        if not any(item.get("role") == "user" for item in source_prompt):
+            raise ValueError("evaluation sample has no fresh user question")
     prompt_text = _to_prompt_text(
         state,
-        sample.prompt,
+        source_prompt,
         local_tools_enabled=context["local_tools_enabled"],
+        tool_catalog=tool_catalog,
+        final_contract=final_contract,
     )
     prompt_token_ids = state.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
 
@@ -210,8 +285,15 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
 
     actions: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
+    if not isinstance(sample.metadata, dict):
+        sample.metadata = {}
+    sample.metadata["_drug_agent_partial_trace"] = {
+        "actions": actions,
+        "observations": observations,
+        "artifact_registry": artifact_registry,
+    }
 
-    done_reason = "max_steps"
+    done_reason = "max_steps" if max_steps > 0 else "running"
     final_answer = None
     fatal_error = None
     num_invalid = 0
@@ -227,7 +309,8 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
     recovered_valid_count = 0
 
     try:
-        for step in range(max_steps):
+        step_iterator = range(max_steps) if max_steps > 0 else itertools.count()
+        for step in step_iterator:
             current_token_ids = prompt_token_ids + response_token_ids
 
             payload = {
@@ -315,10 +398,11 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                     tool_args = parsed_call.get("arguments") if isinstance(parsed_call.get("arguments"), dict) else {}
 
                     tool_ok, tool_reason = registry.validate_tool_name(tool_name, allowed_tools=allowed_tools)
-                    args_ok, args_reason = registry.validate_arguments_basic(tool_name, tool_args)
+                    args_ok, args_reason = registry.validate_arguments(tool_name, tool_args)
 
                     if tool_ok and args_ok:
-                        tool_result = await _execute_tool(registry, tool_name, tool_args, local_executor)
+                        execution_args = artifact_registry.resolve(tool_args)
+                        tool_result = await _execute_tool(registry, tool_name, execution_args, local_executor)
                     else:
                         err_message = tool_reason or args_reason or "tool validation failed"
                         tool_result = make_validation_failed_result(
@@ -351,13 +435,21 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                     result_metadata = to_jsonable(tool_result.get("metadata"))
                     if not isinstance(result_metadata, dict):
                         result_metadata = {}
+                    # Raw MCP payloads can contain server paths and belong only
+                    # in the artifact audit, never in model-visible observations.
+                    result_metadata.pop("raw", None)
+                    model_result = artifact_registry.canonicalize(
+                        to_jsonable(tool_result.get("result")),
+                        local_result=tool_name in LOCAL_TOOL_NAMES,
+                    )
+                    model_error = artifact_registry.canonicalize(to_jsonable(tool_result.get("error")))
                     obs_payload = {
                         "tool_name": tool_name,
                         "status": "success" if bool(tool_result.get("ok")) else "error",
                         "is_error": not bool(tool_result.get("ok")),
                         "content": {
-                            "result": to_jsonable(tool_result.get("result")),
-                            "error": to_jsonable(tool_result.get("error")),
+                            "result": model_result,
+                            "error": model_error,
                         },
                         "metadata": {
                             "latency_sec": tool_result.get("latency_sec"),
@@ -383,7 +475,34 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                 continue
 
             if parsed.get("decision_type") == "final_answer":
-                final_answer = parsed.get("final_answer")
+                payload_task_type = str((parsed.get("final_answer") or {}).get("task_type") or "").lower()
+                if not final_answer_matches_task(parsed.get("final_answer"), task_type):
+                    num_invalid += 1
+                    obs_payload = {
+                        "tool_name": "runtime",
+                        "status": "error",
+                        "is_error": True,
+                        "content": {
+                            "error_type": "FinalTaskTypeMismatch",
+                            "error_message": (
+                                f"final_answer.task_type must be {task_type!r}, got {payload_task_type!r}"
+                            ),
+                        },
+                    }
+                    observations.append({"step": step, **obs_payload})
+                    _append_observation(
+                        state,
+                        _serialize_observations([obs_payload]),
+                        response_parts,
+                        response_token_ids,
+                        loss_masks,
+                        rollout_log_probs,
+                    )
+                    continue
+                final_answer = artifact_registry.canonicalize(
+                    parsed.get("final_answer"),
+                    register_unknown_paths=False,
+                )
                 done_reason = "final_answer"
                 sample.status = Sample.Status.COMPLETED
                 break
@@ -428,7 +547,8 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
         "data_source": data_source,
         "evaluation": bool(evaluation),
         "allowed_tools": allowed_tools,
-        "workspace": str(workspace) if workspace is not None else None,
+        "tool_catalog_sha256": tool_catalog_hash,
+        "workspace": "<artifact:local/>" if workspace is not None else None,
         "max_steps": max_steps,
         "rollout_mode": rollout_mode,
         "parse_recovery_enabled": parse_recovery_enabled,
@@ -459,7 +579,67 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
         "recovery_success_rate": recovery_success_rate,
         "tool_success_rate": tool_success_rate,
         "tool_execution_success_rate": tool_execution_success_rate,
+        "artifact_audit": artifact_registry.audit_snapshot(),
     }
     sample.metadata["drug_agent_trace"] = trace
+    sample.metadata.pop("_drug_agent_partial_trace", None)
 
     return sample
+
+
+async def generate(args, sample: Sample, sampling_params, evaluation: bool = False) -> Sample:
+    """Bound complete agent tasks; SGLang token concurrency remains separate."""
+    runtime = _get_runtime()
+    loop = asyncio.get_running_loop()
+    semaphore = runtime.get("task_semaphore")
+    if semaphore is None or runtime.get("task_semaphore_loop") is not loop:
+        max_workers = max(1, int(os.environ.get("DRUG_AGENT_MAX_WORKERS", "2")))
+        semaphore = asyncio.Semaphore(max_workers)
+        runtime["task_semaphore"] = semaphore
+        runtime["task_semaphore_loop"] = loop
+    async with semaphore:
+        # A task owns its MCP transport. This prevents session state and
+        # connection recovery from crossing task/workspace boundaries.
+        task_executor = MCPToolExecutor(connect_on_init=False)
+        try:
+            timeout = float(os.environ.get("DRUG_AGENT_TASK_TIMEOUT_SEC", "10800"))
+            try:
+                return await asyncio.wait_for(
+                    _generate_impl(
+                        args,
+                        sample,
+                        sampling_params,
+                        task_executor=task_executor,
+                        evaluation=evaluation,
+                    ),
+                    timeout=timeout if timeout > 0 else None,
+                )
+            except asyncio.TimeoutError:
+                context = _resolve_context(sample)
+                sample.status = Sample.Status.FAILED
+                if not isinstance(sample.metadata, dict):
+                    sample.metadata = {}
+                partial = sample.metadata.pop("_drug_agent_partial_trace", {})
+                actions = partial.get("actions") if isinstance(partial, dict) else []
+                observations = partial.get("observations") if isinstance(partial, dict) else []
+                artifact_registry = partial.get("artifact_registry") if isinstance(partial, dict) else None
+                sample.metadata["drug_agent_trace"] = {
+                    "task_id": context["task_id"],
+                    "task_type": context["task_type"],
+                    "data_source": context["data_source"],
+                    "evaluation": bool(evaluation),
+                    "done_reason": "task_timeout",
+                    "error": f"task timeout after {timeout}s",
+                    "actions": to_jsonable(actions or []),
+                    "observations": to_jsonable(observations or []),
+                    "final_answer": None,
+                    "projected_final_answer": None,
+                    "artifact_audit": (
+                        artifact_registry.audit_snapshot()
+                        if isinstance(artifact_registry, ArtifactRegistry)
+                        else {}
+                    ),
+                }
+                return sample
+        finally:
+            task_executor.close()

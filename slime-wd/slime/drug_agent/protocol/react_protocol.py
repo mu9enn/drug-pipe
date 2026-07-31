@@ -12,6 +12,8 @@ SUPPORTED_SFT_PROTOCOLS = {
 }
 
 _FENCE_RE = re.compile(r"^\s*```(?:[a-zA-Z0-9_-]+)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
+_EMPTY_THINK_ENVELOPE_RE = re.compile(r"\A\s*<think>\s*</think>\s*")
+_QWEN_END_ENVELOPE_RE = re.compile(r"\s*<\|im_end\|>\s*\Z")
 _BLOCK_RE = re.compile(
     r"""
     \s*(?:
@@ -80,6 +82,12 @@ def _validate_final_answer(payload: dict[str, Any]) -> tuple[bool, str | None, s
     elif task_type in {"kg", "e2e"}:
         if "result" not in payload:
             return False, "ReactSchemaError", f"{task_type.upper()} `final_answer.result` is required"
+    elif task_type == "mol_edit":
+        if not isinstance(payload.get("output_smiles"), str):
+            return False, "ReactSchemaError", "mol_edit `final_answer.output_smiles` must be a string"
+    elif task_type in {"mol_opt", "mol_opt_physchem"}:
+        if not isinstance(payload.get("optimized_smiles"), str):
+            return False, "ReactSchemaError", "mol_opt `final_answer.optimized_smiles` must be a string"
     else:
         return False, "ReactSchemaError", "canonical `final_answer.task_type` is unsupported"
     return True, None, None
@@ -115,6 +123,14 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
             "fence_wrappers_stripped": 0,
             "fence_inner_content_preserved": 0,
         }
+
+    # Qwen's chat template can prepend this empty transport envelope even when
+    # native thinking is disabled. It is not part of Drug-Pipe's canonical
+    # ReAct protocol. Strip exactly one leading empty envelope; a non-empty
+    # native <think> block remains unsupported and is rejected below.
+    if role == "assistant":
+        text = _EMPTY_THINK_ENVELOPE_RE.sub("", text, count=1)
+        text = _QWEN_END_ENVELOPE_RE.sub("", text, count=1)
 
     stripped = text.strip()
     if not stripped:
@@ -426,7 +442,16 @@ def project_final_answer(payload: dict[str, Any], task_type: str | None = None) 
         return payload.get("selected_smiles")
     if resolved_task in {"kg", "e2e"}:
         return payload.get("result")
+    if resolved_task == "mol_edit":
+        return payload.get("output_smiles")
+    if resolved_task in {"mol_opt", "mol_opt_physchem"}:
+        return payload.get("optimized_smiles")
     raise ValueError(f"unsupported final_answer task_type: {resolved_task or '<missing>'}")
+
+
+def final_answer_matches_task(payload: Any, task_type: str) -> bool:
+    """Require the generated terminal schema to match the active benchmark task."""
+    return isinstance(payload, dict) and str(payload.get("task_type") or "").lower() == str(task_type or "").lower()
 
 
 def detect_sft_protocol(record: dict[str, Any]) -> str:

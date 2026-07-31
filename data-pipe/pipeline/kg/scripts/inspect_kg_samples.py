@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -24,19 +23,6 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
             if isinstance(obj, dict):
                 rows.append(obj)
     return rows
-
-
-def _load_questions_csv(path: Path) -> dict[str, dict[str, str]]:
-    out: dict[str, dict[str, str]] = {}
-    if not path.is_file():
-        return out
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            sid = str(row.get("sample_id") or "").strip()
-            if sid:
-                out[sid] = {k: (v or "") for k, v in row.items()}
-    return out
 
 
 def _tool_like_mcp(name: str) -> bool:
@@ -83,24 +69,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect tool-kg sampled outputs for schema and field quality.")
     parser.add_argument("--kg-run-dir", required=True, help="Path like .../tool-kg/runs/<run_id>")
     parser.add_argument("--report-out", default="", help="Optional JSON report output path")
-    parser.add_argument("--legacy-sample-results", action="store_true")
     args = parser.parse_args()
 
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
-    sample_dir = kg_run_dir / "sample_results"
     canonical_path = kg_run_dir / "results" / "tasks.jsonl"
-    success_path_v2 = sample_dir / "sample_success_v2.jsonl"
-    success_path_v1 = sample_dir / "sample_success.jsonl"
-    success_path = (
-        success_path_v2 if success_path_v2.is_file() else success_path_v1
-    ) if args.legacy_sample_results else canonical_path
+    success_path = canonical_path
     if not success_path.is_file():
-        suffix = " (use --legacy-sample-results only for historical runs)" if not args.legacy_sample_results else ""
-        raise FileNotFoundError(f"task records not found: {success_path}{suffix}")
-    questions_path = sample_dir / "questions.csv"
+        raise FileNotFoundError(f"canonical task records not found: {success_path}")
 
     rows = _load_jsonl(success_path)
-    qmap = _load_questions_csv(questions_path)
 
     missing_question = 0
     missing_expected = 0
@@ -118,9 +95,7 @@ def main() -> None:
         status_hist[status] = status_hist.get(status, 0) + 1
 
         q1 = str(rec.get("public_question_text") or "").strip()
-        qrow = qmap.get(sid, {})
-        q2 = str(qrow.get("public_question_text") or "").strip()
-        question = q1 or q2
+        question = q1
 
         expected = rec.get("expected_trajectory")
         tools = rec.get("toolchain_nodes")
@@ -178,16 +153,14 @@ def main() -> None:
                 "has_toolchain_edges": has_edges,
                 "tool_name_format_ok": tool_valid,
                 "question_leak_suspected": leak_flag,
-                "question_source": "public_question_text" if q1 else ("questions.csv" if q2 else "missing"),
+                "question_source": "public_question_text" if q1 else "missing",
             }
         )
 
     report = {
         "kg_run_dir": str(kg_run_dir),
         "task_records_path": str(success_path),
-        "questions_csv_path": str(questions_path),
         "sample_count": len(rows),
-        "questions_csv_rows": len(qmap),
         "status_hist": status_hist,
         "quality": {
             "missing_question": missing_question,

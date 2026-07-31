@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 from molclaw_kg.canonical_edges import build_canonical_edges
-from molclaw_kg.graph_views import build_graph_views
+from molclaw_kg.canonical_outputs import canonical_edge_to_decision, project_graph
 from molclaw_kg.io_utils import read_jsonl, write_jsonl
-from molclaw_kg.migration import migrate_historical_kg
 
 
 def adjudication(
@@ -63,15 +61,14 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
             )
 
             build_canonical_edges(config)
-            build_graph_views(config)
-
             canonical = read_jsonl(config.paths.run_dir / "canonical_edges.jsonl")
-            graph = read_jsonl(config.paths.run_dir / "graph_all.jsonl")
+            decision = canonical_edge_to_decision(canonical[0])
             self.assertEqual(canonical[0]["edge_types"], [])
             self.assertNotIn("confidence_calibrated", canonical[0])
-            self.assertIsNone(graph[0]["edge_type"])
-            self.assertEqual(graph[0]["relation_status"], "negative")
-            self.assertEqual(graph[0]["confidence_raw"], 0.91)
+            self.assertEqual(decision["relation_status"], "negative")
+            self.assertEqual(decision["confidence_raw"], 0.91)
+            self.assertFalse(decision["eligible_for_sampling"])
+            self.assertEqual(project_graph([decision], "test"), [])
 
     def test_graph_projection_preserves_claude_edge_type_exactly(self) -> None:
         edge_type = {
@@ -101,72 +98,20 @@ class CanonicalEdgeAuthorityTest(unittest.TestCase):
             )
 
             build_canonical_edges(config)
-            build_graph_views(config)
-
-            graph = read_jsonl(config.paths.run_dir / "graph_all.jsonl")
+            canonical = read_jsonl(config.paths.run_dir / "canonical_edges.jsonl")
+            graph = project_graph([canonical_edge_to_decision(canonical[0])], "test")
             self.assertEqual(graph[0]["edge_type"], "generates_partial_input_for")
 
-    def test_historical_migration_prefers_adjudication_and_reports_graph_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            source_dir = Path(td) / "source"
-            output_dir = Path(td) / "output"
-            source_dir.mkdir()
-            raw = adjudication()
-            scored = {
-                **{key: raw[key] for key in [
-                    "pair_id",
-                    "source_tool",
-                    "target_tool",
-                    "relation_status",
-                    "direct_transition",
-                    "edge_types",
-                    "context",
-                    "satisfied_mappings",
-                    "unsatisfied_required_inputs",
-                    "negative_reason",
-                    "evidence_refs",
-                ]},
-                "confidence_raw": 0.91,
-                "confidence_calibrated": 0.91,
-            }
-            graph = {
-                "pair_id": raw["pair_id"],
-                "source_tool": "source",
-                "target_tool": "target",
-                "edge_type": "generates_partial_input_for",
-                "relation_status": "negative",
-                "confidence_raw": 0.91,
-            }
-            write_jsonl(source_dir / "pair_adjudications.jsonl", [raw])
-            scored_supplement = {
-                **scored,
-                "pair_id": "pair::legacy__to__target",
-                "source_tool": "legacy",
-                "target_tool": "target",
-                "relation_status": "valid",
-                "direct_transition": True,
-                "edge_types": [{"type": "feeds_into"}],
-            }
-            write_jsonl(source_dir / "scored_edges.jsonl", [scored, scored_supplement])
-            write_jsonl(source_dir / "graph_all.jsonl", [graph])
-
-            report = migrate_historical_kg(source_dir, output_dir)
-
-            migrated = read_jsonl(output_dir / "edge_decisions.jsonl")
-            issues = read_jsonl(output_dir / "issues.jsonl")
-            persisted_report = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            by_pair = {row["pair_id"]: row for row in migrated}
-            self.assertEqual(by_pair[raw["pair_id"]]["edge_types"], [])
-            self.assertEqual(by_pair[raw["pair_id"]]["source_authority"], "claude_adjudication")
-            self.assertFalse(by_pair[scored_supplement["pair_id"]]["eligible_for_sampling"])
-            self.assertEqual(report, persisted_report)
-            self.assertTrue(
-                any(
-                    row["kind"] == "historical_conflict"
-                    and row["comparison"] == "canonical_edge_vs_graph_all"
-                    for row in issues
-                )
-            )
+    def test_non_claude_authority_is_rejected(self) -> None:
+        row = {
+            "pair_id": "pair::source__to__target",
+            "source_authority": "legacy_scored_supplement",
+            "relation_status": "valid",
+            "direct_transition": True,
+            "edge_types": [{"type": "feeds_into"}],
+        }
+        with self.assertRaisesRegex(ValueError, "require Claude adjudication authority"):
+            canonical_edge_to_decision(row)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ class SamplingConfigTest(unittest.TestCase):
         default = resolve_sampling_profile(config, "simple_default")
         self.assertEqual(default.values["mode"], "simple_toolchain_question")
         self.assertEqual(default.values["target_successes"], 20)
-        self.assertEqual(default.values["semantic_repair_rounds"], 0)
+        self.assertEqual(default.values["semantic_repair_rounds"], 1)
         self.assertTrue(default.prompt_path.name.endswith("toolchain_question_simple_v1.md"))
 
         overridden = resolve_sampling_profile(
@@ -40,7 +40,7 @@ class SamplingConfigTest(unittest.TestCase):
         self.assertEqual(payload["cli_overrides"], overridden.cli_overrides)
         self.assertEqual(
             set(payload["prompt_hashes"]),
-            {"generation", "json_repair"},
+            {"generation", "json_repair", "semantic_repair"},
         )
 
     def test_sampling_mode_cannot_be_changed_outside_named_profile(self) -> None:
@@ -52,7 +52,7 @@ class SamplingConfigTest(unittest.TestCase):
             resolve_sampling_profile(
                 config,
                 "simple_default",
-                overrides={"mode": "dag_closure"},
+                overrides={"mode": "unsupported_mode"},
             )
 
     def test_stage3_loads_only_canonical_outputs_without_sidecars(self) -> None:

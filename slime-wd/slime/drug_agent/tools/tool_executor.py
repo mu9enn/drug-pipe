@@ -154,6 +154,12 @@ class MCPToolExecutor:
                 },
             }
         except Exception as exc:
+            # A transport exception invalidates the current MCP session. The
+            # next model decision may retry and will establish a fresh one.
+            try:
+                self._run(self._client.disconnect(), timeout=5.0, label="disconnect_after_error")
+            except Exception:
+                pass
             tool_success = evaluate_tool_success(
                 transport_ok=False,
                 tool_schema_valid=True,
@@ -174,6 +180,13 @@ class MCPToolExecutor:
                 "semantic_unknown": tool_success["semantic_unknown"],
                 "metadata": {"tool_success": tool_success},
             }
+
+    def reconnect(self) -> None:
+        try:
+            self._run(self._client.disconnect(), timeout=5.0, label="disconnect_for_reconnect")
+        except Exception:
+            pass
+        self._ensure_connected()
 
     def close(self) -> None:
         if self._closed:

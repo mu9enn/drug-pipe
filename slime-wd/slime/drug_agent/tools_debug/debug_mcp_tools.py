@@ -12,7 +12,8 @@ if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from drug_agent.tools.tool_executor import MCPToolExecutor
-from drug_agent.tools.tool_registry import ToolRegistry, load_allowlist
+from drug_agent.tools.runtime_env import load_molclaw_environment
+from drug_agent.tools.tool_registry import ToolRegistry
 from drug_agent.offline_guard import assert_tool_environment_allowed
 
 REQUIRED_ENV_KEYS = (
@@ -61,9 +62,9 @@ def main() -> int:
     parser.add_argument("--list-tools", action="store_true", help="List tools from MCP server")
     parser.add_argument("--tool", type=str, default=None, help="Tool name to call")
     parser.add_argument("--args", type=str, default="{}", help="Tool args as JSON object string")
-    parser.add_argument("--allowlist", type=str, default=str(Path(__file__).resolve().parents[1] / "tools/allowlist_v0.json"))
-    parser.add_argument("--allow-all", action="store_true")
+    parser.add_argument("--env-file", action="append", default=[])
     args = parser.parse_args()
+    load_molclaw_environment(args.env_file)
     assert_tool_environment_allowed("debug_mcp_tools online tool execution")
     print("[ONLINE TOOL DEBUG] Real MolClaw/MCP calls are enabled.", flush=True)
 
@@ -72,8 +73,7 @@ def main() -> int:
     output["result"]["request"] = {
         "list_tools": bool(args.list_tools),
         "tool": args.tool,
-        "allow_all": bool(args.allow_all),
-        "allowlist": str(args.allowlist),
+        "catalog_authority": "live_molclaw_scp_list_tools",
     }
 
     if (not args.list_tools) and (not args.tool):
@@ -88,9 +88,8 @@ def main() -> int:
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 1
 
-    allowlist = load_allowlist(args.allowlist)
     executor = MCPToolExecutor(connect_on_init=False)
-    registry = ToolRegistry(executor=executor, allowlist=allowlist, allow_all=args.allow_all)
+    registry = ToolRegistry(executor=executor, include_local_tools=False)
 
     try:
         specs: list[dict[str, Any]] = []
@@ -104,6 +103,7 @@ def main() -> int:
                     {
                         "name": s.get("name"),
                         "description": s.get("description", ""),
+                        "input_schema": s.get("input_schema", {}),
                     }
                     for s in specs
                 ]
@@ -142,7 +142,7 @@ def main() -> int:
                 print(json.dumps(output, ensure_ascii=False, indent=2))
                 return 1
 
-            exec_result = executor.execute(args.tool, payload)
+            exec_result = registry.execute(args.tool, payload)
             output["result"]["tool_call"]["execution"] = exec_result
             if bool(exec_result.get("ok")):
                 output["ok"] = True

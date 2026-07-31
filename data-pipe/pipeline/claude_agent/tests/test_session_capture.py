@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -39,6 +40,26 @@ class SessionCaptureTest(unittest.TestCase):
             self.assertEqual(selected["sha256"], hashlib.sha256(expected).hexdigest())
             self.assertTrue(attempt["raw_session_valid"])
             self.assertEqual(_extract_result_text_from_stream_jsonl(canonical), "ok")
+
+    def test_claude_process_uses_bounded_foreground_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fake = self._fake_claude(
+                root,
+                "import json, os\n"
+                "print(json.dumps({\n"
+                " 'type': 'result',\n"
+                " 'result': json.dumps({\n"
+                "  'concurrency': os.environ.get('CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY'),\n"
+                "  'background_disabled': os.environ.get('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS'),\n"
+                " })\n"
+                "}))\n",
+            )
+            command = [str(fake), "--verbose", "--output-format", "stream-json"]
+            attempt = run_stream_json(command, cwd=root, archive_root=root)
+            payload = json.loads(_extract_result_text_from_stream_jsonl(Path(attempt["session_file"])))
+            self.assertEqual(payload["concurrency"], "2")
+            self.assertEqual(payload["background_disabled"], "1")
 
     def test_attempts_never_overwrite_and_empty_output_is_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as td:

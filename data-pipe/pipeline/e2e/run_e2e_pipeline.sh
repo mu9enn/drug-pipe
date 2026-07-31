@@ -15,6 +15,7 @@ CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 LIMIT="${LIMIT:-0}"
 NUM_ROLLOUTS="${NUM_ROLLOUTS:-1}"
 PARALLEL_ROLLOUTS="${PARALLEL_ROLLOUTS:-1}"
+MAX_WORKERS="${MAX_WORKERS:-1}"
 SKIP_PROVIDER_SWITCH="${SKIP_PROVIDER_SWITCH:-1}"
 
 usage() {
@@ -29,6 +30,7 @@ Options:
   --limit N                    Default: 0 (no limit)
   --num-rollouts N             Default: 1
   --parallel-rollouts N        Default: 1
+  --max-workers N              Maximum concurrent Claude invocations. Default: 1
   --skip-provider-switch 0|1   Default: 1
 EOF
 }
@@ -41,14 +43,19 @@ while [[ $# -gt 0 ]]; do
     --limit) LIMIT="${2:-}"; shift 2 ;;
     --num-rollouts) NUM_ROLLOUTS="${2:-}"; shift 2 ;;
     --parallel-rollouts) PARALLEL_ROLLOUTS="${2:-}"; shift 2 ;;
+    --max-workers) MAX_WORKERS="${2:-}"; shift 2 ;;
     --skip-provider-switch) SKIP_PROVIDER_SWITCH="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "[error] unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
-if ! [[ "$LIMIT" =~ ^[0-9]+$ && "$NUM_ROLLOUTS" =~ ^[0-9]+$ && "$PARALLEL_ROLLOUTS" =~ ^[0-9]+$ ]]; then
-  echo "[error] limit/num-rollouts/parallel-rollouts must be non-negative integers" >&2
+if ! [[ "$LIMIT" =~ ^[0-9]+$ && "$NUM_ROLLOUTS" =~ ^[0-9]+$ && "$PARALLEL_ROLLOUTS" =~ ^[0-9]+$ && "$MAX_WORKERS" =~ ^[0-9]+$ ]]; then
+  echo "[error] limit/num-rollouts/parallel-rollouts/max-workers must be non-negative integers" >&2
+  exit 1
+fi
+if (( MAX_WORKERS <= 0 )); then
+  echo "[error] --max-workers must be > 0" >&2
   exit 1
 fi
 if [[ "$SKIP_PROVIDER_SWITCH" != "0" && "$SKIP_PROVIDER_SWITCH" != "1" ]]; then
@@ -94,7 +101,8 @@ bash "$TEST_FLOW" \
   "$PARALLEL_ROLLOUTS" \
   "e2e" \
   "$DATASET_CSV" \
-  "$SKIP_PROVIDER_SWITCH" | tee "$PIPELINE_LOG"
+  "$SKIP_PROVIDER_SWITCH" \
+  "$MAX_WORKERS" | tee "$PIPELINE_LOG"
 rc=${PIPESTATUS[0]}
 set -e
 
@@ -109,7 +117,7 @@ if [[ -z "$results_dir" ]]; then
   exit 1
 fi
 
-"$PYTHON_BIN" - "$DATASET_META" "$MANIFEST_JSON" "$results_dir" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$LIMIT" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$SKIP_PROVIDER_SWITCH" <<'PY'
+"$PYTHON_BIN" - "$DATASET_META" "$MANIFEST_JSON" "$results_dir" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$LIMIT" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$MAX_WORKERS" "$SKIP_PROVIDER_SWITCH" <<'PY'
 import json
 import sys
 from datetime import datetime
@@ -124,7 +132,8 @@ claude_bin = sys.argv[6]
 limit = int(sys.argv[7])
 num_rollouts = int(sys.argv[8])
 parallel_rollouts = int(sys.argv[9])
-skip_provider_switch = int(sys.argv[10])
+max_workers = int(sys.argv[10])
+skip_provider_switch = int(sys.argv[11])
 
 meta = json.loads(dataset_meta.read_text(encoding="utf-8"))
 manifest = {
@@ -135,6 +144,7 @@ manifest = {
     "limit": limit,
     "num_rollouts": num_rollouts,
     "parallel_rollouts": parallel_rollouts,
+    "max_workers": max_workers,
     "skip_provider_switch": bool(skip_provider_switch),
     "dataset_csv": meta.get("out_csv"),
     "selected_question_ids": meta.get("selected_question_ids", []),

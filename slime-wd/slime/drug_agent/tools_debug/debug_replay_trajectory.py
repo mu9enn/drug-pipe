@@ -11,11 +11,14 @@ from typing import Any
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.constants import CANONICAL_REACT_DATA, DRUG_AGENT_RUNS_ROOT
+from drug_agent.constants import CANONICAL_REACT_DATA, DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_RUNS_ROOT
 from drug_agent.offline_guard import assert_tool_environment_allowed
 from drug_agent.protocol.react_protocol import parse_runtime_decision
+from drug_agent.tools.artifact_registry import ArtifactRegistry
+from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
+from drug_agent.tools.runtime_env import load_molclaw_environment
 from drug_agent.tools.tool_executor import MCPToolExecutor
-from drug_agent.tools.tool_registry import ToolRegistry, load_allowlist
+from drug_agent.tools.tool_registry import ToolRegistry
 from drug_agent.utils import append_jsonl, ensure_dir, normalize_tool_name, to_jsonable
 
 
@@ -107,13 +110,9 @@ def main() -> int:
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--max-tool-calls", type=int, default=3)
     parser.add_argument("--run-name", type=str, default=f"gate_replay_{int(time.time())}")
-    parser.add_argument(
-        "--allowlist",
-        type=str,
-        default=str(Path(__file__).resolve().parents[1] / "tools/allowlist_v0.json"),
-    )
-    parser.add_argument("--allow-all", action="store_true")
+    parser.add_argument("--env-file", action="append", default=[])
     args = parser.parse_args()
+    load_molclaw_environment(args.env_file)
     assert_tool_environment_allowed("debug_replay_trajectory online tool execution")
     print("[ONLINE TOOL DEBUG] Replaying actions against real MolClaw/MCP tools.", flush=True)
 
@@ -158,6 +157,8 @@ def main() -> int:
         trace_root = ensure_dir(_default_runs_root() / args.run_name)
         trace_path = trace_root / "replay_trace.jsonl"
         output["trace_path"] = str(trace_path)
+        local_executor = LocalToolExecutor(trace_root / "workspace", DRUG_AGENT_L1_SKILLS_ROOT)
+        artifact_registry = ArtifactRegistry(trace_root / "workspace")
 
         parse_ok_count = 0
         tool_ok_count = 0
@@ -196,9 +197,10 @@ def main() -> int:
                     }
                 else:
                     if executor is None:
-                        allowlist = load_allowlist(args.allowlist)
                         executor = MCPToolExecutor(connect_on_init=False)
-                        registry = ToolRegistry(executor=executor, allowlist=allowlist, allow_all=args.allow_all)
+                        registry = ToolRegistry(executor=executor, include_local_tools=True)
+                        if not registry.list_tools(force_refresh=True):
+                            raise RuntimeError("molclaw-scp list_tools returned an empty catalog")
                     ok_name, reason_name = registry.validate_tool_name(tool_name)
                     ok_args, reason_args = registry.validate_arguments_basic(tool_name, tool_args)
                     if not ok_name or not ok_args:
@@ -211,7 +213,23 @@ def main() -> int:
                             "metadata": {"tool_reason": reason_name, "args_reason": reason_args},
                         }
                     else:
-                        step_row["tool_result"] = executor.execute(tool_name, tool_args)
+                        raw_result = registry.execute(
+                            tool_name,
+                            artifact_registry.resolve(tool_args),
+                            local_executor=local_executor,
+                        )
+                        metadata = to_jsonable(raw_result.get("metadata")) or {}
+                        if isinstance(metadata, dict):
+                            metadata.pop("raw", None)
+                        step_row["tool_result"] = {
+                            **{key: to_jsonable(value) for key, value in raw_result.items() if key not in {"result", "error", "metadata"}},
+                            "result": artifact_registry.canonicalize(
+                                to_jsonable(raw_result.get("result")),
+                                local_result=tool_name in LOCAL_TOOL_NAMES,
+                            ),
+                            "error": artifact_registry.canonicalize(to_jsonable(raw_result.get("error"))),
+                            "metadata": metadata,
+                        }
                         tool_exec_count += 1
                         if bool(step_row["tool_result"].get("ok")):
                             tool_ok_count += 1
@@ -226,6 +244,7 @@ def main() -> int:
 
         for row_item in trace_rows:
             append_jsonl(trace_path, row_item)
+        append_jsonl(trace_path, {"artifact_audit": artifact_registry.audit_snapshot()})
 
         if output["num_tool_calls"] > 0:
             output["parse_success_rate"] = round(parse_ok_count / output["num_tool_calls"], 6)

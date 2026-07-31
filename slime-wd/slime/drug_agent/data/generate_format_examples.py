@@ -8,7 +8,7 @@ from pathlib import Path
 from drug_agent.decision_extractor import iter_react_decisions
 from drug_agent.gad.data import convert_records as convert_gad_records
 from drug_agent.toolrl.convert_react_to_toolrl_steps import convert_react_to_toolrl_steps
-from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist
+from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist, is_molclaw_decision_name
 from drug_agent.utils import read_jsonl, write_json, write_jsonl
 
 
@@ -21,7 +21,10 @@ def _eligible(record: dict) -> bool:
             continue
         if decision["decision_type"] == "final_answer":
             saw_final = True
-        if any(call.get("tool_name") in allowlist for call in decision.get("tool_calls") or []):
+        if any(
+            is_molclaw_decision_name(str(call.get("tool_name") or ""), allowlist)
+            for call in decision.get("tool_calls") or []
+        ):
             saw_tool = True
     return saw_tool and saw_final
 

@@ -12,6 +12,7 @@ LIMIT="${3:-0}"
 NUM_ROLLOUTS="${4:-1}"
 PARALLEL_ROLLOUTS="${5:-1}"
 DATASET_DIR="${6:-$REPO_DIR/molbench}"
+MAX_WORKERS="${MAX_WORKERS:-$PARALLEL_ROLLOUTS}"
 VS_CSV=""
 AC_CSV=""
 PF_CSV=""
@@ -55,6 +56,17 @@ if (( $# > 6 )); then
           exit 1
         fi
         ;;
+      --max-workers=*)
+        MAX_WORKERS="${arg#*=}"
+        ;;
+      --max-workers)
+        i=$((i + 1))
+        MAX_WORKERS="${EXTRA[$i]:-}"
+        if [[ -z "$MAX_WORKERS" ]]; then
+          echo "[error] --max-workers requires a value" >&2
+          exit 1
+        fi
+        ;;
       *)
         echo "[error] unknown extra arg: $arg" >&2
         exit 1
@@ -62,6 +74,11 @@ if (( $# > 6 )); then
     esac
     i=$((i + 1))
   done
+fi
+
+if ! [[ "$MAX_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "[error] --max-workers must be a positive integer" >&2
+  exit 1
 fi
 
 FLOW="$PIPELINE_DIR/claude_agent/test_flow_claude.sh"
@@ -191,7 +208,7 @@ for TASK in vs ac pf; do
   TOTAL_EVENTS["$TASK"]=$(( ROWS * NUM_ROLLOUTS ))
 
   echo "[run] start task=${TASK}, log=${LOG_FILE}"
-  bash "$FLOW" "$PROVIDER" "$CLAUDE_BIN" "$LIMIT" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$TASK" "$DATASET_CSV" 1 >"$LOG_FILE" 2>&1 &
+  bash "$FLOW" "$PROVIDER" "$CLAUDE_BIN" "$LIMIT" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$TASK" "$DATASET_CSV" 1 "$MAX_WORKERS" >"$LOG_FILE" 2>&1 &
   PIDS["$TASK"]=$!
   LOGS["$TASK"]="$LOG_FILE"
   DONE_COUNTS["$TASK"]=0

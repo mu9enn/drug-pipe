@@ -5,6 +5,7 @@ profiles:
     mode: simple_toolchain_question
     prompt: prompts/toolchain_question_simple_v1.md
     json_repair_prompt: prompts/toolchain_question_json_repair_v1.md
+    semantic_repair_prompt: prompts/toolchain_question_semantic_repair_v1.md
     min_hops: 2
     max_hops: 4
     target_successes: 20
@@ -15,58 +16,6 @@ profiles:
     max_repeat_target: 2
     max_repeat_compound: 2
     json_repair_rounds: 1
-    semantic_repair_rounds: 0
+    semantic_repair_rounds: 1
     partial_edge_policy: allow_if_closure_satisfied
-    tool_leak_policy: reject
-
-  dag_legacy:
-    mode: dag_closure
-    prompt: prompts/legacy/toolchain_question_sampler_v1.md
-    repair_prompt: prompts/legacy/toolchain_question_repair_v1.md
-    sample_size: 20
-    min_hops: 2
-    max_hops: 4
-    random_seed: 42
-    partial_policy: closure_required
-    edge_profile: core_strict
-    max_repair_rounds: 1
-
-legacy_policies:
-  edge_profiles:
-    core_strict:
-      allowed_views: [core]
-    core_expanded:
-      allowed_views: [core, expanded]
-  partial_edge_policy:
-    require_satisfied_mapping: true
-  anchor_policy:
-    excluded_start_tools:
-      - base64_to_server_file
-      - server_file_to_base64
-    excluded_terminal_tools:
-      - base64_to_server_file
-      - server_file_to_base64
-  executability:
-    forbid_file_path_user_inputs: true
-    forbidden_placeholder_patterns:
-      - '(?i)\buser[_ -]?provided\b'
-      - '(?i)\bgiven[_ -]?[a-z0-9_]*\b'
-      - '(?i)\bto[_ -]?be[_ -]?specified\b'
-      - '(?i)\btbd\b'
-      - '(?i)\bplaceholder\b'
-      - '(?i)\b/path/to\b'
-    forbidden_workflow_design_patterns:
-      - '(?i)\bdesign\s+(?:a\s+)?(?:computational\s+)?workflow\b'
-      - '(?i)\bdescribe\s+(?:a\s+)?(?:computational\s+)?workflow\b'
-      - '(?i)\bset\s+up\s+(?:a\s+)?(?:complete\s+)?(?:analysis\s+)?workflow\b'
-    execution_intent_patterns:
-      - '(?i)\bperform\b'
-      - '(?i)\brun\b'
-      - '(?i)\banalyze\b'
-      - '(?i)\bpredict\b'
-      - '(?i)\bgenerate\b'
-      - '(?i)\breturn\b'
-  science_kb:
-    sqlite_path: science_kb/processed/science_kb.sqlite
-    manifest_path: science_kb/manifests/science_kb_manifest.json
-    mcp_server_name: molclaw-science-kb
+    tool_leak_policy: warn

@@ -1,0 +1,6 @@
+{"task_id":"kg_graph-run_20260601_123052_simple_0011","execution_quality":"low","reason":"RIPK1 Boltz screening completed only 1 of 101 requested predictions after repeated 300-second client-side MCP timeouts."}
+{"task_id":"kg_graph-run_20260601_123052_simple_0013","execution_quality":"low","reason":"PTH2R peptide affinity and interaction workflow did not produce the requested usable affinity and docking results."}
+{"task_id":"kg_graph-run_20260601_123052_simple_0014","execution_quality":"low","reason":"EP4 task did not complete the requested full-MD MM/PBSA analysis and per-residue decomposition."}
+{"task_id":"kg_graph-run_20260601_123052_simple_0025","execution_quality":"low","reason":"HDAC6 docking used an unsuitable full-structure search region and did not reliably target the catalytic pocket."}
+{"task_id":"kg_legacy_graph_20260601_resample_20260728_131422_simple_0015","execution_quality":"low","reason":"HRH4 primary docking failed and the fallback covered only 5 of 73 generated peptides."}
+{"task_id":"kg_legacy_graph_20260601_resample_20260728_131422_simple_0020","execution_quality":"low","reason":"CMKLR1 report was finalized with incomplete and internally inconsistent aggregation of the 95 requested affinity predictions."}

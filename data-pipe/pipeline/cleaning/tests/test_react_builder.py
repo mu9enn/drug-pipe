@@ -10,7 +10,7 @@ import unittest
 PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
 from cleaning.invariants import validate_final_record  # noqa: E402
-from cleaning.react_builder import _compact_observation, reconstruct_react_messages  # noqa: E402
+from cleaning.react_builder import L1_SKILL_NAMES, _compact_observation, reconstruct_react_messages  # noqa: E402
 from cleaning.trace_parser import discover_rollout_samples  # noqa: E402
 
 
@@ -33,6 +33,10 @@ def extract_final_payload(messages: list[dict]) -> dict:
 
 
 class ReactConstructorTest(unittest.TestCase):
+    def test_l1_registry_uses_the_canonical_repository_skills_bundle(self) -> None:
+        self.assertIn("molclaw-fix-pdb", L1_SKILL_NAMES)
+        self.assertIn("molclaw-quickvina-docking", L1_SKILL_NAMES)
+
     def test_invariant_rejects_consecutive_assistant_turns(self) -> None:
         record = {
             "schema_version": "drug_agent_sft_react_json_v1",

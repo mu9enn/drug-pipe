@@ -13,6 +13,7 @@ PROVIDER="${PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 NUM_ROLLOUTS="${NUM_ROLLOUTS:-1}"
 PARALLEL_ROLLOUTS="${PARALLEL_ROLLOUTS:-1}"
+MAX_WORKERS="${MAX_WORKERS:-1}"
 RESULTS_ROOT="${RESULTS_ROOT:-$ROOT_DIR/results/kg_sampled}"
 SKIP_PROVIDER_SWITCH="${SKIP_PROVIDER_SWITCH:-1}"
 
@@ -28,6 +29,7 @@ Options:
   --claude-bin BIN             Default: claude
   --num-rollouts N             Default: 1
   --parallel-rollouts N        Default: 1
+  --max-workers N              Maximum concurrent Claude invocations. Default: 1
   --results-root PATH          Default: results/kg_sampled
   --skip-provider-switch 0|1   Default: 1
 USAGE
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --claude-bin) CLAUDE_BIN="${2:-}"; shift 2 ;;
     --num-rollouts) NUM_ROLLOUTS="${2:-}"; shift 2 ;;
     --parallel-rollouts) PARALLEL_ROLLOUTS="${2:-}"; shift 2 ;;
+    --max-workers) MAX_WORKERS="${2:-}"; shift 2 ;;
     --results-root) RESULTS_ROOT="${2:-}"; shift 2 ;;
     --skip-provider-switch) SKIP_PROVIDER_SWITCH="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -54,12 +57,16 @@ if [[ -z "$KG_TASK_FILE" || -z "$N_CASES" ]]; then
   exit 1
 fi
 
-if ! [[ "$N_CASES" =~ ^[0-9]+$ && "$NUM_ROLLOUTS" =~ ^[0-9]+$ && "$PARALLEL_ROLLOUTS" =~ ^[0-9]+$ ]]; then
-  echo "[error] --n-cases/--num-rollouts/--parallel-rollouts must be non-negative integers" >&2
+if ! [[ "$N_CASES" =~ ^[0-9]+$ && "$NUM_ROLLOUTS" =~ ^[0-9]+$ && "$PARALLEL_ROLLOUTS" =~ ^[0-9]+$ && "$MAX_WORKERS" =~ ^[0-9]+$ ]]; then
+  echo "[error] --n-cases/--num-rollouts/--parallel-rollouts/--max-workers must be non-negative integers" >&2
   exit 1
 fi
 if (( N_CASES <= 0 )); then
   echo "[error] --n-cases must be > 0" >&2
+  exit 1
+fi
+if (( MAX_WORKERS <= 0 )); then
+  echo "[error] --max-workers must be > 0" >&2
   exit 1
 fi
 if [[ "$SKIP_PROVIDER_SWITCH" != "0" && "$SKIP_PROVIDER_SWITCH" != "1" ]]; then
@@ -164,6 +171,7 @@ CMD=(
   --limit 0
   --num-rollouts "$NUM_ROLLOUTS"
   --parallel-rollouts "$PARALLEL_ROLLOUTS"
+  --max-workers "$MAX_WORKERS"
 )
 if [[ "$SKIP_PROVIDER_SWITCH" == "1" ]]; then
   CMD+=(--skip-provider-switch)
@@ -186,7 +194,7 @@ if [[ -z "$RESULTS_DIR" ]]; then
 fi
 RESULTS_DIR="$(realpath "$RESULTS_DIR")"
 
-"$PYTHON_BIN" - "$SELECTED_JSONL" "$RESULTS_DIR" "$MANIFEST_JSON" "$KG_TASK_FILE" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$SKIP_PROVIDER_SWITCH" <<'PY'
+"$PYTHON_BIN" - "$SELECTED_JSONL" "$RESULTS_DIR" "$MANIFEST_JSON" "$KG_TASK_FILE" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$MAX_WORKERS" "$SKIP_PROVIDER_SWITCH" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -201,7 +209,8 @@ provider = sys.argv[6]
 claude_bin = sys.argv[7]
 num_rollouts = int(sys.argv[8])
 parallel_rollouts = int(sys.argv[9])
-skip_provider_switch = int(sys.argv[10])
+max_workers = int(sys.argv[10])
+skip_provider_switch = int(sys.argv[11])
 
 selected = []
 with selected_path.open("r", encoding="utf-8", errors="ignore") as f:
@@ -266,6 +275,7 @@ manifest = {
     "claude_bin": claude_bin,
     "num_rollouts": num_rollouts,
     "parallel_rollouts": parallel_rollouts,
+    "max_workers": max_workers,
     "skip_provider_switch": bool(skip_provider_switch),
     "selected_count": len(selected),
     "results_dir": str(results_dir),

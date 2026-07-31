@@ -27,19 +27,6 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _load_questions_csv(path: Path) -> dict[str, dict[str, str]]:
-    out: dict[str, dict[str, str]] = {}
-    if not path.is_file():
-        return out
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            sid = str(row.get("sample_id") or "").strip()
-            if sid:
-                out[sid] = {k: (v or "") for k, v in row.items()}
-    return out
-
-
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -54,13 +41,10 @@ def _as_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _extract_question(rec: dict[str, Any], qcsv_row: dict[str, str]) -> tuple[str, str]:
+def _extract_question(rec: dict[str, Any]) -> tuple[str, str]:
     q1 = str(rec.get("public_question_text") or "").strip()
     if q1:
         return q1, "public_question_text"
-    q2 = str(qcsv_row.get("public_question_text") or "").strip()
-    if q2:
-        return q2, "questions.csv.public_question_text"
     return "", "missing"
 
 
@@ -281,36 +265,16 @@ def main() -> None:
     parser.add_argument("--max-samples", type=int, default=0, help="Max accepted samples to export; 0 means all")
     parser.add_argument("--schema-version", default="kg_task_spec_v0.2")
     parser.add_argument("--no-include-raw-sample", action="store_true", help="Do not embed raw KG record in metadata")
-    parser.add_argument(
-        "--legacy-sample-results",
-        action="store_true",
-        help="Explicitly read historical sample_results/sample_success*.jsonl instead of canonical results/tasks.jsonl.",
-    )
     args = parser.parse_args()
 
     kg_run_dir = Path(args.kg_run_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve()
     canonical_tasks = kg_run_dir / "results" / "tasks.jsonl"
-    sample_dir = kg_run_dir / "sample_results"
-    legacy_sources = [
-        (sample_dir / "sample_success_simple.jsonl", sample_dir / "questions_simple.csv"),
-        (sample_dir / "sample_success_v2.jsonl", sample_dir / "questions.csv"),
-        (sample_dir / "sample_success.jsonl", sample_dir / "questions.csv"),
-    ]
-    sample_sources = legacy_sources if args.legacy_sample_results else [(canonical_tasks, None)]
-    selected_source = next(((success, questions) for success, questions in sample_sources if success.is_file()), None)
-    if selected_source is None:
-        searched = " / ".join(str(success) for success, _ in sample_sources)
-        suffix = (
-            " Pass --legacy-sample-results only for an intentional historical compatibility run."
-            if not args.legacy_sample_results
-            else ""
-        )
-        raise FileNotFoundError(f"task JSONL not found: {searched}.{suffix}")
-    success_path, questions_path = selected_source
+    if not canonical_tasks.is_file():
+        raise FileNotFoundError(f"canonical task JSONL not found: {canonical_tasks}")
+    success_path = canonical_tasks
 
     rows = [_normalize_sample(row) for row in _load_jsonl(success_path)]
-    qmap = _load_questions_csv(questions_path) if questions_path is not None else {}
     kg_run_id = kg_run_dir.name
     kg_project_root = kg_run_dir.parent.parent
     include_raw_sample = not args.no_include_raw_sample
@@ -323,8 +287,7 @@ def main() -> None:
         sample_index = _as_int(rec.get("index") or rec.get("attempt_index"), i)
         status = str(rec.get("status") or "").strip().lower()
 
-        qcsv_row = qmap.get(sample_id, {})
-        question, q_source = _extract_question(rec, qcsv_row)
+        question, q_source = _extract_question(rec)
 
         tools = rec.get("toolchain_nodes")
         edges = rec.get("toolchain_edges")
@@ -411,8 +374,7 @@ def main() -> None:
         "kg_run_dir": str(kg_run_dir),
         "kg_run_id": kg_run_id,
         "input": {
-            "sample_success": str(success_path),
-            "questions_csv": str(questions_path) if questions_path is not None else None,
+            "canonical_tasks": str(success_path),
         },
         "output": {
             "kg_sampled_tasks_jsonl": str(tasks_jsonl),
@@ -423,7 +385,6 @@ def main() -> None:
             "raw_rows": len(rows),
             "accepted": len(accepted),
             "rejected": len(rejected),
-            "questions_csv_rows": len(qmap),
             "max_samples": args.max_samples,
         },
         "rejected_samples": rejected,
@@ -438,7 +399,6 @@ def main() -> None:
         f"- raw rows: {len(rows)}",
         f"- accepted: {len(accepted)}",
         f"- rejected: {len(rejected)}",
-        f"- questions.csv rows: {len(qmap)}",
         "",
         "## Rejected Samples",
         "",

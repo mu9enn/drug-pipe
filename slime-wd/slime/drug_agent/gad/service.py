@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from drug_agent.gad.checkpoint_retention import prune_numbered_checkpoints
 from drug_agent.gad.discriminator import GADDiscriminator
 
 DISCRIMINATOR: GADDiscriminator | None = None
@@ -87,7 +88,15 @@ async def score_and_update(payload: dict[str, Any]):
         )
         LAST_METRICS = result["metrics"]
         if DISCRIMINATOR.version % CONFIG["save_interval"] == 0:
-            DISCRIMINATOR.save(str(Path(CONFIG["output_dir"]) / f"version_{DISCRIMINATOR.version:06d}"))
+            output_dir = Path(CONFIG["output_dir"])
+            checkpoint = output_dir / f"version_{DISCRIMINATOR.version:06d}"
+            DISCRIMINATOR.save(str(checkpoint))
+            prune_numbered_checkpoints(
+                output_dir,
+                prefix="version_",
+                keep_last=CONFIG["keep_last_checkpoints"],
+                newest=checkpoint,
+            )
         return result
 
 
@@ -98,6 +107,12 @@ async def checkpoint(payload: dict[str, Any] | None = None):
     async with LOCK:
         path = (payload or {}).get("path") or str(Path(CONFIG["output_dir"]) / "latest")
         DISCRIMINATOR.save(path)
+        prune_numbered_checkpoints(
+            CONFIG["output_dir"],
+            prefix="version_",
+            keep_last=0,
+            newest=path,
+        )
         return {"ok": True, "path": path, "version": DISCRIMINATOR.version}
 
 
@@ -115,9 +130,13 @@ def main() -> int:
     parser.add_argument("--clip-grad", type=float, default=1.0)
     parser.add_argument("--reward-clip", type=float, default=2.0)
     parser.add_argument("--save-interval", type=int, default=50)
+    parser.add_argument("--keep-last-checkpoints", type=int, default=2)
     args = parser.parse_args()
-    if args.update_steps < 1 or args.save_interval < 1 or args.reward_clip <= 0:
-        parser.error("--update-steps/--save-interval must be >= 1 and --reward-clip must be > 0")
+    if args.update_steps < 1 or args.save_interval < 1 or args.keep_last_checkpoints < 1 or args.reward_clip <= 0:
+        parser.error(
+            "--update-steps/--save-interval/--keep-last-checkpoints must be >= 1 "
+            "and --reward-clip must be > 0"
+        )
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     resume_backbone = Path(args.resume) / "backbone" if args.resume else None
     init_path = str(resume_backbone) if resume_backbone and resume_backbone.is_dir() else args.model_path

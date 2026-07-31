@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 PIPELINE_DIR = Path(__file__).resolve().parents[2]
@@ -333,6 +335,64 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             self.assertNotIn("quarantine_count", manifest)
             self.assertNotIn("quarantine", manifest["outputs"])
             self.assertFalse((final_root / "quarantine.jsonl").exists())
+
+    def test_llm_clean_uses_worker_pool_and_preserves_input_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            python_root = root / "python"
+            python_root.mkdir()
+            records = []
+            audits = []
+            for index in range(3):
+                record = sample_record()
+                record["id"] = f"sample-{index}"
+                records.append(record)
+                audits.append({
+                    "id": record["id"],
+                    "python_status": "python_valid",
+                    "execution_valid": True,
+                    "task_answer_valid": True,
+                    "training_trace_valid": True,
+                })
+            (python_root / "python_drafts.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in records), encoding="utf-8"
+            )
+            (python_root / "python_audit.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in audits), encoding="utf-8"
+            )
+
+            lock = threading.Lock()
+            active = 0
+            peak = 0
+
+            def provider(source, _context):
+                nonlocal active, peak
+                with lock:
+                    active += 1
+                    peak = max(peak, active)
+                time.sleep(0.03)
+                with lock:
+                    active -= 1
+                return {
+                    "schema_version": "llm_clean_patch_v1",
+                    "sample_id": source["id"],
+                    "edits": [],
+                }, {"status": "patch_received", "findings": []}
+
+            output_root = root / "final"
+            manifest = llm_clean(
+                python_root / "python_drafts.jsonl",
+                output_root,
+                max_workers=2,
+                patch_provider=provider,
+            )
+            output_ids = [
+                json.loads(line)["id"]
+                for line in (output_root / "react_trajectories.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(peak, 2)
+            self.assertEqual(output_ids, ["sample-0", "sample-1", "sample-2"])
+            self.assertEqual(manifest["max_workers"], 2)
 
 
 class InvariantTest(unittest.TestCase):

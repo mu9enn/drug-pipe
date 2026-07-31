@@ -6,12 +6,13 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPELINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="$(cd "$PIPELINE_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$REPO_DIR/.." && pwd)"
 cd "$REPO_DIR"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  bash claude_agent/test_flow_claude.sh [provider] [claude_bin] [limit] [num_rollouts] [parallel_rollouts] [task] [dataset_csv] [skip_provider_switch]
+  bash claude_agent/test_flow_claude.sh [provider] [claude_bin] [limit] [num_rollouts] [parallel_rollouts] [task] [dataset_csv] [skip_provider_switch] [max_workers]
 
 Defaults:
   provider=manual
@@ -22,6 +23,7 @@ Defaults:
   task=vs
   dataset_csv=<repo>/molbench/molbench-<task>-900.csv (for e2e: <repo>/molbench/MolBench-E2E/e2e_dataset.csv; for kg: must be explicit)
   skip_provider_switch=0
+  max_workers=0 (compatibility: use parallel_rollouts)
 EOF
   exit 0
 fi
@@ -34,6 +36,7 @@ PARALLEL_ROLLOUTS="${5:-1}"
 TASK="${6:-vs}"
 DATASET_CSV="${7:-}"
 SKIP_PROVIDER_SWITCH="${8:-0}"
+MAX_WORKERS="${9:-0}"
 
 TASK="$(echo "$TASK" | tr '[:upper:]' '[:lower:]')"
 if [[ "$TASK" != "vs" && "$TASK" != "ac" && "$TASK" != "pf" && "$TASK" != "e2e" && "$TASK" != "kg" ]]; then
@@ -52,13 +55,8 @@ if [[ -z "$DATASET_CSV" ]]; then
   fi
 fi
 
-if [[ "$TASK" == "vs" ]]; then
-  SKILLS_ROOT="$REPO_DIR/skills/skills_vs"
-  SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_result.md"
-else
-  SKILLS_ROOT="$REPO_DIR/skills/skills_full"
-  SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_FULL.md"
-fi
+SKILLS_ROOT="$PROJECT_ROOT/molclaw-skills"
+SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_FULL.md"
 
 RESULTS_ROOT="$REPO_DIR/results"
 LAUNCH_SCRIPT="$PIPELINE_DIR/claude_agent/launch_claude.sh"
@@ -100,6 +98,7 @@ CMD=(
   --limit "$LIMIT"
   --num-rollouts "$NUM_ROLLOUTS"
   --parallel-rollouts "$PARALLEL_ROLLOUTS"
+  --max-workers "$MAX_WORKERS"
 )
 if [[ "$SKIP_PROVIDER_SWITCH" == "1" ]]; then
   CMD+=(--skip-provider-switch)

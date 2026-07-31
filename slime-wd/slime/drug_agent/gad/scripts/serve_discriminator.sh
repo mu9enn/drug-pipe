@@ -23,5 +23,7 @@ python -m drug_agent.gad.service \
   --host "${GAD_DISCRIMINATOR_HOST:-0.0.0.0}" --port "${GAD_DISCRIMINATOR_PORT:-8100}" \
   --lr "${DISCRIMINATOR_LR:-1e-5}" --max-length "${DISCRIMINATOR_MAX_LENGTH:-4096}" \
   --update-steps "${DISCRIMINATOR_UPDATE_STEPS:-1}" --reward-clip "${DISCRIMINATOR_REWARD_CLIP:-2.0}" \
+  --clip-grad "${DISCRIMINATOR_CLIP_GRAD:-1.0}" \
   --save-interval "${DISCRIMINATOR_SAVE_INTERVAL:-50}" \
+  --keep-last-checkpoints "${DISCRIMINATOR_KEEP_LAST:-2}" \
   "${EXTRA_ARGS[@]}"

@@ -9,6 +9,7 @@ from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry
 from drug_agent.tools_debug.debug_one_task import (
     _augment_messages_for_strict_json,
+    _fresh_messages,
     _sample_context,
 )
 
@@ -118,6 +119,8 @@ class LocalToolExecutorTest(unittest.TestCase):
             "rm -rf .",
             "cat $(pwd)/result.md",
             "find . -exec cat {} ;",
+            "find . /etc",
+            "find . ../outside",
             "cat /etc/passwd",
             "test -f /etc/passwd",
             "echo bad > ../outside.txt",
@@ -138,7 +141,6 @@ class ToolRegistryDispatchTest(unittest.TestCase):
             mcp = _FakeMCPExecutor()
             registry = ToolRegistry(
                 executor=mcp,
-                allowlist={"is_valid_smiles"},
                 include_local_tools=True,
             )
 
@@ -182,6 +184,25 @@ class ToolRegistryDispatchTest(unittest.TestCase):
             local_tools_enabled=False,
         )
         self.assertNotIn("Available local tools", no_local_prompt[0]["content"])
+
+    def test_fresh_debug_prompt_drops_teacher_and_injects_catalog_once(self) -> None:
+        fresh = _fresh_messages([
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "teacher decision"},
+            {"role": "user", "content": "teacher observation"},
+        ])
+        self.assertEqual([item["role"] for item in fresh], ["system", "user"])
+        self.assertNotIn("teacher", str(fresh))
+        prompted = _augment_messages_for_strict_json(
+            fresh,
+            local_tools_enabled=True,
+            tool_catalog="CATALOG_SENTINEL",
+            final_contract="FINAL_SENTINEL",
+        )
+        joined = "\n".join(item["content"] for item in prompted)
+        self.assertEqual(joined.count("CATALOG_SENTINEL"), 1)
+        self.assertEqual(joined.count("FINAL_SENTINEL"), 1)
 
 
 if __name__ == "__main__":

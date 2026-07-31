@@ -58,7 +58,7 @@ class CanonicalOutputsTest(unittest.TestCase):
             self.assertEqual(graph[0]["edge_type"], "feeds_into")
             self.assertEqual(read_json(run_dir / "results/run_manifest.json")["counts"]["graph_edges"], 1)
 
-    def test_legacy_supplement_is_not_sampling_eligible(self) -> None:
+    def test_ineligible_decision_is_not_projected(self) -> None:
         decisions = [
             {
                 "pair_id": "pair::a__to__b",

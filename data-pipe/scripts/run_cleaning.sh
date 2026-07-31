@@ -10,6 +10,7 @@ WORK_ROOT="${WORK_ROOT:-$RESULTS_ROOT/cleaning_work}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$RESULTS_ROOT/cleaned}"
 TIMEOUT_SEC="${LLM_CLEAN_TIMEOUT_SEC:-300}"
 LIMIT=0
+MAX_WORKERS="${MAX_WORKERS:-1}"
 ONLY_MOLCLAW_TOOL=0
 
 usage() {
@@ -28,6 +29,7 @@ Options:
   --claude-bin PATH
   --timeout-sec SECONDS
   --limit N
+  --max-workers N
   --only-molclaw-tool
 EOF
 }
@@ -40,11 +42,17 @@ while [[ $# -gt 0 ]]; do
     --claude-bin) CLAUDE_BIN="${2:-}"; shift 2 ;;
     --timeout-sec) TIMEOUT_SEC="${2:-}"; shift 2 ;;
     --limit) LIMIT="${2:-}"; shift 2 ;;
+    --max-workers) MAX_WORKERS="${2:-}"; shift 2 ;;
     --only-molclaw-tool) ONLY_MOLCLAW_TOOL=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "[error] unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+if ! [[ "$MAX_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "[error] --max-workers must be a positive integer" >&2
+  exit 1
+fi
 
 if [[ -f "$DATA_PIPE_DIR/.env" ]]; then
   set -a
@@ -80,7 +88,8 @@ echo "[cleaning] step 3/3: restricted-patch LLM prose clean"
   --output-root "$OUTPUT_ROOT" \
   --claude-bin "$CLAUDE_BIN" \
   --timeout-sec "$TIMEOUT_SEC" \
-  --limit "$LIMIT"
+  --limit "$LIMIT" \
+  --max-workers "$MAX_WORKERS"
 
 count=$(wc -l < "$OUTPUT_ROOT/react_trajectories.jsonl")
 if [[ "$count" -eq 0 ]]; then

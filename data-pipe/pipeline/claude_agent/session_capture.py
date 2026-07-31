@@ -3,11 +3,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
+
+
+CLAUDE_CODE_EXECUTION_ENV = {
+    "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY": "2",
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+}
+
+
+def claude_code_environment() -> dict[str, str]:
+    """Return the controlled environment shared by all Data-Pipe Claude runs."""
+    env = os.environ.copy()
+    env.update(CLAUDE_CODE_EXECUTION_ENV)
+    return env
 
 
 def _sha256(path: Path) -> str:
@@ -38,7 +52,7 @@ def inspect_session(path: Path) -> dict[str, Any]:
     }
 
 
-def next_attempt(workdir: Path) -> tuple[int, Path]:
+def next_attempt_index(workdir: Path) -> int:
     attempts_root = workdir / "attempts"
     attempts_root.mkdir(parents=True, exist_ok=True)
     indexes: list[int] = []
@@ -47,7 +61,12 @@ def next_attempt(workdir: Path) -> tuple[int, Path]:
             indexes.append(int(child.name.removeprefix("attempt_")))
         except ValueError:
             continue
-    index = max(indexes, default=0) + 1
+    return max(indexes, default=0) + 1
+
+
+def next_attempt(workdir: Path) -> tuple[int, Path]:
+    attempts_root = workdir / "attempts"
+    index = next_attempt_index(workdir)
     attempt_dir = attempts_root / f"attempt_{index:04d}"
     attempt_dir.mkdir(parents=False, exist_ok=False)
     session_path = attempt_dir / "complete_session.jsonl"
@@ -60,6 +79,7 @@ def run_stream_json(
     *,
     cwd: Path,
     archive_root: Path,
+    attempt_index: int | None = None,
     input_text: str | None = None,
     timeout_sec: float | None = None,
 ) -> dict[str, Any]:
@@ -69,7 +89,17 @@ def run_stream_json(
     if output_index >= len(command) or command[output_index] != "stream-json":
         raise ValueError("Claude command must request --output-format stream-json")
 
-    attempt_index, session_path = next_attempt(archive_root)
+    if attempt_index is None:
+        attempt_index, session_path = next_attempt(archive_root)
+    else:
+        if attempt_index < 1:
+            raise ValueError("attempt_index must be >= 1")
+        attempt_dir = archive_root / "attempts" / f"attempt_{attempt_index:04d}"
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        session_path = attempt_dir / "complete_session.jsonl"
+        if session_path.exists():
+            raise FileExistsError(f"Claude attempt session already exists: {session_path}")
+        session_path.touch()
     started = time.time()
     return_code = 1
     timed_out = False
@@ -79,6 +109,7 @@ def run_stream_json(
             process = subprocess.run(
                 command,
                 cwd=str(cwd),
+                env=claude_code_environment(),
                 input=input_text.encode("utf-8") if input_text is not None else None,
                 stdout=session_stream,
                 stderr=subprocess.STDOUT,
@@ -96,6 +127,7 @@ def run_stream_json(
 
     metadata = {
         "attempt_index": attempt_index,
+        "workdir": str(cwd),
         "session_file": str(session_path),
         "return_code": return_code,
         "timed_out": timed_out,

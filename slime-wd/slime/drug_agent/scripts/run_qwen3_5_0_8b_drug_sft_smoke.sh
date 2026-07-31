@@ -115,6 +115,7 @@ echo "[drug_agent] SFT parallel/batch config: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODE
 
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-0.8B_drug_sft_smoke}
 SAVE_INTERVAL=${SAVE_INTERVAL:-1}
+CHECKPOINT_KEEP_LAST=${CHECKPOINT_KEEP_LAST:-2}
 HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-0.8B}
 REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-0.8B_torch_dist}
 LOAD=${LOAD:-}
@@ -134,6 +135,7 @@ CKPT_ARGS=(
   --ref-load "$REF_LOAD"
   --save "$SAVE_DIR"
   --save-interval "$SAVE_INTERVAL"
+  --save-retain-last "$CHECKPOINT_KEEP_LAST"
 )
 if [ -n "$LOAD" ]; then
   CKPT_ARGS+=(--load "$LOAD")
@@ -210,6 +212,17 @@ MISC_ARGS=(
   --attention-backend flash
 )
 
+PLACEMENT_ARGS=()
+if [ "${SFT_DEBUG_TRAIN_ONLY:-0}" = "1" ] && [ "${SFT_DISABLE_OFFLOAD:-0}" = "1" ]; then
+  # debug-train-only does not instantiate an SGLang rollout model. Avoid
+  # --colocate here: colocate forces actor offload even though there is no
+  # competing rollout model, adding a sleep/wake cycle around every rollout.
+  PLACEMENT_ARGS+=(--no-offload-train --no-offload-rollout)
+  echo "[drug_agent] Train-only SFT: actor remains resident on GPU (colocate/offload disabled)."
+else
+  PLACEMENT_ARGS+=(--colocate)
+fi
+
 ray start --head \
   --node-ip-address "$MASTER_ADDR" \
   --num-gpus "$NUM_GPUS" \
@@ -281,7 +294,7 @@ ray job submit --address="http://127.0.0.1:8265" \
   -- python3 train.py \
   --actor-num-nodes 1 \
   --actor-num-gpus-per-node "$NUM_GPUS" \
-  --colocate \
+  "${PLACEMENT_ARGS[@]}" \
   "${MODEL_ARGS[@]}" \
   "${CKPT_ARGS[@]}" \
   "${SFT_ARGS[@]}" \

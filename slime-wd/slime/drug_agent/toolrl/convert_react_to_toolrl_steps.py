@@ -12,7 +12,7 @@ if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from drug_agent.decision_extractor import iter_react_decisions, parse_assistant_decision
-from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist
+from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist, is_molclaw_decision_name
 from drug_agent.utils import ensure_dir, read_jsonl, to_jsonable, write_json, write_jsonl
 
 
@@ -203,7 +203,7 @@ def convert_react_to_toolrl_steps(
             target_tool_calls = [
                 {**item, "keep": True}
                 for item in parsed.get("tool_calls", [])
-                if isinstance(item, dict) and item.get("tool_name") in allowlist
+                if isinstance(item, dict) and is_molclaw_decision_name(str(item.get("tool_name") or ""), allowlist)
             ]
             decision_type = str(decision.get("decision_type") or "")
             if decision_type == "tool_call" and not target_tool_calls:

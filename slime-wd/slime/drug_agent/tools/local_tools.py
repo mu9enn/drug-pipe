@@ -199,6 +199,8 @@ class LocalToolExecutor:
         artifact_match = _ARTIFACT_REF.fullmatch(raw.strip())
         if artifact_match:
             raw = artifact_match.group(1)
+            if raw.startswith("local/"):
+                raw = raw[len("local/") :]
 
         normalized = raw.replace("\\", "/")
         skill_prefix = "skills/L1_tools/"
@@ -404,6 +406,8 @@ class LocalToolExecutor:
         if name == "find" and any(item in {"-exec", "-execdir", "-delete", "-ok", "-okdir"} for item in tokens):
             raise LocalToolError("dangerous find action is forbidden")
         self._validate_bash_options(name, tokens[1:])
+        if name == "find":
+            self._validate_find_arguments(tokens)
         if name == "cd":
             if len(tokens) != 2:
                 raise LocalToolError("cd requires exactly one path")
@@ -447,6 +451,23 @@ class LocalToolExecutor:
             message = completed.stderr.strip() or f"{name} exited {completed.returncode}"
             raise LocalToolError(self._sanitize_output(message))
         return self._sanitize_output(completed.stdout)
+
+    @staticmethod
+    def _validate_find_arguments(tokens: list[str]) -> None:
+        if len(tokens) < 2:
+            raise LocalToolError("find requires one confined search root")
+        # Exactly one search root is supported. Every later token must be one
+        # of the small expression forms advertised by the sandbox.
+        cursor = 2
+        value_options = {"-name", "-type", "-maxdepth", "-mindepth"}
+        while cursor < len(tokens):
+            option = tokens[cursor]
+            if option == "-print":
+                cursor += 1
+                continue
+            if option not in value_options or cursor + 1 >= len(tokens):
+                raise LocalToolError("find supports one root plus -name/-type/-maxdepth/-mindepth/-print")
+            cursor += 2
 
     def _sanitize_output(self, text: str) -> str:
         return text.replace(str(self.l1_skills_root), "skills/L1_tools").replace(

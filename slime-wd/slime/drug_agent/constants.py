@@ -33,7 +33,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 DRUG_AGENT_L1_SKILLS_ROOT = Path(
     os.environ.get(
         "DRUG_AGENT_L1_SKILLS_ROOT",
-        str(_REPO_ROOT / "data-pipe" / "skills" / "skills_full" / ".claude" / "skills" / "L1_tools"),
+        str(_REPO_ROOT / "molclaw-skills" / ".claude" / "skills" / "L1_tools"),
     )
 )
 

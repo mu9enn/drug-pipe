@@ -1,0 +1,10 @@
+{
+  "schema_version": "drug_agent_molbench_exclusions_v1",
+  "reason": "Exact normalized user-prompt overlap with the original 373-trajectory training corpus",
+  "molbench_ms2_prompt_sha256": [
+    "4a9a69c8040e4c6f0cab3eee104edcbe5749f309cb542763ec2106573afd1500",
+    "f630cb865229b798425951fed1972b91c6f42cd3007bb0e1d0adbf2a12980843",
+    "9e0494a36374b64b0fb075593722ff10b20f1822da42e1bc6a244bf12069d01a",
+    "d0af229d0f6a25e921f7592dd2c5a88182ba728787a68bfdd0a2cbdf4efeb8d8"
+  ]
+}

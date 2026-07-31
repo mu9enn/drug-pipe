@@ -6,12 +6,27 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from molclaw_kg.settings import build_config
 from molclaw_kg.stage_taxonomy import load_stage_taxonomy
 
 
 class ConfigControlPlaneTest(unittest.TestCase):
+    def test_default_skills_root_is_the_repository_canonical_bundle(self) -> None:
+        tool_kg_root = Path(__file__).resolve().parents[1]
+        with mock.patch.object(Path, "mkdir"):
+            config = build_config(tool_kg_root, run_id="canonical_skills")
+
+        self.assertEqual(
+            config.runtime.skills_root,
+            tool_kg_root.parent / "molclaw-skills",
+        )
+        self.assertTrue((config.runtime.skills_root / "CLAUDE.md").is_file())
+        self.assertTrue(
+            (config.runtime.skills_root / "system_prompt_FULL.md").is_file()
+        )
+
     def test_build_config_does_not_load_unrelated_stage_configs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -65,7 +80,7 @@ class ConfigControlPlaneTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsupported stage taxonomy fields"):
                 load_stage_taxonomy(path)
 
-    def test_cli_exposes_only_named_legacy_projection_commands(self) -> None:
+    def test_cli_exposes_only_mainline_commands(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "molclaw_kg.cli", "--help"],
             check=True,
@@ -80,10 +95,13 @@ class ConfigControlPlaneTest(unittest.TestCase):
             "audit",
             "eval-logs",
             "manifest",
+            "legacy-views",
+            "legacy-export",
+            "migrate-kg",
         ]:
             self.assertNotIn(removed, help_text)
-        self.assertIn("legacy-views", help_text)
-        self.assertIn("legacy-export", help_text)
+        self.assertIn("finalize", help_text)
+        self.assertIn("sample-questions", help_text)
 
 
 if __name__ == "__main__":

@@ -31,29 +31,11 @@
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
 #     --sampling-profile simple_default --target-successes 1 --max-attempts 10
 #
-#   # Legacy closure mode must now be selected explicitly.
-#   bash scripts/run_sample_questions.sh run_20260601_123052 \
-#     --sampling-profile dag_legacy --sample-size 20
-#
 #   # Override walk/anchor hop range. Defaults are 2 to 4.
 #   bash scripts/run_sample_questions.sh run_20260601_123052 \
 #     --target-successes 20 --max-attempts 200 --min-hops 2 --max-hops 5
 #
-# Named profiles:
-#   - simple_default: mainline success-first sampler.
-#   - dag_legacy: explicit compatibility sampler with dependency closure.
-#
-# Legacy DAG-only quality controls:
-#   - --edge-profile core_strict|core_expanded
-#       Default core_strict only samples high-confidence core edges.
-#   - --partial-policy closure_required|exclude
-#       Default closure_required allows mapped partial edges, but a sample only
-#       succeeds after the final Agent-proposed workflow is dependency-closed.
-#   - --max-repair-rounds N
-#       Number of Agent repair attempts after Python validation feedback.
-#
 # Important notes:
-#   - --sample-size is the number of sampling attempts, not guaranteed successes.
 #   - Public questions should not expose tool names or explicit tool order.
 #   - Internal expected trajectories may contain tool IDs for evaluation/training.
 set -euo pipefail
@@ -61,16 +43,13 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_ID="${1:-}"
 SAMPLING_PROFILE="simple_default"
-SAMPLE_SIZE=""
 MIN_HOPS=""
 MAX_HOPS=""
 SEED=""
-PARTIAL_POLICY=""
-EDGE_PROFILE=""
-MAX_REPAIR_ROUNDS=""
 TARGET_SUCCESSES=""
 MAX_ATTEMPTS=""
 JSON_REPAIR_ROUNDS=""
+SEMANTIC_REPAIR_ROUNDS=""
 SCIENCE_KB_TOPK=""
 GROUNDING_SELECTION=""
 MAX_REPEAT_TARGET=""
@@ -79,7 +58,6 @@ MAX_REPEAT_COMPOUND=""
 usage() {
   echo "Usage:"
   echo "  Default simple profile: $0 <run_id> [--target-successes <N>] [--max-attempts <N>] [...]"
-  echo "  Legacy DAG profile: $0 <run_id> --sampling-profile dag_legacy [--sample-size <N>] [...]"
 }
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "--help" || "$RUN_ID" == "-h" ]]; then
@@ -94,10 +72,6 @@ while [[ $# -gt 0 ]]; do
       SAMPLING_PROFILE="${2:-}"
       shift 2
       ;;
-    --sample-size)
-      SAMPLE_SIZE="${2:-}"
-      shift 2
-      ;;
     --target-successes)
       TARGET_SUCCESSES="${2:-}"
       shift 2
@@ -108,6 +82,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --json-repair-rounds)
       JSON_REPAIR_ROUNDS="${2:-}"
+      shift 2
+      ;;
+    --semantic-repair-rounds)
+      SEMANTIC_REPAIR_ROUNDS="${2:-}"
       shift 2
       ;;
     --science-kb-topk)
@@ -136,18 +114,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --seed)
       SEED="${2:-}"
-      shift 2
-      ;;
-    --partial-policy)
-      PARTIAL_POLICY="${2:-}"
-      shift 2
-      ;;
-    --edge-profile)
-      EDGE_PROFILE="${2:-}"
-      shift 2
-      ;;
-    --max-repair-rounds)
-      MAX_REPAIR_ROUNDS="${2:-}"
       shift 2
       ;;
     --help|-h)
@@ -209,10 +175,10 @@ append_override() {
   fi
 }
 
-append_override "$SAMPLE_SIZE" --sample-size
 append_override "$TARGET_SUCCESSES" --target-successes
 append_override "$MAX_ATTEMPTS" --max-attempts
 append_override "$JSON_REPAIR_ROUNDS" --json-repair-rounds
+append_override "$SEMANTIC_REPAIR_ROUNDS" --semantic-repair-rounds
 append_override "$SCIENCE_KB_TOPK" --science-kb-topk
 append_override "$GROUNDING_SELECTION" --grounding-selection
 append_override "$MAX_REPEAT_TARGET" --max-repeat-target
@@ -220,9 +186,6 @@ append_override "$MAX_REPEAT_COMPOUND" --max-repeat-compound
 append_override "$MIN_HOPS" --min-hops
 append_override "$MAX_HOPS" --max-hops
 append_override "$SEED" --seed
-append_override "$PARTIAL_POLICY" --partial-policy
-append_override "$EDGE_PROFILE" --edge-profile
-append_override "$MAX_REPAIR_ROUNDS" --max-repair-rounds
 
 echo "[sample-questions] run_id=$RUN_ID profile=$SAMPLING_PROFILE (only explicit flags override the profile)"
 PYTHONPATH="$PROJECT_ROOT/src" "${cmd[@]}"

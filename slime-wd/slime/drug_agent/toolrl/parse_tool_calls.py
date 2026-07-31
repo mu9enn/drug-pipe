@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import json
+import os
 from pathlib import Path
 from typing import Any
 
 from drug_agent.protocol.react_protocol import parse_react_sequence
 from drug_agent.toolrl.normalization import canonical_tool_name
-from drug_agent.tools.tool_registry import load_allowlist
+from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES
 from drug_agent.utils import normalize_tool_name
-
-
-DEFAULT_ALLOWLIST_PATH = Path(__file__).resolve().parents[1] / "tools" / "allowlist_v0.json"
 
 
 @dataclass
@@ -35,9 +34,25 @@ class ParsedToolCall:
         }
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def _load_offline_catalog_names(raw_path: str) -> set[str]:
+    payload = json.loads(Path(raw_path).read_text(encoding="utf-8"))
+    rows = payload.get("tools") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError("DRUG_AGENT_TOOL_CATALOG must contain a tools list")
+    return {
+        normalize_tool_name(item.get("name"))
+        for item in rows
+        if isinstance(item, dict) and item.get("executor") != "local_sandbox" and normalize_tool_name(item.get("name"))
+    }
+
+
 def default_molclaw_allowlist() -> set[str]:
-    return load_allowlist(DEFAULT_ALLOWLIST_PATH)
+    """Optional offline catalog, never the authority for online execution."""
+    raw_path = os.environ.get("DRUG_AGENT_TOOL_CATALOG", "").strip()
+    if not raw_path:
+        return set()
+    return _load_offline_catalog_names(str(Path(raw_path).expanduser().resolve()))
 
 
 def _canonical_allowlist_name(tool_name: str | None) -> str:
@@ -54,7 +69,11 @@ def _is_molclaw_tool(tool_name: str, allowed_tool_names: set[str] | None) -> boo
     if allowed_tool_names:
         canonical_allowed = {_canonical_allowlist_name(name) for name in allowed_tool_names}
         return canonical in canonical_allowed
-    return tool_name.startswith("mcp__molclaw-scp__") or bare.startswith("mcp__molclaw-scp__")
+    return bare not in LOCAL_TOOL_NAMES
+
+
+def is_molclaw_decision_name(tool_name: str, allowed_tool_names: set[str] | None = None) -> bool:
+    return _is_molclaw_tool(tool_name, allowed_tool_names)
 
 
 def parse_tool_calls(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import shutil
 import tempfile
 import unittest
 from collections import Counter
@@ -12,15 +13,17 @@ from unittest.mock import patch
 from molclaw_kg.adjudicators.claude_code_runtime import extract_json_object
 from molclaw_kg.io_utils import read_jsonl, write_json, write_jsonl
 from molclaw_kg.question_sampling.simple_sampler import (
+    _grounding_facts,
     _sequence_hint,
     _tool_leaks,
+    contains_placeholder_or_fake_input,
     contains_user_followup_request,
     sample_hidden_toolchain,
     sample_simple_questions,
     select_grounding_seed,
     validate_simple_output,
 )
-from molclaw_kg.science_kb import initialize_database
+from molclaw_kg.science_kb import ScienceKB, initialize_database
 
 
 def edge(source: str, target: str, status: str = "valid") -> dict:
@@ -100,12 +103,80 @@ class SimpleSamplingTests(unittest.TestCase):
         self.assertEqual(len({row["protein_id"] for row in selected}), 4)
         self.assertEqual(len({row["compound_id"] for row in selected}), 4)
 
-    def test_user_followup_detection_checks_payload_and_rationale(self) -> None:
+    def test_user_followup_detection_checks_public_payload(self) -> None:
         self.assertTrue(contains_user_followup_request({
             "public_question_text": "Analyze this peptide.",
             "question_payload": {"inputs": {"seed": "to be requested from the user"}},
             "rationale": "",
         }))
+
+    def test_placeholder_detection_ignores_payload_keys_but_rejects_values(self) -> None:
+        valid = {
+            "public_question_text": "Predict binding for CYSLTR2 and return the complex.",
+            "question_payload": {
+                "inputs": {
+                    "target_protein": {"uniprot": "Q9NS75"},
+                    "ligand_smiles": "CCO",
+                }
+            },
+            "rationale": "Uses concrete identifiers.",
+        }
+        self.assertFalse(contains_placeholder_or_fake_input(valid))
+        invalid = {
+            **valid,
+            "question_payload": {"inputs": {"protein": "target_protein"}},
+        }
+        self.assertTrue(contains_placeholder_or_fake_input(invalid))
+
+    def test_followup_detection_ignores_internal_rationale(self) -> None:
+        sample = {
+            "status": "success",
+            "public_question_text": "Analyze PDB 4YNZ and report its pockets.",
+            "question_payload": {
+                "task": "analyze_pockets",
+                "inputs": {"pdb_id": "4YNZ"},
+                "expected_output": "Pocket properties.",
+            },
+            "rationale": "This requires no user-provided files.",
+        }
+        self.assertFalse(contains_user_followup_request(sample))
+
+        sample["public_question_text"] = "Please provide a structure before proceeding."
+        self.assertTrue(contains_user_followup_request(sample))
+
+    def test_required_sequence_is_reserved_before_pair_facts(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            db = Path(td) / "science.sqlite"
+            manifest = Path(td) / "manifest.json"
+            conn = initialize_database(db)
+            conn.execute(
+                "INSERT INTO proteins VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("protein::1", "test", "1", "P1", "P1", "GENE1", "Protein 1", "Human", "ACDEFG", '["1ABC"]', "{}"),
+            )
+            for index in range(1, 4):
+                conn.execute(
+                    "INSERT INTO compounds VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (f"compound::{index}", "test", "1", f"C{index}", f"Compound {index}", "CCO", "{}"),
+                )
+                conn.execute(
+                    "INSERT INTO target_ligand_pairs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"pair::{index}", "test", "1", "P1", f"C{index}", "Ki", float(index), "nM", "{}"),
+                )
+            conn.commit()
+            conn.close()
+            manifest.write_text("{}", encoding="utf-8")
+            kb = ScienceKB(db, manifest)
+            seed = kb.find_target_ligand_pairs(protein_id="P1", limit=1)[0]
+            facts = _grounding_facts(
+                kb,
+                2,
+                [{"inputs": [{"name": "protein_sequence"}]}],
+                seed,
+            )
+            kb.close()
+            self.assertEqual(len(facts), 2)
+            self.assertEqual(facts[0]["type"], "protein")
+            self.assertEqual(facts[0]["value"]["sequence"], "ACDEFG")
 
     def test_prompt_keeps_hidden_toolchain_as_soft_constraint(self) -> None:
         prompt_path = Path(__file__).parents[1] / "configs/prompts/toolchain_question_simple_v1.md"
@@ -113,6 +184,8 @@ class SimpleSamplingTests(unittest.TestCase):
         self.assertIn("hidden toolchain", prompt.lower())
         self.assertIn("never expose", prompt.lower())
         self.assertIn("no human available for follow-up", prompt.lower())
+        self.assertIn("add that prerequisite", prompt.lower())
+        self.assertIn("complete protein sequence", prompt.lower())
 
     def test_simple_output_writer_and_no_hidden_chain_in_question(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -120,6 +193,7 @@ class SimpleSamplingTests(unittest.TestCase):
             (root / "configs/prompts").mkdir(parents=True)
             (root / "configs/prompts/toolchain_question_simple_v1.md").write_text("Generate JSON.", encoding="utf-8")
             (root / "configs/prompts/toolchain_question_json_repair_v1.md").write_text("Repair JSON.", encoding="utf-8")
+            (root / "configs/prompts/toolchain_question_semantic_repair_v1.md").write_text("Repair semantics.", encoding="utf-8")
             (root / "science_kb/processed").mkdir(parents=True)
             (root / "science_kb/manifests").mkdir(parents=True)
             db = root / "science_kb/processed/science_kb.sqlite"
@@ -185,20 +259,82 @@ class SimpleSamplingTests(unittest.TestCase):
             with patch(
                 "molclaw_kg.question_sampling.simple_sampler._call_agent",
                 side_effect=[(followup, json.dumps(followup)), (output, json.dumps(output))],
-            ):
+            ) as call_agent:
                 meta = sample_simple_questions(config, target_successes=1, max_attempts=2, min_hops=1, max_hops=1, seed=1)
             self.assertEqual(meta["success_count"], 1)
+            self.assertFalse(call_agent.call_args_list[0].kwargs["allow_kb_queries"])
+            self.assertTrue(call_agent.call_args_list[1].kwargs["allow_kb_queries"])
             success_rows = read_jsonl(results_dir / "tasks.jsonl")
             self.assertEqual(len(success_rows), 1)
             self.assertIn("FoldX", success_rows[0]["public_question_text"])
             self.assertEqual(success_rows[0]["schema_version"], "tool_kg_task_v1")
             attempts_path = run_dir / "intermediate/stage3/sample_attempts.jsonl"
             attempts = read_jsonl(attempts_path)
-            self.assertEqual(attempts[0]["failure_reason"], "non_rolloutable_user_followup")
+            self.assertEqual(len(attempts), 1)
+            self.assertEqual(attempts[0]["status"], "success")
+            self.assertEqual(attempts[0]["semantic_repair_rounds"], 1)
+            self.assertTrue(attempts[0]["semantic_recovered"])
+            self.assertEqual(attempts[0]["initial_semantic_failure"], "non_rolloutable_user_followup")
+            self.assertEqual(success_rows[0]["toolchain_nodes"], ["foldx_tool", "tool_b"])
             self.assertTrue(attempts_path.is_file())
             self.assertFalse((results_dir / "questions_simple.csv").exists())
             manifest = json.loads((results_dir / "run_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["counts"]["tasks"], 1)
+
+            zero_run = root / "runs/run_zero"
+            zero_results = zero_run / "results"
+            zero_results.mkdir(parents=True)
+            for name in ["graph.jsonl", "tool_catalog.jsonl", "edge_decisions.jsonl", "run_manifest.json"]:
+                shutil.copy2(results_dir / name, zero_results / name)
+            zero_config = SimpleNamespace(
+                paths=SimpleNamespace(root=root, run_dir=zero_run, configs=root / "configs"),
+                runtime=SimpleNamespace(server_url="", api_key=""),
+            )
+            with patch(
+                "molclaw_kg.question_sampling.simple_sampler._call_agent",
+                return_value=(followup, json.dumps(followup)),
+            ) as call_agent:
+                zero_meta = sample_simple_questions(
+                    zero_config,
+                    target_successes=1,
+                    max_attempts=1,
+                    min_hops=1,
+                    max_hops=1,
+                    semantic_repair_rounds=0,
+                    seed=1,
+                )
+            self.assertEqual(zero_meta["success_count"], 0)
+            self.assertEqual(call_agent.call_count, 1)
+            zero_attempt = read_jsonl(zero_run / "intermediate/stage3/sample_attempts.jsonl")[0]
+            self.assertEqual(zero_attempt["failure_reason"], "non_rolloutable_user_followup")
+
+            exhausted_run = root / "runs/run_exhausted"
+            exhausted_results = exhausted_run / "results"
+            exhausted_results.mkdir(parents=True)
+            for name in ["graph.jsonl", "tool_catalog.jsonl", "edge_decisions.jsonl", "run_manifest.json"]:
+                shutil.copy2(results_dir / name, exhausted_results / name)
+            exhausted_config = SimpleNamespace(
+                paths=SimpleNamespace(root=root, run_dir=exhausted_run, configs=root / "configs"),
+                runtime=SimpleNamespace(server_url="", api_key=""),
+            )
+            with patch(
+                "molclaw_kg.question_sampling.simple_sampler._call_agent",
+                side_effect=[
+                    (followup, json.dumps(followup)),
+                    (followup, json.dumps(followup)),
+                ],
+            ) as call_agent:
+                exhausted_meta = sample_simple_questions(
+                    exhausted_config,
+                    target_successes=1,
+                    max_attempts=1,
+                    min_hops=1,
+                    max_hops=1,
+                    semantic_repair_rounds=1,
+                    seed=1,
+                )
+            self.assertEqual(exhausted_meta["success_count"], 0)
+            self.assertEqual(call_agent.call_count, 2)
 
 
 if __name__ == "__main__":

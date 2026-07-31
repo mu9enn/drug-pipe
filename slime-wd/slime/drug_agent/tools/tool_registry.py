@@ -1,35 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-from pathlib import Path
 from typing import Any
+
+from jsonschema import Draft7Validator
 
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.local_tools import LOCAL_TOOL_SPECS, LocalToolExecutor, is_local_tool
 from drug_agent.utils import normalize_tool_name
 
 
-DEFAULT_ALLOWLIST_PATH = Path(__file__).resolve().parent / "allowlist_v0.json"
-
-
-def load_allowlist(path: str | Path | None = None) -> set[str]:
-    p = Path(path) if path is not None else DEFAULT_ALLOWLIST_PATH
-    if not p.exists():
-        return set()
-
-    obj = json.loads(p.read_text(encoding="utf-8"))
-    values = []
-    if isinstance(obj, list):
-        values = obj
-    elif isinstance(obj, dict):
-        values = obj.get("allowed_tools", [])
-
-    out: set[str] = set()
-    for item in values:
-        if isinstance(item, str) and item.strip():
-            out.add(normalize_tool_name(item))
-    return out
+def catalog_sha256(specs: list[dict[str, Any]]) -> str:
+    """Order-independent fingerprint of the runtime's complete tool authority."""
+    normalized = sorted(specs, key=lambda item: str(item.get("name") or ""))
+    payload = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class ToolRegistry:
@@ -39,13 +26,9 @@ class ToolRegistry:
         self,
         executor: MCPToolExecutor,
         *,
-        allowlist: set[str] | None = None,
-        allow_all: bool = False,
         include_local_tools: bool = False,
     ) -> None:
         self.executor = executor
-        self.allowlist = set(allowlist or [])
-        self.allow_all = bool(allow_all)
         self.include_local_tools = bool(include_local_tools)
 
         self._tool_specs: list[dict[str, Any]] = []
@@ -53,14 +36,8 @@ class ToolRegistry:
 
     @classmethod
     def from_env(cls, executor: MCPToolExecutor | None = None) -> "ToolRegistry":
-        allow_all = os.environ.get("DRUG_AGENT_ALLOW_ALL", "0").strip().lower() in {"1", "true", "yes", "on"}
-        allowlist_path = os.environ.get("DRUG_AGENT_ALLOWLIST_PATH")
-        allowlist = load_allowlist(allowlist_path)
-
         return cls(
             executor=executor or MCPToolExecutor(connect_on_init=False),
-            allowlist=allowlist,
-            allow_all=allow_all,
             include_local_tools=os.environ.get("DRUG_AGENT_ENABLE_LOCAL_TOOLS", "1").strip().lower()
             not in {"0", "false", "no", "off"},
         )
@@ -98,6 +75,15 @@ class ToolRegistry:
         self._tool_map = tool_map
         return self._tool_specs
 
+    def install_catalog(self, specs: list[dict[str, Any]]) -> None:
+        """Install a run-authoritative catalog on an isolated task executor."""
+        self._tool_specs = [dict(spec) for spec in specs]
+        self._tool_map = {
+            str(spec["name"]): spec
+            for spec in self._tool_specs
+            if isinstance(spec.get("name"), str) and spec.get("name")
+        }
+
     def load_tool_schema(self, tool_name: str) -> dict[str, Any] | None:
         bare_name = normalize_tool_name(tool_name)
         if self.include_local_tools and is_local_tool(bare_name):
@@ -123,9 +109,6 @@ class ToolRegistry:
             normalized_allowed = {normalize_tool_name(x) for x in allowed_tools if isinstance(x, str)}
             if bare_name not in normalized_allowed:
                 return False, "tool_not_in_sample_allowed_tools"
-
-        if (not is_local_tool(bare_name)) and (not self.allow_all) and self.allowlist and bare_name not in self.allowlist:
-            return False, "tool_not_in_allowlist"
 
         if is_local_tool(bare_name):
             if not self.include_local_tools:
@@ -155,7 +138,7 @@ class ToolRegistry:
             return local_executor.execute(bare_name, arguments)
         return self.executor.execute(bare_name, arguments)
 
-    def validate_arguments_basic(self, tool_name: str, arguments: Any) -> tuple[bool, str | None]:
+    def validate_arguments(self, tool_name: str, arguments: Any) -> tuple[bool, str | None]:
         if not isinstance(arguments, dict):
             return False, "arguments_not_object"
 
@@ -163,30 +146,15 @@ class ToolRegistry:
         if not schema:
             return True, None
 
-        required = schema.get("required", [])
-        if isinstance(required, list):
-            for key in required:
-                if key not in arguments:
-                    return False, f"missing_required_argument:{key}"
-
-        properties = schema.get("properties")
-        if isinstance(properties, dict):
-            for key, value in arguments.items():
-                prop = properties.get(key)
-                if not isinstance(prop, dict):
-                    continue
-                expected_type = prop.get("type")
-                if expected_type == "string" and not isinstance(value, str):
-                    return False, f"invalid_type:{key}:expected_string"
-                if expected_type == "number" and not isinstance(value, (int, float)):
-                    return False, f"invalid_type:{key}:expected_number"
-                if expected_type == "integer" and not isinstance(value, int):
-                    return False, f"invalid_type:{key}:expected_integer"
-                if expected_type == "boolean" and not isinstance(value, bool):
-                    return False, f"invalid_type:{key}:expected_boolean"
-                if expected_type == "array" and not isinstance(value, list):
-                    return False, f"invalid_type:{key}:expected_array"
-                if expected_type == "object" and not isinstance(value, dict):
-                    return False, f"invalid_type:{key}:expected_object"
-
+        errors = sorted(Draft7Validator(schema).iter_errors(arguments), key=lambda item: list(item.path))
+        if errors:
+            error = errors[0]
+            location = ".".join(str(part) for part in error.absolute_path) or "$"
+            return False, f"json_schema:{location}:{error.message}"
         return True, None
+
+    # Transitional method name for callers outside the online mainline. It now
+    # performs complete JSON Schema validation rather than the historical
+    # required/type subset.
+    def validate_arguments_basic(self, tool_name: str, arguments: Any) -> tuple[bool, str | None]:
+        return self.validate_arguments(tool_name, arguments)

@@ -19,9 +19,13 @@ from typing import Any
 from tqdm.auto import tqdm
 
 try:
-    from pipeline.claude_agent.session_capture import run_stream_json, select_attempt
+    from pipeline.claude_agent.session_capture import (
+        next_attempt_index,
+        run_stream_json,
+        select_attempt,
+    )
 except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
-    from session_capture import run_stream_json, select_attempt
+    from session_capture import next_attempt_index, run_stream_json, select_attempt
 
 
 ANSWER_RE = re.compile(r"<answer>([\s\S]*?)</answer>", re.IGNORECASE)
@@ -75,6 +79,25 @@ def _load_expected_mcp_servers(mcp_config_file: Path | None) -> list[str]:
     return out
 
 
+def _load_mcp_tool_timeout_ms(
+    mcp_config_file: Path | None,
+    server_name: str = "molclaw-scp",
+) -> int | None:
+    """Read the effective per-server tool timeout without retaining credentials."""
+    if mcp_config_file is None or not mcp_config_file.is_file():
+        return None
+    try:
+        cfg = json.loads(mcp_config_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    servers = cfg.get("mcpServers") if isinstance(cfg, dict) else None
+    server = servers.get(server_name) if isinstance(servers, dict) else None
+    timeout = server.get("timeout") if isinstance(server, dict) else None
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1000:
+        return None
+    return timeout
+
+
 def _check_session_mcp_ready(
     session_path: Path,
     expected_mcp_servers: list[str],
@@ -83,6 +106,8 @@ def _check_session_mcp_ready(
         return False, "missing_session_file", {}
 
     init_obj: dict[str, Any] | None = None
+    tool_uses: dict[str, str] = {}
+    completed_tool_result_ids: set[str] = set()
     with session_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
@@ -96,15 +121,30 @@ def _check_session_mcp_ready(
                 continue
             if obj.get("type") == "system" and obj.get("subtype") == "init":
                 init_obj = obj
+            message = obj.get("message")
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "tool_use":
+                    tool_id = str(item.get("id") or "").strip()
+                    tool_name = str(item.get("name") or "").strip()
+                    if tool_id and tool_name.startswith("mcp__"):
+                        tool_uses[tool_id] = tool_name
+                elif item.get("type") == "tool_result":
+                    tool_id = str(item.get("tool_use_id") or "").strip()
+                    if tool_id and item.get("is_error") is not True:
+                        completed_tool_result_ids.add(tool_id)
 
-    if init_obj is None:
-        return False, "missing_system_init_event", {}
-
-    tools = init_obj.get("tools")
+    tools = init_obj.get("tools") if init_obj is not None else []
     tools = tools if isinstance(tools, list) else []
     mcp_tools = [t for t in tools if isinstance(t, str) and t.startswith("mcp__")]
 
-    mcp_servers = init_obj.get("mcp_servers")
+    mcp_servers = init_obj.get("mcp_servers") if init_obj is not None else []
     mcp_servers = mcp_servers if isinstance(mcp_servers, list) else []
     status_by_name: dict[str, str] = {}
     for item in mcp_servers:
@@ -115,22 +155,39 @@ def _check_session_mcp_ready(
             continue
         status_by_name[name] = str(item.get("status") or "").strip().lower()
 
+    observed_by_server: dict[str, list[str]] = {}
+    for server_name in expected_mcp_servers:
+        prefix = f"mcp__{server_name}__"
+        observed_by_server[server_name] = sorted(
+            {
+                tool_name
+                for tool_id, tool_name in tool_uses.items()
+                if tool_id in completed_tool_result_ids and tool_name.startswith(prefix)
+            }
+        )
+
     snapshot = {
         "mcp_tools_count": len(mcp_tools),
         "mcp_servers": status_by_name,
+        "observed_mcp_tool_results": observed_by_server,
     }
 
     if expected_mcp_servers:
         for name in expected_mcp_servers:
-            if status_by_name.get(name) != "connected":
+            if status_by_name.get(name) != "connected" and not observed_by_server.get(name):
                 got = status_by_name.get(name, "missing")
                 return False, f"mcp_server_not_connected:{name}:{got}", snapshot
     elif status_by_name and not any(v == "connected" for v in status_by_name.values()):
         return False, "mcp_server_not_connected:any", snapshot
 
-    if not mcp_tools:
+    observed_any = any(observed_by_server.values())
+    if not mcp_tools and not observed_any:
+        if init_obj is None:
+            return False, "missing_system_init_event", snapshot
         return False, "mcp_tools_missing_in_init", snapshot
 
+    if observed_any and any(status_by_name.get(name) != "connected" for name in expected_mcp_servers):
+        return True, "observed_mcp_tool_result", snapshot
     return True, "ok", snapshot
 
 
@@ -672,6 +729,8 @@ def _run_one(
     claude_bin: str,
     prompt: str,
     workdir: Path,
+    archive_root: Path | None = None,
+    attempt_index: int | None = None,
     mcp_config_file: Path | None = None,
     strict_mcp_config: bool = False,
 ) -> dict[str, Any]:
@@ -693,9 +752,78 @@ def _run_one(
         ]
     )
 
-    result = run_stream_json(cmd, cwd=workdir, archive_root=workdir)
+    result = run_stream_json(
+        cmd,
+        cwd=workdir,
+        archive_root=archive_root or workdir,
+        attempt_index=attempt_index,
+    )
     result["command"] = cmd
     return result
+
+
+def _prepare_claude_workdir(
+    target: Path,
+    *,
+    source_claude_dir: Path,
+    source_claude_md: Path,
+    question_payload: dict[str, Any],
+    prompt: str,
+) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    _copy_tree(source_claude_dir, target / ".claude")
+    shutil.copy2(source_claude_md, target / "CLAUDE.md")
+    (target / "question.json").write_text(
+        json.dumps(question_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (target / "prompt.txt").write_text(prompt, encoding="utf-8")
+
+
+def _promote_attempt_workdir(
+    source: Path,
+    canonical: Path,
+    *,
+    attempt_index: int,
+) -> None:
+    """Project one selected attempt into the canonical sample directory."""
+    if not source.is_dir():
+        raise FileNotFoundError(f"Selected Claude attempt workdir not found: {source}")
+    canonical.mkdir(parents=True, exist_ok=True)
+    manifest_path = canonical / "selected_attempt_artifacts.json"
+    previous_manifest = _safe_read_json(manifest_path)
+    for name in previous_manifest.get("promoted_entries", []):
+        if not isinstance(name, str) or not name or Path(name).name != name:
+            continue
+        target = canonical / name
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists() or target.is_symlink():
+            target.unlink()
+
+    immutable_inputs = {".claude", "CLAUDE.md", "question.json", "prompt.txt"}
+    promoted_entries: list[str] = []
+    for item in source.iterdir():
+        if item.name in immutable_inputs:
+            continue
+        target = canonical / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, target)
+        promoted_entries.append(item.name)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "selected_attempt": attempt_index,
+                "selected_attempt_workdir": str(source),
+                "promoted_entries": sorted(promoted_entries),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _run_single_rollout(
@@ -715,9 +843,6 @@ def _run_single_rollout(
 ) -> RolloutResult:
     workdir = _rollout_dir(sample_root, num_rollouts, rollout_index)
     workdir.mkdir(parents=True, exist_ok=True)
-
-    _copy_tree(source_claude_dir, workdir / ".claude")
-    shutil.copy2(source_claude_md, workdir / "CLAUDE.md")
 
     question_payload = {
         "task": task,
@@ -742,14 +867,17 @@ def _run_single_rollout(
             if isinstance(parsed_spec, dict):
                 kg_task_spec = parsed_spec
         question_payload["kg_task_spec"] = kg_task_spec
-    (workdir / "question.json").write_text(
-        json.dumps(question_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    _prepare_claude_workdir(
+        workdir,
+        source_claude_dir=source_claude_dir,
+        source_claude_md=source_claude_md,
+        question_payload=question_payload,
+        prompt=prompt,
     )
-    (workdir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
     session_path = workdir / "complete_session.jsonl"
     expected_mcp_servers = _load_expected_mcp_servers(mcp_config_file)
+    mcp_tool_timeout_ms = _load_mcp_tool_timeout_ms(mcp_config_file)
     enforce_mcp_ready = bool(expected_mcp_servers)
     max_ready_retries = max(0, int(os.environ.get("CLAUDE_MCP_READY_RETRIES", "2")))
     ready_retry_wait_sec = max(0.0, float(os.environ.get("CLAUDE_MCP_READY_RETRY_WAIT_SEC", "2")))
@@ -761,10 +889,26 @@ def _run_single_rollout(
 
     while True:
         mcp_attempts += 1
+        archive_attempt_index = next_attempt_index(workdir)
+        attempt_workdir = (
+            workdir
+            / "attempts"
+            / f"attempt_{archive_attempt_index:04d}"
+            / "workdir"
+        )
+        _prepare_claude_workdir(
+            attempt_workdir,
+            source_claude_dir=source_claude_dir,
+            source_claude_md=source_claude_md,
+            question_payload=question_payload,
+            prompt=prompt,
+        )
         cli_meta = _run_one(
             claude_bin=claude_bin,
             prompt=prompt,
-            workdir=workdir,
+            workdir=attempt_workdir,
+            archive_root=workdir,
+            attempt_index=archive_attempt_index,
             mcp_config_file=mcp_config_file,
             strict_mcp_config=strict_mcp_config,
         )
@@ -774,12 +918,18 @@ def _run_single_rollout(
         if not enforce_mcp_ready:
             mcp_ready = True
             mcp_ready_reason = "mcp_check_skipped_no_expected_server"
+            cli_meta["mcp_ready"] = mcp_ready
+            cli_meta["mcp_ready_reason"] = mcp_ready_reason
+            cli_meta["mcp_snapshot"] = mcp_snapshot
             break
 
         mcp_ready, mcp_ready_reason, mcp_snapshot = _check_session_mcp_ready(
             session_path=attempt_session_path,
             expected_mcp_servers=expected_mcp_servers,
         )
+        cli_meta["mcp_ready"] = mcp_ready
+        cli_meta["mcp_ready_reason"] = mcp_ready_reason
+        cli_meta["mcp_snapshot"] = mcp_snapshot
         if mcp_ready:
             break
         if int(cli_meta.get("return_code", 0)) in {124, 127}:
@@ -788,6 +938,12 @@ def _run_single_rollout(
             break
         time.sleep(ready_retry_wait_sec)
 
+    selected_attempt_workdir = Path(str(cli_meta["workdir"]))
+    _promote_attempt_workdir(
+        selected_attempt_workdir,
+        workdir,
+        attempt_index=int(cli_meta["attempt_index"]),
+    )
     selected_session = select_attempt(cli_meta, session_path)
     if not bool(cli_meta.get("raw_session_valid")) and int(cli_meta.get("return_code", 0)) == 0:
         cli_meta["return_code"] = 97
@@ -802,7 +958,7 @@ def _run_single_rollout(
     if not answer_block:
         answer_block = _extract_answer_block(raw_transcript)
     if not answer_block and task in {"ac", "pf", "e2e", "kg"}:
-        # AC/PF uses skills_full prompt that may omit XML tags; fallback to final result text.
+        # The canonical MolClaw prompt may omit XML tags; fall back to final result text.
         answer_block = _extract_code_block_text(result_text) or result_text or session_text
 
     parsed_answer, parse_error, parse_source, parse_attempts, raw_answer_len = _parse_answer_with_fallback(
@@ -857,8 +1013,10 @@ def _run_single_rollout(
         "mcp_ready_reason": mcp_ready_reason,
         "mcp_attempts": mcp_attempts,
         "mcp_snapshot": mcp_snapshot,
+        "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
         "claude_attempts": claude_attempts,
         "selected_claude_attempt": int(cli_meta["attempt_index"]),
+        "selected_attempt_workdir": str(selected_attempt_workdir),
         "selected_session_byte_count": selected_session["byte_count"],
         "selected_session_sha256": selected_session["sha256"],
         "raw_session_valid": bool(selected_session["raw_session_valid"]),
@@ -996,7 +1154,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run MolBench tasks with Claude CLI and stream-json logs.")
     parser.add_argument("--task", choices=["vs", "ac", "pf", "e2e", "kg"], default="vs")
     parser.add_argument("--dataset-csv", default="molbench/molbench-vs-900.csv")
-    parser.add_argument("--skills-root", default="skills")
+    parser.add_argument("--skills-root", default="../molclaw-skills")
     parser.add_argument("--results-root", default="results")
     parser.add_argument("--system-prompt-file", default="", help="Optional prompt filename under skills root")
     parser.add_argument("--provider", default=os.environ.get("CC_SWITCH_PROVIDER", "manual"))
@@ -1006,7 +1164,18 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="max number of rows after slicing; 0 means no limit")
     parser.add_argument("--num-rollouts", type=int, default=1, help="how many rollouts to sample per task row")
     parser.add_argument("--rollout-seed-base", type=int, default=0, help="metadata-only seed base for rollouts")
-    parser.add_argument("--parallel-rollouts", type=int, default=1, help="parallel worker count for per-row rollouts")
+    parser.add_argument(
+        "--parallel-rollouts",
+        type=int,
+        default=1,
+        help="Compatibility worker setting; used only when --max-workers is not set.",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=int(os.environ.get("MAX_WORKERS", "0") or 0),
+        help="Maximum concurrent Claude invocations across task rows and rollouts; 0 uses --parallel-rollouts.",
+    )
     parser.add_argument("--mcp-config-file", default="", help="Optional MCP config JSON path passed to Claude CLI")
     parser.add_argument("--strict-mcp-config", action="store_true", help="Use Claude --strict-mcp-config")
     parser.add_argument("--skip-provider-switch", action="store_true")
@@ -1018,6 +1187,9 @@ def main() -> None:
         raise ValueError("--num-rollouts must be >= 1")
     if args.parallel_rollouts < 1:
         raise ValueError("--parallel-rollouts must be >= 1")
+    if args.max_workers < 0:
+        raise ValueError("--max-workers must be >= 0")
+    max_workers = args.max_workers or args.parallel_rollouts
 
     repo_root = Path(__file__).resolve().parents[2]
     dataset_csv = Path(args.dataset_csv)
@@ -1035,7 +1207,7 @@ def main() -> None:
         if not mcp_config_file.is_absolute():
             mcp_config_file = (repo_root / mcp_config_file).resolve()
 
-    default_prompt_name = "system_prompt_result.md" if args.task == "vs" else "system_prompt_FULL.md"
+    default_prompt_name = "system_prompt_FULL.md"
     prompt_name = args.system_prompt_file.strip() or default_prompt_name
     prompt_path = Path(prompt_name)
     if prompt_path.is_absolute():
@@ -1054,6 +1226,7 @@ def main() -> None:
         raise FileNotFoundError(f"skills CLAUDE.md not found: {source_claude_md}")
     if mcp_config_file is not None and not mcp_config_file.is_file():
         raise FileNotFoundError(f"mcp config file not found: {mcp_config_file}")
+    mcp_tool_timeout_ms = _load_mcp_tool_timeout_ms(mcp_config_file)
 
     system_prompt = system_prompt_file.read_text(encoding="utf-8")
     all_samples = _load_samples(dataset_csv, args.task)
@@ -1087,8 +1260,10 @@ def main() -> None:
         "system_prompt_file": str(system_prompt_file),
         "num_rollouts": args.num_rollouts,
         "parallel_rollouts": args.parallel_rollouts,
+        "max_workers": max_workers,
         "rollout_seed_base": args.rollout_seed_base,
         "mcp_config_file": str(mcp_config_file) if mcp_config_file is not None else "",
+        "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
         "strict_mcp_config": bool(args.strict_mcp_config),
         "selected_rows": len(selected),
         "timestamp": ts,
@@ -1101,11 +1276,12 @@ def main() -> None:
     with summary_path.open("w", encoding="utf-8") as summary_f:
         print(
             f"[route] task={args.task} skills_root={skills_root} system_prompt={system_prompt_file} "
-            f"mcp_config={mcp_config_file if mcp_config_file is not None else '(default)'} strict_mcp={int(bool(args.strict_mcp_config))}",
+            f"mcp_config={mcp_config_file if mcp_config_file is not None else '(default)'} "
+            f"strict_mcp={int(bool(args.strict_mcp_config))} mcp_tool_timeout_ms={mcp_tool_timeout_ms}",
             flush=True,
         )
-        progress = tqdm(selected, total=len(selected), desc=f"MolBench-{args.task.upper()}", unit="sample")
-        for s in progress:
+        prepared: list[tuple[Sample, Path, str]] = []
+        for s in selected:
             sample_name = f"row{s.row_number:04d}_idx{_safe_name(s.dataset_index)}"
             sample_root = run_dir / sample_name
             sample_root.mkdir(parents=True, exist_ok=True)
@@ -1127,53 +1303,47 @@ def main() -> None:
             )
 
             prompt = _build_prompt(system_prompt, s.question_text, args.task)
+            prepared.append((s, sample_root, prompt))
 
-            results: list[RolloutResult] = []
-            rollout_indices = list(range(1, args.num_rollouts + 1))
-            workers = min(args.parallel_rollouts, args.num_rollouts)
+        results_by_row: dict[int, list[RolloutResult]] = {s.row_number: [] for s in selected}
+        jobs = [
+            (s, sample_root, prompt, rollout_index)
+            for s, sample_root, prompt in prepared
+            for rollout_index in range(1, args.num_rollouts + 1)
+        ]
+        print(
+            f"[run] selected_tasks={len(selected)} total_claude_invocations={len(jobs)} "
+            f"max_workers={max_workers}",
+            flush=True,
+        )
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _run_single_rollout,
+                    task=args.task,
+                    sample=s,
+                    sample_root=sample_root,
+                    rollout_index=rollout_index,
+                    num_rollouts=args.num_rollouts,
+                    prompt=prompt,
+                    source_claude_dir=source_claude_dir,
+                    source_claude_md=source_claude_md,
+                    provider=args.provider,
+                    claude_bin=args.claude_bin,
+                    mcp_config_file=mcp_config_file,
+                    strict_mcp_config=bool(args.strict_mcp_config),
+                ): s.row_number
+                for s, sample_root, prompt, rollout_index in jobs
+            }
+            progress = tqdm(total=len(jobs), desc=f"MolBench-{args.task.upper()}", unit="rollout")
+            for future in as_completed(futures):
+                row_number = futures[future]
+                results_by_row[row_number].append(future.result())
+                progress.update(1)
+            progress.close()
 
-            if workers <= 1 or args.num_rollouts == 1:
-                for r_idx in rollout_indices:
-                    results.append(
-                        _run_single_rollout(
-                            task=args.task,
-                            sample=s,
-                            sample_root=sample_root,
-                            rollout_index=r_idx,
-                            num_rollouts=args.num_rollouts,
-                            prompt=prompt,
-                            source_claude_dir=source_claude_dir,
-                            source_claude_md=source_claude_md,
-                            provider=args.provider,
-                            claude_bin=args.claude_bin,
-                            mcp_config_file=mcp_config_file,
-                            strict_mcp_config=bool(args.strict_mcp_config),
-                        )
-                    )
-            else:
-                with ThreadPoolExecutor(max_workers=workers) as ex:
-                    futures = [
-                        ex.submit(
-                            _run_single_rollout,
-                            task=args.task,
-                            sample=s,
-                            sample_root=sample_root,
-                            rollout_index=r_idx,
-                            num_rollouts=args.num_rollouts,
-                            prompt=prompt,
-                            source_claude_dir=source_claude_dir,
-                            source_claude_md=source_claude_md,
-                            provider=args.provider,
-                            claude_bin=args.claude_bin,
-                            mcp_config_file=mcp_config_file,
-                            strict_mcp_config=bool(args.strict_mcp_config),
-                        )
-                        for r_idx in rollout_indices
-                    ]
-                    for fut in as_completed(futures):
-                        results.append(fut.result())
-
-            results.sort(key=lambda x: x.rollout_index)
+        for s in selected:
+            results = sorted(results_by_row[s.row_number], key=lambda item: item.rollout_index)
 
             for rr in results:
                 summary_entry = {
@@ -1224,14 +1394,6 @@ def main() -> None:
                     f"[run] task={args.task} row={s.row_number} idx={s.dataset_index} rollout={rr.rollout_index} "
                     f"rc={rr.return_code} timeout={int(rr.timed_out)} answer_n={len(rr.answer)} parse={rr.parse_source}"
                 )
-
-            primary = results[0] if results else None
-            progress.set_postfix(
-                row=s.row_number,
-                rc=primary.return_code if primary else -1,
-                timeout=1 if (primary and primary.timed_out) else 0,
-                answer_n=len(primary.answer) if primary else 0,
-            )
 
     preds_dir = run_dir / "preds" / f"molbench_{args.task}"
     preds_dir.mkdir(parents=True, exist_ok=True)

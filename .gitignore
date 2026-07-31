@@ -24,6 +24,7 @@ dist/
 .ms_upload_cache
 
 # Generated runs and archives
+/cached/
 runs/*
 !runs/.gitkeep
 runs.tar.gz

@@ -9,11 +9,12 @@ ENV_FILE="$ROOT_DIR/.env"
 
 SEED=""
 N_CASES=""
+MAX_WORKERS="${MAX_WORKERS:-1}"
 
 usage() {
   cat <<USAGE
 Usage:
-  bash scripts/run_molbench_workflow.sh --seed 609 --n-cases 1
+  bash scripts/run_molbench_workflow.sh --seed 609 --n-cases 1 [--max-workers 2]
 
 Description:
   1) Generate AC/VS/PF datasets under get-molbench/outputs/auto/{ac,vs,pf}
@@ -35,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       N_CASES="$2"
       shift 2
       ;;
+    --max-workers)
+      MAX_WORKERS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -53,13 +58,13 @@ if [[ -z "$SEED" || -z "$N_CASES" ]]; then
   exit 1
 fi
 
-if ! [[ "$SEED" =~ ^[0-9]+$ && "$N_CASES" =~ ^[0-9]+$ ]]; then
-  echo "[error] --seed and --n-cases must be non-negative integers" >&2
+if ! [[ "$SEED" =~ ^[0-9]+$ && "$N_CASES" =~ ^[0-9]+$ && "$MAX_WORKERS" =~ ^[0-9]+$ ]]; then
+  echo "[error] --seed, --n-cases, and --max-workers must be non-negative integers" >&2
   exit 1
 fi
 
-if (( N_CASES <= 0 )); then
-  echo "[error] --n-cases must be > 0" >&2
+if (( N_CASES <= 0 || MAX_WORKERS <= 0 )); then
+  echo "[error] --n-cases and --max-workers must be > 0" >&2
   exit 1
 fi
 
@@ -172,9 +177,9 @@ else
     'export MOLCLAW_SCP_MCP_URL=%q MOLCLAW_SCP_MCP_AUTH_HEADER=%q MOLCLAW_SCP_MCP_AUTH=%q PYTHON_BIN=%q; ' \
     "$MOLCLAW_SCP_MCP_URL" "$MOLCLAW_SCP_MCP_AUTH_HEADER" "$MOLCLAW_SCP_MCP_AUTH" "$PYTHON_BIN"
 fi
-VS_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 vs $VS_CSV 1"
-AC_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 ac $AC_CSV 1"
-PF_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 pf $PF_CSV 1"
+VS_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 vs $VS_CSV 1 $MAX_WORKERS"
+AC_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 ac $AC_CSV 1 $MAX_WORKERS"
+PF_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 pf $PF_CSV 1 $MAX_WORKERS"
 
 tmux send-keys -t pipe-vs-1:0 "$VS_CMD" C-m
 tmux send-keys -t pipe-ac-2:0 "$AC_CMD" C-m

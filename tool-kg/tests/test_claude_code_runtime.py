@@ -15,7 +15,7 @@ class ClaudeCodeRuntimeCaptureTest(unittest.TestCase):
         executable = root / "fake-claude"
         executable.write_text(
             "#!/usr/bin/env python3\n"
-            "import json\n"
+            "import json, os\n"
             "from pathlib import Path\n"
             "counter = Path('invocations.txt')\n"
             "n = int(counter.read_text()) + 1 if counter.exists() else 1\n"
@@ -24,7 +24,10 @@ class ClaudeCodeRuntimeCaptureTest(unittest.TestCase):
             "print(json.dumps({'type':'system','subtype':'init',"
             "'tools':['mcp__molclaw-scp__x'],"
             "'mcp_servers':[{'name':'molclaw-scp','status':status}]}), flush=True)\n"
-            "print(json.dumps({'type':'result','result':'{\"ok\":true}'}), flush=True)\n",
+            "print(json.dumps({'type':'result','result':'{\"ok\":true}'}), flush=True)\n"
+            "Path('claude_environment.json').write_text(json.dumps({"
+            "'concurrency': os.environ.get('CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY'),"
+            "'background_disabled': os.environ.get('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')}))\n",
             encoding="utf-8",
         )
         executable.chmod(0o755)
@@ -42,7 +45,14 @@ class ClaudeCodeRuntimeCaptureTest(unittest.TestCase):
             runtime = ClaudeCodeRuntime(config)
             runtime.claude_bin = str(self._fake_claude(root))
             workdir = root / "work"
-            run = runtime.run_prompt("prompt", run_label="test", workdir=workdir)
+            run = runtime.run_prompt(
+                "prompt",
+                run_label="test",
+                workdir=workdir,
+                builtin_tools="Read",
+                allowed_tools="Read",
+                disallowed_tools="Bash,WebSearch,Agent",
+            )
 
             self.assertTrue(run.ok)
             self.assertEqual(run.selected_claude_attempt, 2)
@@ -58,6 +68,12 @@ class ClaudeCodeRuntimeCaptureTest(unittest.TestCase):
             )
             self.assertNotIn("[agent-mcp-not-ready]", first.read_text())
             self.assertNotIn("[agent-mcp-not-ready]", canonical.read_text())
+            self.assertIn("--tools Read", run.command)
+            self.assertIn("--allowedTools Read", run.command)
+            self.assertIn("--disallowedTools Bash,WebSearch,Agent", run.command)
+            claude_env = json.loads((workdir / "claude_environment.json").read_text())
+            self.assertEqual(claude_env["concurrency"], "2")
+            self.assertEqual(claude_env["background_disabled"], "1")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import ray
 
 from slime.ray.placement_group import create_placement_groups, create_rollout_manager, create_training_models
 from slime.utils.arguments import parse_args
+from slime.utils.checkpoint_retention import prune_checkpoint_root
 from slime.utils.logging_utils import configure_logger, finish_tracking, init_tracking, update_tracking_open_metrics
 from slime.utils.misc import should_run_periodic_action
 
@@ -50,18 +51,21 @@ def train(args):
 
     def save(rollout_id):
         actor_trains_this_step = (not args.use_critic) or rollout_id >= args.num_critic_only_steps
+        force_sync = rollout_id == args.num_rollout - 1 or args.save_retain_last is not None
         if actor_trains_this_step:
             actor_model.save_model(
                 rollout_id,
-                force_sync=rollout_id == args.num_rollout - 1,
+                force_sync=force_sync,
             )
         if args.use_critic:
             critic_model.save_model(
                 rollout_id,
-                force_sync=rollout_id == args.num_rollout - 1,
+                force_sync=force_sync,
             )
         if args.rollout_global_dataset:
             ray.get(rollout_manager.save.remote(rollout_id))
+        if actor_trains_this_step and args.save_retain_last is not None:
+            prune_checkpoint_root(args.save, args.save_retain_last, expected_iteration=rollout_id)
 
     # train loop.
     for rollout_id in range(args.start_rollout_id, args.num_rollout):

@@ -3,13 +3,23 @@ from __future__ import annotations
 import json
 import unittest
 
-from drug_agent.protocol.react_protocol import parse_react_sequence, parse_runtime_decision, project_final_answer
+from drug_agent.protocol.react_protocol import (
+    final_answer_matches_task,
+    parse_react_sequence,
+    parse_runtime_decision,
+    project_final_answer,
+)
 
 
 class CanonicalFinalAnswerTest(unittest.TestCase):
     def _parse(self, payload: dict) -> dict:
         content = f"<final_answer>{json.dumps(payload)}</final_answer>"
         return parse_react_sequence(content, role="assistant")
+
+    def test_terminal_task_type_must_match_active_task(self) -> None:
+        payload = {"task_type": "ac", "answer_smiles": "CCO", "evidence": []}
+        self.assertTrue(final_answer_matches_task(payload, "ac"))
+        self.assertFalse(final_answer_matches_task(payload, "vs"))
 
     def test_accepts_data_pipe_task_specific_finals(self) -> None:
         payloads = [
@@ -86,6 +96,35 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
     def test_projects_task_specific_final(self) -> None:
         self.assertEqual(project_final_answer({"task_type": "vs", "ranked_smiles": ["CCO"]}), ["CCO"])
         self.assertEqual(project_final_answer({"task_type": "kg", "result": "artifact"}), "artifact")
+
+    def test_strips_one_leading_empty_qwen_think_envelope(self) -> None:
+        parsed = parse_react_sequence(
+            "\n<think>\n\n</think>\n\n"
+            '<thought>inspect the structure</thought>'
+            '<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>'
+            "<|im_end|>\n",
+            role="assistant",
+        )
+        self.assertTrue(parsed["ok"])
+        self.assertEqual([block["kind"] for block in parsed["blocks"]], ["thought", "tool_call"])
+
+    def test_rejects_nonempty_native_qwen_think(self) -> None:
+        parsed = parse_react_sequence(
+            "<think>native hidden reasoning</think>"
+            '<thought>inspect the structure</thought>'
+            '<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>',
+            role="assistant",
+        )
+        self.assertFalse(parsed["ok"])
+        self.assertEqual(parsed["error_type"], "ReactFormatError")
+
+    def test_rejects_qwen_end_token_outside_terminal_transport_position(self) -> None:
+        parsed = parse_react_sequence(
+            '<thought>inspect the structure</thought><|im_end|>'
+            '<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>',
+            role="assistant",
+        )
+        self.assertFalse(parsed["ok"])
 
 
 if __name__ == "__main__":

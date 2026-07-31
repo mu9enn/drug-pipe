@@ -47,6 +47,7 @@ HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-0.8B}
 REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-0.8B_torch_dist}
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-0.8B_toolrl_grpo}
 SAVE_INTERVAL=${SAVE_INTERVAL:-1}
+CHECKPOINT_KEEP_LAST=${CHECKPOINT_KEEP_LAST:-2}
 LOAD=${LOAD:-}
 TOOLRL_RESUME=${TOOLRL_RESUME:-0}
 
@@ -61,6 +62,8 @@ TOOLRL_REWARD_MODE=${TOOLRL_REWARD_MODE:-official}
 ROLLOUT_MAX_RESPONSE_LEN=${ROLLOUT_MAX_RESPONSE_LEN:-2048}
 ROLLOUT_MAX_PROMPT_LEN=${ROLLOUT_MAX_PROMPT_LEN:-}
 ROLLOUT_MAX_CONTEXT_LEN=${ROLLOUT_MAX_CONTEXT_LEN:-}
+ROLLOUT_TEMPERATURE=${ROLLOUT_TEMPERATURE:-1.0}
+SGLANG_MEM_FRACTION_STATIC=${SGLANG_MEM_FRACTION_STATIC:-0.75}
 GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-8}
 NUM_EPOCH=${NUM_EPOCH:-1}
 LR=${LR:-1e-6}
@@ -73,6 +76,9 @@ EXPERT_TENSOR_PARALLEL_SIZE=${EXPERT_TENSOR_PARALLEL_SIZE:-1}
 ROLLOUT_NUM_GPUS_PER_ENGINE=${ROLLOUT_NUM_GPUS_PER_ENGINE:-1}
 RECOMPUTE_FULL=${RECOMPUTE_FULL:-0}
 RECOMPUTE_NUM_LAYERS=${RECOMPUTE_NUM_LAYERS:-1}
+RECOMPUTE_LOSS_FUNCTION=${RECOMPUTE_LOSS_FUNCTION:-1}
+LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
+APPLY_CHAT_TEMPLATE_KWARGS=${APPLY_CHAT_TEMPLATE_KWARGS:-'{"enable_thinking":false}'}
 
 MODEL_PARALLEL_SIZE=$((TENSOR_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE * CONTEXT_PARALLEL_SIZE * EXPERT_MODEL_PARALLEL_SIZE))
 if [ "$MODEL_PARALLEL_SIZE" -le 0 ] || [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne 0 ]; then
@@ -115,6 +121,7 @@ CKPT_ARGS=(
   --ref-load "$REF_LOAD"
   --save "$SAVE_DIR"
   --save-interval "$SAVE_INTERVAL"
+  --save-retain-last "$CHECKPOINT_KEEP_LAST"
 )
 if [ -n "$LOAD" ]; then
   CKPT_ARGS+=(--load "$LOAD")
@@ -133,6 +140,7 @@ TOOLRL_ARGS=(
   --label-key label
   --metadata-key metadata
   --apply-chat-template
+  --apply-chat-template-kwargs "$APPLY_CHAT_TEMPLATE_KWARGS"
   --rollout-shuffle
 
   --advantage-estimator grpo
@@ -144,7 +152,9 @@ TOOLRL_ARGS=(
   --rollout-batch-size "$ROLLOUT_BATCH_SIZE"
   --n-samples-per-prompt "$N_SAMPLES_PER_PROMPT"
   --rollout-max-response-len "$ROLLOUT_MAX_RESPONSE_LEN"
+  --rollout-temperature "$ROLLOUT_TEMPERATURE"
   --rollout-num-gpus-per-engine "$ROLLOUT_NUM_GPUS_PER_ENGINE"
+  --sglang-mem-fraction-static "$SGLANG_MEM_FRACTION_STATIC"
   --global-batch-size "$GLOBAL_BATCH_SIZE"
   --balance-data
 )
@@ -163,6 +173,7 @@ PERF_ARGS=(
   --expert-tensor-parallel-size "$EXPERT_TENSOR_PARALLEL_SIZE"
   --use-dynamic-batch-size
   --max-tokens-per-gpu "$MAX_TOKENS_PER_GPU"
+  --log-probs-chunk-size "$LOG_PROBS_CHUNK_SIZE"
 )
 if [ "$TENSOR_MODEL_PARALLEL_SIZE" -gt 1 ]; then
   PERF_ARGS+=(--sequence-parallel)
@@ -173,6 +184,9 @@ if [ "$RECOMPUTE_FULL" = "1" ]; then
     --recompute-method uniform
     --recompute-num-layers "$RECOMPUTE_NUM_LAYERS"
   )
+fi
+if [ "$RECOMPUTE_LOSS_FUNCTION" = "1" ]; then
+  PERF_ARGS+=(--recompute-loss-function)
 fi
 
 OPTIMIZER_ARGS=(

@@ -4,9 +4,11 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
 import shutil
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
@@ -344,8 +346,11 @@ def llm_clean(
     claude_bin: str = "claude",
     timeout_sec: float = 300.0,
     limit: int = 0,
+    max_workers: int = 1,
     patch_provider: PatchProvider | None = None,
 ) -> dict[str, Any]:
+    if max_workers < 1:
+        raise ValueError("max_workers must be >= 1")
     input_path = input_path.resolve()
     output_root = output_root.resolve()
     python_audit_path = (python_audit_path or input_path.with_name("python_audit.jsonl")).resolve()
@@ -371,9 +376,9 @@ def llm_clean(
     processed: list[dict[str, Any]] = []
     finalized_python_rejected = [_finalize_python_rejection(row) for row in python_rejected]
     rejected: list[dict[str, Any]] = [*finalized_python_rejected]
-    for draft in drafts:
-        if limit > 0 and len(processed) >= limit:
-            break
+    selected_drafts = drafts[:limit] if limit > 0 else drafts
+    clean_inputs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for draft in selected_drafts:
         record_id = str(draft.get("id") or "")
         schema_errors = react_schema_findings(draft)
         python_audit = audits_by_id.get(record_id)
@@ -384,7 +389,17 @@ def llm_clean(
             )
         if python_audit is None or python_audit.get("python_status") != "python_valid":
             raise ValueError(f"missing or invalid Python audit for draft {record_id!r}")
-        processed.append(clean_draft(draft, python_audit, provider))
+        clean_inputs.append((draft, python_audit))
+
+    ordered_results: list[dict[str, Any] | None] = [None] * len(clean_inputs)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(clean_draft, draft, python_audit, provider): index
+            for index, (draft, python_audit) in enumerate(clean_inputs)
+        }
+        for future in as_completed(futures):
+            ordered_results[futures[future]] = future.result()
+    processed = [item for item in ordered_results if item is not None]
 
     accepted = [item for item in processed if item["audit"]["final_status"] == "accepted"]
     llm_status_hist = Counter(
@@ -424,6 +439,7 @@ def llm_clean(
         ),
         "claude_bin": claude_bin,
         "timeout_sec": timeout_sec,
+        "max_workers": max_workers,
         "outputs": {name: str(path) for name, path in outputs.items()},
     }
     write_json(outputs["run_manifest"], manifest)
@@ -438,6 +454,7 @@ def main() -> None:
     parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--timeout-sec", type=float, default=300.0)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--max-workers", type=int, default=int(os.environ.get("MAX_WORKERS", "1") or 1))
     args = parser.parse_args()
     result = llm_clean(
         Path(args.input),
@@ -446,6 +463,7 @@ def main() -> None:
         claude_bin=args.claude_bin,
         timeout_sec=args.timeout_sec,
         limit=args.limit,
+        max_workers=args.max_workers,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

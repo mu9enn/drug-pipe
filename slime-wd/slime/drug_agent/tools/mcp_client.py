@@ -44,7 +44,10 @@ class MCPClient:
         except Exception as exc:
             raise RuntimeError("Cannot import MCP SDK. Install with: pip install -U mcp") from exc
 
-        headers = {"SCP-HUB-API-KEY": self.api_key}
+        header_name = os.environ.get("MOLCLAW_SCP_AUTH_HEADER", "SCP-HUB-API-KEY").strip()
+        if not header_name or any(char in header_name for char in "\r\n:"):
+            raise RuntimeError("MOLCLAW_SCP_AUTH_HEADER is invalid")
+        headers = {header_name: self.api_key}
         self._transport_ctx = streamablehttp_client(url=self.server_url, headers=headers)
 
         try:
@@ -60,17 +63,26 @@ class MCPClient:
         return True
 
     async def disconnect(self) -> None:
+        first_error: Exception | None = None
         try:
             if self._session_ctx is not None:
                 await self._session_ctx.__aexit__(None, None, None)
+        except Exception as exc:
+            first_error = exc
         finally:
             self._session_ctx = None
             self._session = None
             self._connected = False
 
-        if self._transport_ctx is not None:
-            await self._transport_ctx.__aexit__(None, None, None)
+        try:
+            if self._transport_ctx is not None:
+                await self._transport_ctx.__aexit__(None, None, None)
+        except Exception as exc:
+            first_error = first_error or exc
+        finally:
             self._transport_ctx = None
+        if first_error is not None:
+            raise first_error
 
     async def list_tools(self) -> Any:
         await self._ensure_connected()
@@ -83,24 +95,35 @@ class MCPClient:
 
     def parse_result(self, result: Any) -> dict[str, Any]:
         try:
+            structured = getattr(result, "structuredContent", None)
+            if structured is None:
+                structured = getattr(result, "structured_content", None)
+            if structured is None and isinstance(result, dict):
+                structured = result.get("structuredContent") or result.get("structured_content")
+            if isinstance(structured, dict):
+                return to_jsonable(structured)
             content = getattr(result, "content", None)
+            if content is None and isinstance(result, dict):
+                content = result.get("content")
             if isinstance(content, list) and content:
-                first = content[0]
-                text = getattr(first, "text", None)
-                if isinstance(text, str):
+                parsed_items: list[Any] = []
+                for item in content:
+                    text = getattr(item, "text", None)
+                    if text is None and isinstance(item, dict):
+                        text = item.get("text")
+                    if not isinstance(text, str):
+                        parsed_items.append(to_jsonable(item))
+                        continue
                     try:
-                        return json.loads(text)
+                        parsed_items.append(json.loads(text))
                     except Exception:
-                        return {"text": text}
-                if isinstance(first, dict):
-                    text_value = first.get("text")
-                    if isinstance(text_value, str):
-                        try:
-                            return json.loads(text_value)
-                        except Exception:
-                            return {"text": text_value}
-                    return to_jsonable(first)
-                return to_jsonable(first)
+                        parsed_items.append({"text": text})
+                if len(parsed_items) == 1 and isinstance(parsed_items[0], dict):
+                    return parsed_items[0]
+                is_error = getattr(result, "isError", None)
+                if is_error is None and isinstance(result, dict):
+                    is_error = result.get("isError")
+                return {"content": parsed_items, "is_error": bool(is_error)}
             if isinstance(result, dict):
                 return to_jsonable(result)
             return {"raw": str(result)}

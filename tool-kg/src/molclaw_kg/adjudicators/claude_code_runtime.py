@@ -17,6 +17,16 @@ from ..settings import ProjectConfig
 
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json|JSON)?\s*([\s\S]*?)```")
+_CLAUDE_CODE_EXECUTION_ENV = {
+    "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY": "2",
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+}
+
+
+def _claude_code_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(_CLAUDE_CODE_EXECUTION_ENV)
+    return env
 
 
 def safe_name(text: str) -> str:
@@ -234,7 +244,9 @@ class ClaudeCodeRuntime:
         *,
         run_label: str,
         add_dirs: list[Path] | None = None,
+        builtin_tools: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
         workdir: Path | None = None,
         mcp_servers: dict[str, dict[str, Any]] | None = None,
         expected_mcp_servers: list[str] | None = None,
@@ -281,8 +293,12 @@ class ClaudeCodeRuntime:
             ]
             for p in add_dirs or []:
                 cmd.extend(["--add-dir", str(p)])
+            if builtin_tools:
+                cmd.extend(["--tools", builtin_tools])
             if allowed_tools:
                 cmd.extend(["--allowedTools", allowed_tools])
+            if disallowed_tools:
+                cmd.extend(["--disallowedTools", disallowed_tools])
             cmd.append("-p")
 
             actual_workdir = (workdir or self.config.paths.root).resolve()
@@ -312,6 +328,7 @@ class ClaudeCodeRuntime:
                         proc = subprocess.run(
                             cmd,
                             cwd=str(actual_workdir),
+                            env=_claude_code_environment(),
                             input=prompt.encode("utf-8"),
                             stdout=session_f,
                             stderr=subprocess.STDOUT,

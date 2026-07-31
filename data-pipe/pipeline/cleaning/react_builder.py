@@ -107,7 +107,7 @@ def bare_tool_name(raw_name: str) -> str | None:
 
 
 def _l1_skill_names() -> frozenset[str]:
-    skill_root = Path(__file__).resolve().parents[2] / "skills" / "skills_full" / ".claude" / "skills" / "L1_tools"
+    skill_root = Path(__file__).resolve().parents[3] / "molclaw-skills" / ".claude" / "skills" / "L1_tools"
     if not skill_root.is_dir():
         return frozenset()
     return frozenset(path.name for path in skill_root.iterdir() if path.is_dir())

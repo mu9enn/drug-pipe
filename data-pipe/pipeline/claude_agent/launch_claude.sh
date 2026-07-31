@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPELINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="$(cd "$PIPELINE_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$REPO_DIR/.." && pwd)"
 cd "$REPO_DIR"
 
 # Auto-load shared env file from the merged workspace root if present.
@@ -31,6 +32,7 @@ MCP_SERVER_URL="${MOLCLAW_SCP_MCP_URL:-}"
 MCP_SERVER_AUTH="${MOLCLAW_SCP_MCP_AUTH:-}"
 MCP_SERVER_AUTH_HEADER="${MOLCLAW_SCP_MCP_AUTH_HEADER:-SCP-HUB-API-KEY}"
 MCP_SERVER_SCOPE="${MCP_SERVER_SCOPE:-project}"
+MCP_SERVER_TOOL_TIMEOUT_MS="${MOLCLAW_MCP_TOOL_TIMEOUT_MS:-14400000}"
 
 # Single-sample mode options
 WORKDIR=""
@@ -47,6 +49,7 @@ LIMIT=0
 NUM_ROLLOUTS=1
 ROLLOUT_SEED_BASE=0
 PARALLEL_ROLLOUTS=1
+MAX_WORKERS="${MAX_WORKERS:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -84,6 +87,8 @@ while [[ $# -gt 0 ]]; do
       ROLLOUT_SEED_BASE="$2"; shift 2 ;;
     --parallel-rollouts)
       PARALLEL_ROLLOUTS="$2"; shift 2 ;;
+    --max-workers)
+      MAX_WORKERS="$2"; shift 2 ;;
     --skip-provider-switch)
       SKIP_PROVIDER_SWITCH=1; shift ;;
     --skip-mcp-verify)
@@ -104,6 +109,7 @@ Modes:
      [--results-root PATH]
      [--start-row N] [--end-row N] [--limit N]
      [--num-rollouts N] [--parallel-rollouts N] [--rollout-seed-base N]
+     [--max-workers N]          Global concurrent Claude invocation limit
 
 Shared options:
   --task TASK
@@ -127,21 +133,17 @@ if [[ "$TASK" != "vs" && "$TASK" != "ac" && "$TASK" != "pf" && "$TASK" != "e2e" 
   exit 1
 fi
 
-# Task-aware defaults
+# Every task uses the same canonical MolClaw skills bundle. Dataset defaults
+# remain task-aware.
+: "${SKILLS_ROOT:=$PROJECT_ROOT/molclaw-skills}"
+: "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
 if [[ "$TASK" == "vs" ]]; then
-  : "${SKILLS_ROOT:=skills/skills_vs}"
-  : "${SYSTEM_PROMPT_FILE:=system_prompt_result.md}"
   : "${DATASET_CSV:=$REPO_DIR/molbench/molbench-vs-900.csv}"
 elif [[ "$TASK" == "e2e" ]]; then
-  : "${SKILLS_ROOT:=skills/skills_full}"
-  : "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
   : "${DATASET_CSV:=$REPO_DIR/molbench/MolBench-E2E/e2e_dataset.csv}"
 elif [[ "$TASK" == "kg" ]]; then
-  : "${SKILLS_ROOT:=skills/skills_full}"
-  : "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
+  :
 else
-  : "${SKILLS_ROOT:=skills/skills_full}"
-  : "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
   : "${DATASET_CSV:=$REPO_DIR/molbench/molbench-${TASK}-900.csv}"
 fi
 
@@ -163,6 +165,10 @@ if [[ -z "${MCP_SERVER_AUTH:-}" ]]; then
   echo "[error] MCP auth token is empty. Please set MOLCLAW_SCP_MCP_AUTH." >&2
   exit 1
 fi
+if [[ ! "$MCP_SERVER_TOOL_TIMEOUT_MS" =~ ^[1-9][0-9]*$ ]] || (( MCP_SERVER_TOOL_TIMEOUT_MS < 1000 )); then
+  echo "[error] MOLCLAW_MCP_TOOL_TIMEOUT_MS must be an integer >= 1000 milliseconds: $MCP_SERVER_TOOL_TIMEOUT_MS" >&2
+  exit 1
+fi
 
 # if [[ "$SKIP_PROVIDER_SWITCH" -eq 0 ]]; then
 #   if ! command -v cc-switch >/dev/null 2>&1; then
@@ -182,18 +188,20 @@ trap cleanup_mcp_config EXIT
 write_task_mcp_config() {
   "$PYTHON_BIN" - \
     "$MCP_CONFIG_FILE" \
-    "$MCP_SERVER_NAME" "$MCP_SERVER_URL" "$MCP_SERVER_AUTH_HEADER" "$MCP_SERVER_AUTH" <<'PY'
+    "$MCP_SERVER_NAME" "$MCP_SERVER_URL" "$MCP_SERVER_AUTH_HEADER" "$MCP_SERVER_AUTH" \
+    "$MCP_SERVER_TOOL_TIMEOUT_MS" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 out_path = Path(sys.argv[1])
 name, url, header, token = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+tool_timeout_ms = int(sys.argv[6])
 
 if not name or not url:
     raise SystemExit("no valid MCP servers to write")
 
-server = {"type": "http", "url": url}
+server = {"type": "http", "url": url, "timeout": tool_timeout_ms}
 if header and token:
     server["headers"] = {header: token}
 cfg = {"mcpServers": {name: server}}
@@ -210,7 +218,7 @@ fi
 
 write_task_mcp_config
 if [[ "$SKIP_MCP_VERIFY" -eq 0 ]]; then
-  echo "[run] using strict MCP config: ${MCP_CONFIG_FILE} (server: ${MCP_SERVER_NAME})"
+  echo "[run] using strict MCP config: ${MCP_CONFIG_FILE} (server: ${MCP_SERVER_NAME}, tool_timeout_ms: ${MCP_SERVER_TOOL_TIMEOUT_MS})"
 fi
 
 if [[ ! -d "$SKILLS_ROOT" ]]; then
@@ -241,6 +249,7 @@ if [[ "$RUN_DATASET" -eq 1 ]]; then
     --num-rollouts "$NUM_ROLLOUTS"
     --rollout-seed-base "$ROLLOUT_SEED_BASE"
     --parallel-rollouts "$PARALLEL_ROLLOUTS"
+    --max-workers "$MAX_WORKERS"
     --mcp-config-file "$MCP_CONFIG_FILE"
     --strict-mcp-config
     --skip-provider-switch
@@ -299,7 +308,7 @@ RC=$?
 set -e
 
 set +e
-"$PYTHON_BIN" - "$WORKDIR" "$PROVIDER" "$CLAUDE_BIN" "$RC" "$ATTEMPT_INDEX" "$ATTEMPT_SESSION" <<'PY'
+"$PYTHON_BIN" - "$WORKDIR" "$PROVIDER" "$CLAUDE_BIN" "$RC" "$ATTEMPT_INDEX" "$ATTEMPT_SESSION" "$MCP_SERVER_TOOL_TIMEOUT_MS" <<'PY'
 import hashlib
 import json
 import shutil
@@ -313,6 +322,7 @@ claude_bin = sys.argv[3]
 rc = int(sys.argv[4])
 attempt_index = int(sys.argv[5])
 attempt_session = Path(sys.argv[6]).resolve()
+mcp_tool_timeout_ms = int(sys.argv[7])
 canonical_session = workdir / "complete_session.jsonl"
 
 def digest(path: Path) -> str:
@@ -347,6 +357,7 @@ attempt = {
     "return_code": rc,
     "timed_out": False,
     "timeout_sec": None,
+    "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
     "byte_count": byte_count,
     "sha256": attempt_sha256,
     "parseable_event_count": parseable_events,
@@ -361,6 +372,7 @@ meta = {
     "return_code": rc,
     "timed_out": False,
     "timeout_sec": None,
+    "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
     "session_file": str(canonical_session),
     "claude_attempts": [attempt],
     "selected_claude_attempt": attempt_index,

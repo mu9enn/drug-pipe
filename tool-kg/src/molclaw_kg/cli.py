@@ -10,11 +10,8 @@ from .tool_card_builder import build_tool_cards
 from .candidate_generation import generate_candidates
 from .pairwise_runner import run_pairwise_adjudication
 from .canonical_edges import build_canonical_edges
-from .graph_views import build_graph_views
-from .migration import migrate_historical_kg
-from .exporters import export_artifacts
 from .canonical_outputs import publish_canonical_outputs
-from .question_sampling import sample_questions, sample_simple_questions
+from .question_sampling import sample_simple_questions
 from .question_sampling.config import resolve_sampling_profile
 
 
@@ -42,17 +39,11 @@ def main() -> None:
         "candidates",
         "adjudicate",
         "canonical-edges",
-        "legacy-views",
-        "legacy-export",
         "finalize",
         "sample-questions",
         "run-all",
-        "migrate-kg",
     ]:
         subparsers[name] = sub.add_parser(name)
-
-    subparsers["migrate-kg"].add_argument("--source-dir", required=True)
-    subparsers["migrate-kg"].add_argument("--output-dir", required=True)
 
     subparsers["tool-cards"].add_argument(
         "--tool-ids-file",
@@ -91,7 +82,6 @@ def main() -> None:
         default=0,
         help="Optional rerun round index for metadata.",
     )
-    subparsers["sample-questions"].add_argument("--sample-size", type=int, default=None)
     subparsers["sample-questions"].add_argument(
         "--sampling-profile",
         default="simple_default",
@@ -100,6 +90,7 @@ def main() -> None:
     subparsers["sample-questions"].add_argument("--target-successes", type=int, default=None)
     subparsers["sample-questions"].add_argument("--max-attempts", type=int, default=None)
     subparsers["sample-questions"].add_argument("--json-repair-rounds", type=int, default=None)
+    subparsers["sample-questions"].add_argument("--semantic-repair-rounds", type=int, default=None)
     subparsers["sample-questions"].add_argument("--science-kb-topk", type=int, default=None)
     subparsers["sample-questions"].add_argument(
         "--grounding-selection",
@@ -111,26 +102,10 @@ def main() -> None:
     subparsers["sample-questions"].add_argument("--min-hops", type=int, default=None)
     subparsers["sample-questions"].add_argument("--max-hops", type=int, default=None)
     subparsers["sample-questions"].add_argument("--seed", type=int, default=None)
-    subparsers["sample-questions"].add_argument(
-        "--partial-policy",
-        default=None,
-        choices=["closure_required", "exclude"],
-    )
-    subparsers["sample-questions"].add_argument(
-        "--edge-profile",
-        default=None,
-        choices=["core_strict", "core_expanded"],
-    )
-    subparsers["sample-questions"].add_argument("--max-repair-rounds", type=int, default=None)
 
     args = parser.parse_args()
 
     root = Path(args.project_root).resolve()
-
-    if args.cmd == "migrate-kg":
-        out = migrate_historical_kg(Path(args.source_dir), Path(args.output_dir))
-        print(json.dumps(out, ensure_ascii=False, indent=2))
-        return
 
     if args.cmd == "run-all":
         from .pipeline import run_all
@@ -185,10 +160,6 @@ def main() -> None:
         )
     elif args.cmd == "canonical-edges":
         out = build_canonical_edges(config)
-    elif args.cmd == "legacy-views":
-        out = build_graph_views(config)
-    elif args.cmd == "legacy-export":
-        out = export_artifacts(config)
     elif args.cmd == "finalize":
         out = publish_canonical_outputs(config)
     elif args.cmd == "sample-questions":
@@ -196,10 +167,10 @@ def main() -> None:
             config,
             str(args.sampling_profile),
             overrides={
-                "sample_size": args.sample_size,
                 "target_successes": args.target_successes,
                 "max_attempts": args.max_attempts,
                 "json_repair_rounds": args.json_repair_rounds,
+                "semantic_repair_rounds": args.semantic_repair_rounds,
                 "science_kb_topk": args.science_kb_topk,
                 "grounding_selection": args.grounding_selection,
                 "max_repeat_target": args.max_repeat_target,
@@ -207,41 +178,24 @@ def main() -> None:
                 "min_hops": args.min_hops,
                 "max_hops": args.max_hops,
                 "random_seed": args.seed,
-                "partial_policy": args.partial_policy,
-                "edge_profile": args.edge_profile,
-                "max_repair_rounds": args.max_repair_rounds,
             },
         )
         values = resolved.values
-        sampling_mode = str(values["mode"])
-        if sampling_mode == "simple_toolchain_question":
-            out = sample_simple_questions(
-                config,
-                target_successes=int(values["target_successes"]),
-                max_attempts=int(values["max_attempts"]),
-                min_hops=int(values["min_hops"]),
-                max_hops=int(values["max_hops"]),
-                json_repair_rounds=max(0, int(values["json_repair_rounds"])),
-                science_kb_topk=max(1, int(values["science_kb_topk"])),
-                grounding_selection=str(values["grounding_selection"]),
-                max_repeat_target=max(1, int(values["max_repeat_target"])),
-                max_repeat_compound=max(1, int(values["max_repeat_compound"])),
-                seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
-                sampling_profile_meta=resolved.manifest_payload(),
-            )
-        else:
-            out = sample_questions(
-                config,
-                sample_size=int(values["sample_size"]),
-                min_hops=int(values["min_hops"]),
-                max_hops=int(values["max_hops"]),
-                seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
-                sampling_mode=sampling_mode,
-                partial_policy=str(values["partial_policy"]),
-                edge_profile=str(values["edge_profile"]),
-                max_repair_rounds=max(0, int(values["max_repair_rounds"])),
-                sampling_profile_meta=resolved.manifest_payload(),
-            )
+        out = sample_simple_questions(
+            config,
+            target_successes=int(values["target_successes"]),
+            max_attempts=int(values["max_attempts"]),
+            min_hops=int(values["min_hops"]),
+            max_hops=int(values["max_hops"]),
+            json_repair_rounds=max(0, int(values["json_repair_rounds"])),
+            semantic_repair_rounds=max(0, int(values["semantic_repair_rounds"])),
+            science_kb_topk=max(1, int(values["science_kb_topk"])),
+            grounding_selection=str(values["grounding_selection"]),
+            max_repeat_target=max(1, int(values["max_repeat_target"])),
+            max_repeat_compound=max(1, int(values["max_repeat_compound"])),
+            seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
+            sampling_profile_meta=resolved.manifest_payload(),
+        )
     else:
         raise ValueError(f"Unknown command {args.cmd}")
 

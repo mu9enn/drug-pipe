@@ -4,7 +4,8 @@
 
 | 事实 | 唯一 authority | 其他模块的角色 |
 | --- | --- | --- |
-| MCP 明确的工具字段 | MCP schema 的确定性 snapshot | Tool Catalog 合并时保持 immutable |
+| Tool-KG 构建时的 MCP 明确字段 | 该次构建捕获的 MCP schema snapshot | Tool Catalog 合并时保持 immutable |
+| online evaluation 可调用工具与参数 schema | 评测启动时 `molclaw-scp list_tools` 的实时结果 | runtime 只校验和执行，不维护旧 alias/mini-allowlist |
 | skills 中的工具语义摘要 | Tool-card Claude annotation patch | 只能注解已有 schema slot；skill-derived slot 必须独立并带 evidence |
 | 是否调度 directed candidate | stage taxonomy 的 transition/alternative 规则 | Tool Card 字段只用于上下文、优先级与 audit |
 | relation status/type 的受控词汇与结构约束 | `edge_ontology.yaml` | 运行时生成 pair prompt 片段与 output schema |
@@ -73,19 +74,24 @@ Slime online inference 与 `debug_one_task.py` 可同时使用 MolClaw 和逐任
 skills 只读，受限 Bash 不启动 shell 且禁止网络、解释器、删除、提权、进程控制与路径逃逸。
 这不会改变 formal SFT、ToolRL、GAD 的 offline boundary 或 reward 定义。
 
+正式 MolBench 测评由 `run_molbench_eval.sh` 以 eval-only 模式加载指定 Slime
+torch-distributed checkpoint，并在 actor 加载完成后同步权重到 SGLang。评测输入永远只有
+fresh system + user question；teacher assistant/observation 不会进入 prompt。每题拥有独立
+MCP session、workspace 和 artifact registry，默认 `MAX_WORKERS=2`。MCP 业务失败作为普通
+observation 允许模型 replanning；连接、进程和协议终止才属于任务级失败。
+
 ToolRL 默认使用 official reward baseline，MolClaw-adapted reward 是显式实验模式；两者共享
 converter、decision parser 和 trainer。GAD 默认 pure discriminator reward，Stage 3 必须同时
 提供配对 manifest 中的 generator SFT warmup 与 discriminator warmup checkpoint。
 
-## 显式兼容层
+## 主线边界
 
-- Tool-KG 旧 graph views 与 CSV/GraphML 只通过 `legacy-views`、`legacy-export` 按需生成。
-- 旧 `score`、`doc-chunks`、provenance/audit/log-evaluation/repro-manifest CLI 已删除；它们依赖重复或退役的 graph/debug 产物。
-- Stage3 默认使用 `simple_default` profile 和 simple prompt；复杂 DAG/semantic repair prompt 位于 `prompts/legacy/`，必须显式选择 `dag_legacy`。
+- Tool-KG 只发布 canonical `tool_catalog.jsonl`、`edge_decisions.jsonl`、`graph.jsonl`、可选 `tasks.jsonl` 和 manifest/issues；旧 graph views、CSV/GraphML export 与历史 KG migration 已归档。
+- Stage3 只使用 `simple_default` profile 和 canonical graph/task records。
 - 旧 `trajectory_exporter.py`、usage scanner、`post_process_sft.py`、独立 hard-clean/aggregate
   入口已删除；逻辑主线是 Python 筛选、Python 结构化、LLM clean。前两段由同一个
   `python_clean` 入口顺序执行，因此正式命令仍只有 `python_clean` 和 `llm_clean`。
-- Data-Pipe KG adapter 默认只读 `results/tasks.jsonl`；历史 `sample_success*` 必须显式加 `--legacy-sample-results`。
+- Data-Pipe KG adapter 只读 `results/tasks.jsonl`，不再接受历史 `sample_success*`。
 - SFT、ToolRL、GAD 与 online replay 的默认输入都从 `$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl` 或其方法派生目录开始；`PROMPT_DATA`/`INPUT` 只用于显式覆盖。
 
 OPD、VERL bundle、legacy action-JSON SFT 和 legacy online PPO/GRPO 不属于当前主线。

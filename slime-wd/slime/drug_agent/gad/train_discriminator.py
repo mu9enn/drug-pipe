@@ -6,6 +6,8 @@ import json
 import random
 from pathlib import Path
 
+from drug_agent.gad.checkpoint_retention import prune_numbered_checkpoints
+
 from drug_agent.gad.discriminator import GADDiscriminator
 from drug_agent.utils import read_jsonl
 
@@ -42,7 +44,11 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--max-length", type=int, default=4096)
     parser.add_argument("--save-interval", type=int, default=50)
+    parser.add_argument("--keep-last-checkpoints", type=int, default=2)
+    parser.add_argument("--clip-grad", type=float, default=1.0)
     args = parser.parse_args()
+    if args.keep_last_checkpoints < 1:
+        parser.error("--keep-last-checkpoints must be >= 1")
 
     generator_checkpoint = Path(args.generator_warmup_checkpoint).resolve()
     if not generator_checkpoint.exists():
@@ -70,6 +76,7 @@ def main() -> int:
                 [row["state_messages"] for row in batch],
                 [row["teacher_response"] for row in batch],
                 [row["student_response"] for row in batch],
+                clip_grad=args.clip_grad,
             )
             step += 1
             metrics = {"step": step, "epoch": epoch, **result["metrics"], "version": result["version_after"]}
@@ -77,8 +84,16 @@ def main() -> int:
                 handle.write(json.dumps(metrics) + "\n")
             print(json.dumps(metrics), flush=True)
             if step % args.save_interval == 0:
-                discriminator.save(str(output / f"step_{step:06d}"))
+                checkpoint = output / f"step_{step:06d}"
+                discriminator.save(str(checkpoint))
+                prune_numbered_checkpoints(
+                    output,
+                    prefix="step_",
+                    keep_last=args.keep_last_checkpoints,
+                    newest=checkpoint,
+                )
     discriminator.save(str(output / "latest"))
+    prune_numbered_checkpoints(output, prefix="step_", keep_last=0, newest=output / "latest")
     pairs_path = Path(args.pairs)
     digest = hashlib.sha256(pairs_path.read_bytes()).hexdigest()
     manifest = {

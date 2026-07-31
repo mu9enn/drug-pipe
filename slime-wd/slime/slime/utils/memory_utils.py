@@ -19,19 +19,31 @@ def clear_memory(clear_host_memory: bool = False):
 def available_memory():
     device = torch.cuda.current_device()
     free, total = torch.cuda.mem_get_info(device)
-    vm = psutil.virtual_memory()
-    return {
+    memory_info = {
         "gpu": str(device),
         "total_GB": _byte_to_gb(total),
         "free_GB": _byte_to_gb(free),
         "used_GB": _byte_to_gb(total - free),
         "allocated_GB": _byte_to_gb(torch.cuda.memory_allocated(device)),
         "reserved_GB": _byte_to_gb(torch.cuda.memory_reserved(device)),
-        "host_total_GB": _byte_to_gb(vm.total),
-        "host_available_GB": _byte_to_gb(vm.available),
-        "host_used_GB": _byte_to_gb(vm.used),
-        "host_free_GB": _byte_to_gb(vm.free),
     }
+    try:
+        vm = psutil.virtual_memory()
+    except OSError as exc:
+        # Host-memory reporting is diagnostic only. A transient procfs failure
+        # must not abort an otherwise successful distributed training step.
+        logger.warning("Unable to read host memory metrics; reporting GPU memory only: %s", exc)
+        return memory_info
+
+    memory_info.update(
+        {
+            "host_total_GB": _byte_to_gb(vm.total),
+            "host_available_GB": _byte_to_gb(vm.available),
+            "host_used_GB": _byte_to_gb(vm.used),
+            "host_free_GB": _byte_to_gb(vm.free),
+        }
+    )
+    return memory_info
 
 
 def _byte_to_gb(n: int):

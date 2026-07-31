@@ -1,0 +1,5 @@
+mcp>=1.0
+jsonschema>=4.0,<5.0
+PyYAML>=6.0
+rdkit>=2023.9
+PyTDC>=0.4.1

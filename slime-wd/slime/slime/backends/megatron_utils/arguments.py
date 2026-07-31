@@ -153,8 +153,13 @@ def _set_default_megatron_args(args):
     if args.seq_length is None:
         args.seq_length = 4096
     args.max_position_embeddings = args.seq_length
-    # TODO: revisit this when megatron(dev) have solved the optimizer-cpu-offload ckpt saving bug
-    args.dist_ckpt_save_pre_mcore_014 = True
+    # The pre-MCore-0.14 distributed-optimizer representation materializes a
+    # much larger host-side state while saving.  Keep it only for the case
+    # called out by the original workaround: optimizer CPU offload.  Regular
+    # GPU-resident distributed Adam uses MCore's current sharded checkpoint
+    # representation, which still saves the complete optimizer and is
+    # resumable, without the legacy host-memory spike.
+    args.dist_ckpt_save_pre_mcore_014 = bool(getattr(args, "optimizer_cpu_offload", False))
     # compatible for megatron
     if hasattr(args, "rope_type") and args.rope_type is None:
         args.rope_type = "yarn" if args.multi_latent_attention else "rope"

@@ -782,6 +782,15 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
             reset_arg(parser, "--load", type=str, default=None)
             reset_arg(parser, "--save", type=str, default=None)
             reset_arg(parser, "--save-interval", type=int, default=None)
+            parser.add_argument(
+                "--save-retain-last",
+                type=int,
+                default=None,
+                help=(
+                    "After each complete checkpoint save, retain only this many newest iter_NNNNNNN "
+                    "directories. The current save is forced synchronous and validated before pruning."
+                ),
+            )
             reset_arg(parser, "--async-save", action="store_true")
             reset_arg(
                 parser,
@@ -1742,6 +1751,10 @@ def slime_validate_args(args):
 
     if args.save_interval is not None:
         assert args.save is not None, "'--save' is required when save_interval is set."
+    if args.save_retain_last is not None:
+        assert args.save is not None, "'--save' is required when --save-retain-last is set."
+        assert args.save_interval is not None, "'--save-interval' is required when --save-retain-last is set."
+        assert args.save_retain_last >= 1, "'--save-retain-last' must be >= 1."
 
     assert not (args.kl_coef != 0 and args.kl_loss_coef != 0), "Only one of kl_coef and kl_loss_coef can be set"
 

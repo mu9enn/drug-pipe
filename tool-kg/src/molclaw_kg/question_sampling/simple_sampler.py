@@ -201,6 +201,20 @@ def _grounding_facts(
     )
     facts: list[dict[str, Any]] = []
     seen_records: set[str] = set()
+    if need_sequence and seed:
+        protein = kb.get_protein(str(seed.get("uniprot_accession") or seed["protein_id"]))
+        if protein and protein.get("sequence"):
+            facts.append({
+                "record_id": protein["record_id"],
+                "source": protein["source_database"],
+                "type": "protein",
+                "value": {
+                    key: protein.get(key)
+                    for key in ["protein_id", "uniprot_accession", "gene_name", "protein_name", "organism", "sequence", "pdb_ids"]
+                    if protein.get(key) not in (None, "", [])
+                },
+            })
+            seen_records.add(str(protein["record_id"]))
     for pair in pairs:
         record_id = str(pair.get("record_id") or "")
         if not record_id or record_id in seen_records or len(facts) >= topk:
@@ -220,19 +234,6 @@ def _grounding_facts(
                 if pair.get(key) not in (None, "", [])
             },
         })
-    if need_sequence and seed and len(facts) < topk:
-        protein = kb.get_protein(str(seed.get("uniprot_accession") or seed["protein_id"]))
-        if protein and protein.get("sequence"):
-            facts.append({
-                "record_id": protein["record_id"],
-                "source": protein["source_database"],
-                "type": "protein",
-                "value": {
-                    key: protein.get(key)
-                    for key in ["protein_id", "uniprot_accession", "gene_name", "protein_name", "organism", "sequence", "pdb_ids"]
-                    if protein.get(key) not in (None, "", [])
-                },
-            })
     return facts
 
 
@@ -264,16 +265,17 @@ def _call_agent(
     config: ProjectConfig,
     workdir: Path,
     prompt: str,
+    *,
+    allow_kb_queries: bool = False,
 ) -> tuple[dict[str, Any] | None, str]:
     server_name, server_cfg = _science_kb_mcp(config, workdir / "kb_query_trace.jsonl")
     run = runtime.run_prompt(
         prompt,
         run_label=workdir.name,
         add_dirs=[workdir],
-        # The program has already selected compact grounding facts. Keeping the
-        # MCP connected preserves provenance/runtime checks without letting a
-        # simple-generation call expand its own context unpredictably.
-        allowed_tools="Read",
+        builtin_tools="Read",
+        allowed_tools=(f"Read,mcp__{server_name}" if allow_kb_queries else "Read"),
+        disallowed_tools="Bash,Write,Edit,WebSearch,WebFetch,Agent",
         workdir=workdir,
         mcp_servers={server_name: server_cfg},
         expected_mcp_servers=[server_name],
@@ -347,22 +349,83 @@ _PLACEHOLDER_PATTERNS = [
 ]
 
 
-def _sample_text(sample: dict[str, Any]) -> str:
-    return "\n".join([
-        str(sample.get("public_question_text") or ""),
-        json.dumps(sample.get("question_payload") or {}, ensure_ascii=False),
-        str(sample.get("rationale") or ""),
-    ]).lower()
+def _string_values(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return [item for child in value.values() for item in _string_values(child)]
+    if isinstance(value, list):
+        return [item for child in value for item in _string_values(child)]
+    return [value] if isinstance(value, str) else []
+
+
+def _sample_text(sample: dict[str, Any], *, include_rationale: bool = True) -> str:
+    values = [str(sample.get("public_question_text") or "")]
+    values.extend(_string_values(sample.get("question_payload") or {}))
+    if include_rationale:
+        values.append(str(sample.get("rationale") or ""))
+    return "\n".join(values).lower()
 
 
 def contains_user_followup_request(sample: dict[str, Any]) -> bool:
-    text = _sample_text(sample)
+    # Rationale is internal audit text, not part of the rolloutable task. It may
+    # legitimately explain that no user-provided input is needed, which must not
+    # turn an otherwise self-contained task into a false rejection.
+    text = _sample_text(sample, include_rationale=False)
     return any(pattern.lower() in text for pattern in _USER_FOLLOWUP_PATTERNS)
 
 
 def contains_placeholder_or_fake_input(sample: dict[str, Any]) -> bool:
-    text = _sample_text(sample)
+    text = _sample_text(sample, include_rationale=False)
     return any(pattern.lower() in text for pattern in _PLACEHOLDER_PATTERNS)
+
+
+def _semantic_failure(parsed: dict[str, Any]) -> str | None:
+    if parsed.get("status") == "reject":
+        return f"agent_reject:{str(parsed.get('rationale') or '').strip()}"
+    if contains_user_followup_request(parsed):
+        return "non_rolloutable_user_followup"
+    if contains_placeholder_or_fake_input(parsed):
+        return "placeholder_or_fake_input"
+    return None
+
+
+def _generate_with_json_repairs(
+    *,
+    runtime: ClaudeCodeRuntime,
+    config: ProjectConfig,
+    workdir: Path,
+    json_repair_root: Path,
+    context: dict[str, Any],
+    prompt: str,
+    json_repair_prompt: str,
+    json_repair_rounds: int,
+    allow_kb_queries: bool,
+) -> tuple[dict[str, Any] | None, Path, int, list[str]]:
+    _prepare_workdir(config, workdir, context, prompt)
+    parsed, raw = _call_agent(
+        runtime,
+        config,
+        workdir,
+        prompt,
+        allow_kb_queries=allow_kb_queries,
+    )
+    raw_path = workdir / "raw_output.txt"
+    raw_path.write_text(raw, encoding="utf-8")
+    errors = validate_simple_output(parsed)
+    repair_count = 0
+    for repair_index in range(1, max(0, json_repair_rounds) + 1):
+        if not errors:
+            break
+        repair_count = repair_index
+        repair_dir = json_repair_root / f"json_repair_{repair_index:02d}"
+        repair_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(raw_path, repair_dir / "raw_output.txt")
+        write_json(repair_dir / "output_schema.json", SIMPLE_QUESTION_OUTPUT_SCHEMA)
+        (repair_dir / "prompt.txt").write_text(json_repair_prompt, encoding="utf-8")
+        parsed, raw = _call_agent(runtime, config, repair_dir, json_repair_prompt)
+        raw_path = repair_dir / "raw_output.txt"
+        raw_path.write_text(raw, encoding="utf-8")
+        errors = validate_simple_output(parsed)
+    return parsed, raw_path, repair_count, errors
 
 
 def _grounding_seed_context(seed: dict[str, Any]) -> dict[str, Any]:
@@ -387,6 +450,7 @@ def sample_simple_questions(
     min_hops: int = 2,
     max_hops: int = 4,
     json_repair_rounds: int = 1,
+    semantic_repair_rounds: int = 1,
     science_kb_topk: int = 3,
     grounding_selection: str = "random_seeded",
     max_repeat_target: int = 2,
@@ -397,6 +461,7 @@ def sample_simple_questions(
     if (
         target_successes < 1 or max_attempts < 1 or min_hops < 1 or max_hops < min_hops
         or max_repeat_target < 1 or max_repeat_compound < 1
+        or json_repair_rounds < 0 or semantic_repair_rounds < 0
     ):
         raise ValueError("invalid simple sampling limits")
     if grounding_selection != "random_seeded":
@@ -425,8 +490,13 @@ def sample_simple_questions(
         profile_values.get("json_repair_prompt")
         or "prompts/toolchain_question_json_repair_v1.md"
     )
+    semantic_repair_prompt_path = config.paths.configs / str(
+        profile_values.get("semantic_repair_prompt")
+        or "prompts/toolchain_question_semantic_repair_v1.md"
+    )
     prompt = prompt_path.read_text(encoding="utf-8")
     repair_prompt = repair_prompt_path.read_text(encoding="utf-8")
+    semantic_repair_prompt = semantic_repair_prompt_path.read_text(encoding="utf-8")
     results = run_dir / "results"
     intermediate = run_dir / "intermediate" / "stage3"
     workdirs = intermediate / "workdir" / "simple_toolchain_question"
@@ -471,30 +541,67 @@ def sample_simple_questions(
             }
             sample_root = workdirs / f"{sample_id}__{safe_name(nodes[0])}__{safe_name(nodes[-1])}"
             attempt_dir = sample_root / "attempt_00"
-            _prepare_workdir(config, attempt_dir, context, prompt)
-            parsed, raw = _call_agent(runtime, config, attempt_dir, prompt)
-            raw_path = attempt_dir / "raw_output.txt"
-            raw_path.write_text(raw, encoding="utf-8")
-            errors = validate_simple_output(parsed)
-            repaired = False
-            for repair_index in range(1, max(0, json_repair_rounds) + 1):
-                if not errors:
+            parsed, raw_path, json_repair_count, errors = _generate_with_json_repairs(
+                runtime=runtime,
+                config=config,
+                workdir=attempt_dir,
+                json_repair_root=sample_root,
+                context=context,
+                prompt=prompt,
+                json_repair_prompt=repair_prompt,
+                json_repair_rounds=json_repair_rounds,
+                allow_kb_queries=False,
+            )
+            initial_semantic_failure = _semantic_failure(parsed) if not errors and parsed is not None else None
+            semantic_failure = initial_semantic_failure
+            semantic_repair_count = 0
+            semantic_recovered = False
+            while (
+                semantic_failure
+                and semantic_repair_count < semantic_repair_rounds
+                and parsed is not None
+            ):
+                semantic_repair_count += 1
+                semantic_dir = sample_root / f"semantic_repair_{semantic_repair_count:02d}"
+                semantic_context = {
+                    **context,
+                    "semantic_repair": {
+                        "round": semantic_repair_count,
+                        "failure_reason": semantic_failure,
+                    },
+                }
+                semantic_dir.mkdir(parents=True, exist_ok=True)
+                write_json(semantic_dir / "previous_output.json", parsed)
+                write_json(
+                    semantic_dir / "semantic_feedback.json",
+                    {"failure_reason": semantic_failure},
+                )
+                parsed, raw_path, semantic_json_repairs, errors = _generate_with_json_repairs(
+                    runtime=runtime,
+                    config=config,
+                    workdir=semantic_dir,
+                    json_repair_root=semantic_dir,
+                    context=semantic_context,
+                    prompt=semantic_repair_prompt,
+                    json_repair_prompt=repair_prompt,
+                    json_repair_rounds=json_repair_rounds,
+                    allow_kb_queries=True,
+                )
+                json_repair_count += semantic_json_repairs
+                if errors or parsed is None:
+                    semantic_failure = None
                     break
-                repaired = True
-                repair_dir = sample_root / f"json_repair_{repair_index:02d}"
-                repair_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(raw_path, repair_dir / "raw_output.txt")
-                write_json(repair_dir / "output_schema.json", SIMPLE_QUESTION_OUTPUT_SCHEMA)
-                (repair_dir / "prompt.txt").write_text(repair_prompt, encoding="utf-8")
-                parsed, raw = _call_agent(runtime, config, repair_dir, repair_prompt)
-                raw_path = repair_dir / "raw_output.txt"
-                raw_path.write_text(raw, encoding="utf-8")
-                errors = validate_simple_output(parsed)
+                semantic_failure = _semantic_failure(parsed)
+                semantic_recovered = semantic_failure is None
             base.update({
                 **blueprint,
                 "raw_llm_output_path": str(raw_path),
                 "workdir": str(sample_root),
-                "json_repaired": repaired,
+                "json_repaired": json_repair_count > 0,
+                "json_repair_count": json_repair_count,
+                "semantic_repair_rounds": semantic_repair_count,
+                "semantic_recovered": semantic_recovered,
+                "initial_semantic_failure": initial_semantic_failure,
                 "grounding_seed": context["grounding_seed"],
             })
             if errors:
@@ -502,10 +609,6 @@ def sample_simple_questions(
                 attempts.append(base)
                 continue
             assert parsed is not None
-            if parsed["status"] == "reject":
-                base.update({"status": "reject", "failure_reason": parsed["rationale"], **parsed})
-                attempts.append(base)
-                continue
             public_text = str(parsed["public_question_text"])
             soft_warnings: list[str] = []
             leaks = _tool_leaks(public_text, nodes, cards)
@@ -513,6 +616,10 @@ def sample_simple_questions(
                 soft_warnings.append(f"hidden_toolchain_leak:{leaks}")
             if _sequence_hint(public_text):
                 soft_warnings.append("explicit_hidden_tool_order_hint")
+            if parsed["status"] == "reject":
+                base.update({"status": "reject", "failure_reason": parsed["rationale"], **parsed})
+                attempts.append(base)
+                continue
             if contains_user_followup_request(parsed):
                 base.update({
                     **parsed,
@@ -555,6 +662,9 @@ def sample_simple_questions(
         "success_count": len(successes),
         "attempt_count": len(attempts),
         "max_attempts": max_attempts,
+        "semantic_repair_rounds": semantic_repair_rounds,
+        "semantic_repair_attempt_count": sum(int(x.get("semantic_repair_rounds") or 0) for x in attempts),
+        "semantic_recovered_count": sum(bool(x.get("semantic_recovered")) for x in attempts),
         "grounding_selection": grounding_selection,
         "science_kb_seed_count": len(grounding_records),
         "max_repeat_target": max_repeat_target,

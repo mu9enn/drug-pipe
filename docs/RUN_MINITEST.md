@@ -482,6 +482,7 @@ bash pipeline/kg/run_kg_pipeline.sh \
   --n-cases 1 \
   --num-rollouts 1 \
   --parallel-rollouts 1 \
+  --max-workers 1 \
   --results-root "$DATA_RESULTS_ROOT" \
   --skip-provider-switch 1
 ```

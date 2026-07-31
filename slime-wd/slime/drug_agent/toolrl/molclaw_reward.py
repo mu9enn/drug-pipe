@@ -281,6 +281,11 @@ def _pair_tool_calls(pred: list[dict[str, Any]], gold: list[dict[str, Any]], con
     scores: list[ToolCallScore] = []
     for pred_idx, gold_idx in assignments:
         details = detail_matrix[pred_idx][gold_idx]
+        # Parameter overlap must never turn a different tool name into a
+        # matched call. Runtime aliases are intentionally absent, so the
+        # reward boundary must preserve the same exact-name contract.
+        if details["tool_name_score"] == 0.0:
+            continue
         scores.append(
             ToolCallScore(
                 pred_index=pred_idx,

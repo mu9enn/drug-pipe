@@ -28,5 +28,7 @@ python -m drug_agent.gad.train_discriminator \
   --generator-warmup-checkpoint "$GENERATOR_WARMUP_LOAD" \
   --epochs "${DISCRIMINATOR_EPOCHS:-1}" --batch-size "${DISCRIMINATOR_BATCH_SIZE:-2}" \
   --lr "${DISCRIMINATOR_LR:-1e-5}" --max-length "${DISCRIMINATOR_MAX_LENGTH:-4096}" \
+  --clip-grad "${DISCRIMINATOR_CLIP_GRAD:-1.0}" \
   --save-interval "${DISCRIMINATOR_SAVE_INTERVAL:-50}" \
+  --keep-last-checkpoints "${DISCRIMINATOR_KEEP_LAST:-2}" \
   "${EXTRA_ARGS[@]}"
