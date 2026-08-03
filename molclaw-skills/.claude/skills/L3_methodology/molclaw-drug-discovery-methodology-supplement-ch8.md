@@ -411,10 +411,10 @@ The agent must explicitly answer three questions:
 
 ### 25.6 Skill Storage and Retrieval
 
-Self-generated skills are stored in a designated directory (`auto-generated-.claude/skills/`) separate from expert-curated skills. The directory structure mirrors the main skill hierarchy:
+Self-generated skills are stored in a designated directory (`auto-generated-skills/`) separate from expert-curated skills. The directory structure mirrors the main skill hierarchy:
 
 ```
-auto-generated-.claude/skills/
+auto-generated-skills/
 ├── L1_tools/
 │   └── [auto-generated L1 skills]
 ├── L2_workflows/
@@ -436,9 +436,9 @@ The `Tools Involved` column lists the SCP tool names (snake_case, comma-separate
 
 ### 25.6a Failure-Triggered Skill Retrieval
 
-**Platform requirement for cross-session learning:** Auto-generated skills require persistent storage across sessions. On platforms with ephemeral workspaces (e.g., container-based deployments without volume mounts), the `auto-generated-.claude/skills/` directory must be mapped to a persistent volume. Without persistence, the experiential learning loop cannot close across sessions — crystallization will still occur within a session, but the knowledge will be lost at session end. This is a deployment constraint, not a skill-layer constraint; the skill architecture is designed to function correctly whenever persistence is available.
+**Platform requirement for cross-session learning:** Auto-generated skills require persistent storage across sessions. On platforms with ephemeral workspaces (e.g., container-based deployments without volume mounts), the `auto-generated-skills/` directory must be mapped to a persistent volume. Without persistence, the experiential learning loop cannot close across sessions — crystallization will still occur within a session, but the knowledge will be lost at session end. This is a deployment constraint, not a skill-layer constraint; the skill architecture is designed to function correctly whenever persistence is available.
 
-In addition to the Phase 0 proactive retrieval described above, the agent MUST check `auto-generated-.claude/skills/skill-index.md` **reactively** whenever a tool failure occurs during execution. This ensures that previously crystallized failure-recovery knowledge is consulted before the agent attempts to devise recovery strategies from scratch.
+In addition to the Phase 0 proactive retrieval described above, the agent MUST check `auto-generated-skills/skill-index.md` **reactively** whenever a tool failure occurs during execution. This ensures that previously crystallized failure-recovery knowledge is consulted before the agent attempts to devise recovery strategies from scratch.
 
 **Reactive retrieval protocol:**
 
@@ -610,7 +610,7 @@ The full autonomous discovery pipeline, from open-ended request through persiste
        ↓  [Phase 2.5 mandatory self-assessment]
    L2-12 (Principle 25)  if trigger T1/T2/T4/T5 fires
        ↓
-   Persistent auto-generated skill in `auto-generated-.claude/skills/`
+   Persistent auto-generated skill in `auto-generated-skills/`
 ```
 
 Principle 26 is applied at every "→" in this pipeline: when producing candidate problems (boundary declarations per 26.4), when authoring draft workflows (scope restrictions per 24.4 which derive from 26.1), when reporting results (honest communication per 26.3), and when updating skill confidence (dynamic boundary update per 26.2).

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "smoke_protein_retrieve_fix",
+    "task_type": "e2e",
+    "prompt": "Perform a short real-tool protein workflow. First call retrieve_protein_structure_by_gene_name for human TP53 using the live schema. From its successful observation, take the returned protein structure artifact and call fix_pdb with remove_water=true, remove_heterogens=true, and add_hydrogens=false. Do not invent or hard-code the retrieved artifact. Return an e2e final_answer reporting the fixed PDB artifact and concise evidence from both real observations."
+  },
+  {
+    "id": "smoke_smiles_visualize",
+    "task_type": "e2e",
+    "prompt": "Perform a short real-tool molecule workflow for the SMILES CCO. Validate it with is_valid_smiles, then call visualize_molecule with the same SMILES. Return an e2e final_answer containing the canonical image artifact and concise evidence from both real observations. Do not claim success before the observations arrive."
+  },
+  {
+    "id": "smoke_l1_local_files",
+    "task_type": "e2e",
+    "prompt": "Test the supported local tool environment. Use Skill to read the L1 skill molclaw-smiles-valid-check. Then use Write to create run_log.md in the task workspace with a one-line note that the named skill was loaded, and use Read to read run_log.md back. Return an e2e final_answer reporting the verified local log artifact and evidence from the Skill, Write, and Read observations."
+  }
+]

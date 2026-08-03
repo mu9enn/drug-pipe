@@ -47,12 +47,12 @@ metadata:
 
 | Input | Source | Required? |
 |-------|--------|-----------|
-| L3 methodology (parent document) | `.claude/skills/L3_methodology/molclaw-drug-discovery-methodology.md` | Yes |
-| L3 Chapter 8 Supplement | `.claude/skills/L3_methodology/molclaw-drug-discovery-methodology-supplement-ch8.md` | Yes |
+| L3 methodology (parent document) | `skills/L3_methodology/molclaw-drug-discovery-methodology.md` | Yes |
+| L3 Chapter 8 Supplement | `skills/L3_methodology/molclaw-drug-discovery-methodology-supplement-ch8.md` | Yes |
 | Concrete task description with specific deliverables | User input | Yes |
-| Full L1 skill registry (SKILL.md for every tool anticipated in the draft) | `.claude/skills/L1_tools/` on demand | Yes (on demand per Phase 2) |
-| Existing L2 workflow list (for novelty verification) | `ls .claude/skills/L2_workflows/` | Yes |
-| Auto-generated skill index (if exists) | `.claude/skills/auto-generated-.claude/skills/skill-index.md` | Optional |
+| Full L1 skill registry (SKILL.md for every tool anticipated in the draft) | `skills/L1_tools/` on demand | Yes (on demand per Phase 2) |
+| Existing L2 workflow list (for novelty verification) | `ls skills/L2_workflows/` | Yes |
+| Auto-generated skill index (if exists) | `skills/auto-generated-skills/skill-index.md` | Optional |
 | Reference L2 workflow for paradigm skeleton | Selected in Phase 1 | Yes |
 
 ---
@@ -63,7 +63,7 @@ Before committing to authoring, confirm all entry conditions and record the deci
 
 ### 0.1 Novelty Verification
 
-Scan every existing L2 workflow in `.claude/skills/L2_workflows/` and every auto-generated skill in `.claude/skills/auto-generated-.claude/skills/L2_workflows/`. For each, extract the ordered tool sequence from its Phase-by-Phase Execution Protocol and compare against the anticipated tool sequence for the current task.
+Scan every existing L2 workflow in `skills/L2_workflows/` and every auto-generated skill in `skills/auto-generated-skills/L2_workflows/`. For each, extract the ordered tool sequence from its Phase-by-Phase Execution Protocol and compare against the anticipated tool sequence for the current task.
 
 - If any existing workflow matches ≥ 70% of the anticipated sequence in the same order → ABORT; use that workflow instead. Record: `Draft authoring ABORTED: existing workflow [L2-NN or auto-skill name] covers this task.`
 - If all existing workflows match < 70% → PROCEED.
@@ -398,9 +398,9 @@ not an expert-curated L2 skill.
 
 Save to a session-scoped location (draft workflows are single-session per Principle 24.4):
 
-- Recommended path: `./draft_workflows/draft-[name].md` in the current task's working directory (NOT in `.claude/skills/L2_workflows/` — that directory is for expert-curated content only).
+- Recommended path: `./draft_workflows/draft-[name].md` in the current task's working directory (NOT in `skills/L2_workflows/` — that directory is for expert-curated content only).
 
-If the task's crystallization trigger fires after execution and L2-12 produces a persistent version, that persistent version goes to `.claude/skills/auto-generated-.claude/skills/L2_workflows/` with `L2-Workflow-AUTO` level. The DRAFT version remains in the task directory as provenance.
+If the task's crystallization trigger fires after execution and L2-12 produces a persistent version, that persistent version goes to `skills/auto-generated-skills/L2_workflows/` with `L2-Workflow-AUTO` level. The DRAFT version remains in the task directory as provenance.
 
 **CHECKPOINT: DRAFT Marked and Saved**
 - [ ] Scope compliance re-verified
@@ -461,7 +461,7 @@ The agent MUST then execute the standard Phase 2.5 self-assessment (system promp
 | Cross-reference insertion (Phase 4) finds no natural insertion point for a required principle | The draft workflow skipped an execution point where the principle applies (e.g., no count-change step but COUNT GATE required) | Re-examine the draft: either the principle is genuinely inapplicable (rare; document the exemption) or the draft is missing a phase that should be there (add it) |
 | Draft execution reveals the plan was wrong (trace diverges from authored phases) | Plan-execution mismatch; real execution required mid-course correction | Allow the execution to adapt — the agent is not rigidly bound to its own draft. Record every divergence in run_log as a "Draft deviation: [what was authored] → [what was executed] — [why]". These deviations become prime T4 crystallization candidates if they produced better results |
 | Context window insufficient to hold full draft plus execution | Complex task exhausting context during authoring | Apply simplified draft authoring: write only YAML, Applicability, Prerequisites, and an abbreviated Phase Protocol with tool sequence + key params (omit detailed CHECKPOINT descriptions, reference parent L2 by section instead). Mark `confidence: UNTESTED-ABBREVIATED` in YAML. Full elaboration deferred to future crystallization |
-| Auto-generated skill with confidence ≥ MEDIUM already covers task | Phase 0.1 check missed the auto-skill index | Re-check `.claude/skills/auto-generated-.claude/skills/skill-index.md`; if a MEDIUM/HIGH auto-skill matches, ABORT draft authoring and load that auto-skill instead |
+| Auto-generated skill with confidence ≥ MEDIUM already covers task | Phase 0.1 check missed the auto-skill index | Re-check `skills/auto-generated-skills/skill-index.md`; if a MEDIUM/HIGH auto-skill matches, ABORT draft authoring and load that auto-skill instead |
 
 ---
 

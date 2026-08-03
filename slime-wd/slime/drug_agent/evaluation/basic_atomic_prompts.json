@@ -1,0 +1,17 @@
+[
+  {
+    "id": "atomic_smiles_validate",
+    "task_type": "e2e",
+    "prompt": "Call is_valid_smiles once for CCO using the live schema. After the real observation, return an e2e final_answer that reports whether CCO is valid and cites that observation."
+  },
+  {
+    "id": "atomic_smiles_visualize",
+    "task_type": "e2e",
+    "prompt": "Call visualize_molecule once with CCO. After the real observation, return an e2e final_answer containing the canonical image artifact and concise evidence from visualize_molecule."
+  },
+  {
+    "id": "atomic_local_write_read",
+    "task_type": "e2e",
+    "prompt": "Use Write to create run_log.md with exactly the text smoke ok, then use Read to read run_log.md back. Return an e2e final_answer reporting the verified local artifact and concise evidence from both observations."
+  }
+]

@@ -9,6 +9,7 @@ fi
 
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
+MEGATRON_LM_PATH=${MEGATRON_LM_PATH:-/root/Megatron-LM}
 
 if [[ "${PYTORCH_CUDA_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
   unset PYTORCH_CUDA_ALLOC_CONF
@@ -18,6 +19,7 @@ if [[ "${PYTORCH_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
 fi
 
 unset RAY_ADDRESS || true
+bash drug_agent/scripts/guard_ray_restart.sh
 pkill -9 sglang 2>/dev/null || true
 sleep 2
 ray stop --force 2>/dev/null || true
@@ -64,6 +66,15 @@ ROLLOUT_MAX_PROMPT_LEN=${ROLLOUT_MAX_PROMPT_LEN:-}
 ROLLOUT_MAX_CONTEXT_LEN=${ROLLOUT_MAX_CONTEXT_LEN:-}
 ROLLOUT_TEMPERATURE=${ROLLOUT_TEMPERATURE:-1.0}
 SGLANG_MEM_FRACTION_STATIC=${SGLANG_MEM_FRACTION_STATIC:-0.75}
+# Slime's colocate default pauses the complete Megatron CUDA allocator into
+# host RAM between rollout and training.  That is independent from Megatron's
+# optimizer CPU offload and can create a second, transient model-sized host
+# copy.  Large single-node profiles can instead keep the actor resident while
+# only SGLang sleeps, provided the combined resident GPU budget was validated.
+COLOCATE_OFFLOAD_TRAIN=${COLOCATE_OFFLOAD_TRAIN:-1}
+# A colocated large actor may need a higher optimizer offload fraction than
+# train-only SFT so SGLang can restore its weights/cache beside the actor.
+OPTIMIZER_OFFLOAD_FRACTION=${TOOLRL_OPTIMIZER_OFFLOAD_FRACTION:-${OPTIMIZER_OFFLOAD_FRACTION:-}}
 GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-8}
 NUM_EPOCH=${NUM_EPOCH:-1}
 LR=${LR:-1e-6}
@@ -80,12 +91,17 @@ RECOMPUTE_LOSS_FUNCTION=${RECOMPUTE_LOSS_FUNCTION:-1}
 LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
 APPLY_CHAT_TEMPLATE_KWARGS=${APPLY_CHAT_TEMPLATE_KWARGS:-'{"enable_thinking":false}'}
 
-MODEL_PARALLEL_SIZE=$((TENSOR_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE * CONTEXT_PARALLEL_SIZE * EXPERT_MODEL_PARALLEL_SIZE))
+MODEL_PARALLEL_SIZE=$((TENSOR_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE * CONTEXT_PARALLEL_SIZE))
 if [ "$MODEL_PARALLEL_SIZE" -le 0 ] || [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne 0 ]; then
-  echo "NUM_GPUS must be divisible by TP*PP*CP*EP: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE CP=$CONTEXT_PARALLEL_SIZE EP=$EXPERT_MODEL_PARALLEL_SIZE" >&2
+  echo "NUM_GPUS must be divisible by TP*PP*CP: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE CP=$CONTEXT_PARALLEL_SIZE" >&2
   exit 2
 fi
 DATA_PARALLEL_SIZE=$((NUM_GPUS / MODEL_PARALLEL_SIZE))
+EXPERT_MODEL_SIZE=$((EXPERT_TENSOR_PARALLEL_SIZE * EXPERT_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE))
+if [ "$EXPERT_MODEL_SIZE" -le 0 ] || [ $((NUM_GPUS % EXPERT_MODEL_SIZE)) -ne 0 ]; then
+  echo "NUM_GPUS must be divisible by ETP*EP*PP: NUM_GPUS=$NUM_GPUS ETP=$EXPERT_TENSOR_PARALLEL_SIZE EP=$EXPERT_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE" >&2
+  exit 2
+fi
 if [ $((GLOBAL_BATCH_SIZE % DATA_PARALLEL_SIZE)) -ne 0 ]; then
   echo "GLOBAL_BATCH_SIZE must be divisible by DATA_PARALLEL_SIZE: GBS=$GLOBAL_BATCH_SIZE DP=$DATA_PARALLEL_SIZE" >&2
   exit 2
@@ -116,18 +132,18 @@ fi
 NVLINK_COUNT=$(nvidia-smi topo -m 2>/dev/null | grep -o 'NV[0-9][0-9]*' | wc -l)
 HAS_NVLINK=$([ "$NVLINK_COUNT" -gt 0 ] && echo 1 || echo 0)
 
-CKPT_ARGS=(
-  --hf-checkpoint "$HF_CHECKPOINT"
-  --ref-load "$REF_LOAD"
-  --save "$SAVE_DIR"
-  --save-interval "$SAVE_INTERVAL"
-  --save-retain-last "$CHECKPOINT_KEEP_LAST"
-)
+CKPT_ARGS=(--hf-checkpoint "$HF_CHECKPOINT" --ref-load "$REF_LOAD")
+if [ "${DISABLE_CHECKPOINT_SAVE:-0}" != "1" ]; then
+  CKPT_ARGS+=(--save "$SAVE_DIR" --save-interval "$SAVE_INTERVAL" --save-retain-last "$CHECKPOINT_KEEP_LAST")
+fi
 if [ -n "$LOAD" ]; then
   CKPT_ARGS+=(--load "$LOAD")
   if [ "$TOOLRL_RESUME" != "1" ]; then
     CKPT_ARGS+=(--finetune --no-load-optim --no-load-rng --start-rollout-id 0)
   fi
+fi
+if [ "${NO_SAVE_OPTIM:-0}" = "1" ]; then
+  CKPT_ARGS+=(--no-save-optim --no-save-rng)
 fi
 
 TOOLRL_ARGS=(
@@ -198,14 +214,59 @@ OPTIMIZER_ARGS=(
   --adam-beta1 "${ADAM_BETA1:-0.9}"
   --adam-beta2 "${ADAM_BETA2:-0.95}"
 )
+if [ "${OPTIMIZER_CPU_OFFLOAD:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(--optimizer-cpu-offload)
+  if [ -n "${OPTIMIZER_OFFLOAD_FRACTION:-}" ]; then
+    OPTIMIZER_ARGS+=(--optimizer-offload-fraction "$OPTIMIZER_OFFLOAD_FRACTION")
+  fi
+  if [ "${OVERLAP_CPU_OPTIMIZER_D2H_H2D:-1}" = "1" ]; then
+    OPTIMIZER_ARGS+=(--overlap-cpu-optimizer-d2h-h2d)
+  fi
+fi
+if [ "${USE_PRECISION_AWARE_OPTIMIZER:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(--use-precision-aware-optimizer)
+fi
+if [ "${OFFLOAD_OPTIMIZER_STATES:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(--offload-optimizer-states)
+fi
+if [ -n "${MAIN_GRADS_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--main-grads-dtype "$MAIN_GRADS_DTYPE")
+fi
+if [ -n "${MAIN_PARAMS_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--main-params-dtype "$MAIN_PARAMS_DTYPE")
+fi
+if [ -n "${EXP_AVG_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--exp-avg-dtype "$EXP_AVG_DTYPE")
+fi
+if [ -n "${EXP_AVG_SQ_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--exp-avg-sq-dtype "$EXP_AVG_SQ_DTYPE")
+fi
+if [ "${FP8_PARAM_GATHER:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(
+    --fp8-format "${FP8_FORMAT:-e4m3}"
+    --fp8-recipe "${FP8_RECIPE:-blockwise}"
+    --fp8-param-gather
+  )
+fi
 
 MISC_ARGS=(
   --attention-dropout 0.0
   --hidden-dropout 0.0
-  --accumulate-allreduce-grads-in-fp32
   --attention-softmax-in-fp32
   --attention-backend flash
 )
+PLACEMENT_ARGS=(--colocate --offload-rollout)
+if [ "$COLOCATE_OFFLOAD_TRAIN" = "1" ]; then
+  PLACEMENT_ARGS+=(--offload-train)
+else
+  PLACEMENT_ARGS+=(--no-offload-train)
+fi
+if [ "${ACCUMULATE_ALLREDUCE_GRADS_IN_FP32:-1}" = "1" ]; then
+  MISC_ARGS+=(--accumulate-allreduce-grads-in-fp32)
+fi
+if [ "${MOE_ENABLE_DEEPEP:-0}" = "1" ]; then
+  MISC_ARGS+=(--moe-token-dispatcher-type flex --moe-enable-deepep)
+fi
 
 ray start --head \
   --node-ip-address "$MASTER_ADDR" \
@@ -217,7 +278,7 @@ ray start --head \
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
-    \"PYTHONPATH\": \"${PYTHON_CPU_FIX_DIR}:/root/Megatron-LM/:${SLIME}:${PYTHONPATH:-}\",
+    \"PYTHONPATH\": \"${PYTHON_CPU_FIX_DIR}:${MEGATRON_LM_PATH}:${SLIME}:${PYTHONPATH:-}\",
     \"PYTHON_CPU_COUNT\": \"${REAL_CPU}\",
     \"PATH\": \"${PATH}\",
     \"LD_LIBRARY_PATH\": \"${LD_LIBRARY_PATH:-}\",
@@ -226,6 +287,7 @@ RUNTIME_ENV_JSON="{
     \"NVIDIA_DRIVER_CAPABILITIES\": \"${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
     \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
+    \"NVSHMEM_DISABLE_NCCL\": \"1\",
     \"NCCL_IB_DISABLE\": \"${NCCL_IB_DISABLE:-1}\"
     ,\"DRUG_AGENT_TRAINING_OFFLINE\": \"1\"
     ,\"DRUG_AGENT_ALLOW_TOOL_ENV\": \"0\"
@@ -238,7 +300,8 @@ ray job submit --address="http://127.0.0.1:8265" \
   -- python3 train.py \
   --actor-num-nodes 1 \
   --actor-num-gpus-per-node "$NUM_GPUS" \
-  --colocate \
+  --num-gpus-per-node "$NUM_GPUS" \
+  "${PLACEMENT_ARGS[@]}" \
   "${MODEL_ARGS[@]}" \
   "${CKPT_ARGS[@]}" \
   "${TOOLRL_ARGS[@]}" \

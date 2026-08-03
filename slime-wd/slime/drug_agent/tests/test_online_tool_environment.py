@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from drug_agent.protocol.react_protocol import parse_runtime_decision, project_final_answer
 from drug_agent.tools.artifact_registry import ArtifactRegistry
 from drug_agent.tools.local_tools import LocalToolExecutor
 from drug_agent.tools.mcp_client import MCPClient
+from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry
 
 
 class _CatalogExecutor:
-    def __init__(self, count: int = 79) -> None:
+    def __init__(self, count: int = 79, extra_tools: list[dict] | None = None) -> None:
         self.calls = []
         self.count = count
+        self.extra_tools = list(extra_tools or [])
 
     def list_tools(self):
         return [
@@ -29,7 +34,7 @@ class _CatalogExecutor:
                 },
             }
             for index in range(self.count)
-        ]
+        ] + self.extra_tools
 
     def execute(self, tool_name, arguments):
         self.calls.append((tool_name, arguments))
@@ -47,6 +52,41 @@ class LiveCatalogTest(unittest.TestCase):
         ok, reason = registry.validate_arguments("tool_0", {"value": 0, "extra": True})
         self.assertFalse(ok)
         self.assertIn("json_schema", reason or "")
+
+    def test_catalog_growth_discovers_and_routes_returned_visualization_tools(self):
+        visualization_tools = [
+            {
+                "name": "visualize_molecule",
+                "description": "Render a molecule",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"input": {"type": "string"}},
+                    "required": ["input"],
+                },
+            },
+            {
+                "name": "visualize_protein",
+                "description": "Render a protein",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"pdb_file_path": {"type": "string"}},
+                    "required": ["pdb_file_path"],
+                },
+            },
+        ]
+        executor = _CatalogExecutor(extra_tools=visualization_tools)
+        registry = ToolRegistry(executor=executor, include_local_tools=False)
+
+        self.assertEqual(len(registry.list_tools()), 81)
+        calls = [
+            ("visualize_molecule", {"input": "CCO"}),
+            ("visualize_protein", {"pdb_file_path": "/server/protein.pdb"}),
+        ]
+        for name, arguments in calls:
+            self.assertEqual(registry.validate_tool_name(name), (True, None))
+            self.assertEqual(registry.validate_arguments(name, arguments), (True, None))
+            self.assertTrue(registry.execute(name, arguments)["ok"])
+        self.assertEqual(executor.calls, calls)
 
 
 class ArtifactRegistryTest(unittest.TestCase):
@@ -152,3 +192,55 @@ class MCPResultParsingTest(unittest.TestCase):
         parsed = client.parse_result(Multi())
         self.assertEqual(parsed["content"][0], {"status": "success"})
         self.assertEqual(parsed["content"][1], {"text": "details"})
+
+
+class MCPExecutorTaskAffinityTest(unittest.TestCase):
+    def test_transport_lifecycle_stays_in_one_asyncio_task(self):
+        class FakeClient:
+            instances = []
+
+            def __init__(self, **_kwargs):
+                self.connected = False
+                self.task_ids = []
+                self.__class__.instances.append(self)
+
+            def _record(self):
+                self.task_ids.append(id(asyncio.current_task()))
+
+            async def connect(self):
+                self._record()
+                self.connected = True
+                return True
+
+            async def list_tools(self):
+                self._record()
+                return [{"name": "ping", "description": "", "inputSchema": {"type": "object"}}]
+
+            async def call_tool(self, tool_name, arguments):
+                self._record()
+                return {
+                    "parsed": {"status": "success", "tool": tool_name, "arguments": arguments},
+                    "raw": {"status": "success"},
+                }
+
+            async def disconnect(self):
+                self._record()
+                self.connected = False
+
+        env = {
+            **os.environ,
+            "DRUG_AGENT_ALLOW_TOOL_ENV": "1",
+            "DRUG_AGENT_TRAINING_OFFLINE": "0",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "drug_agent.tools.tool_executor.MCPClient", FakeClient
+        ):
+            executor = MCPToolExecutor(connect_on_init=True)
+            try:
+                self.assertEqual(executor.list_tools()[0]["name"], "ping")
+                self.assertTrue(executor.execute("ping", {"value": 1})["ok"])
+            finally:
+                executor.close()
+
+        self.assertEqual(len(FakeClient.instances), 1)
+        self.assertEqual(len(set(FakeClient.instances[0].task_ids)), 1)

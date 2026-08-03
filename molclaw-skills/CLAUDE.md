@@ -15,7 +15,7 @@ L3_methodology/   ← Read first: strategic principles (2 files)
 L2_workflows/     ← Read second: step-by-step protocol for the task domain (14 files)
 L1_tools/         ← Read on-demand: individual tool specifications (60 directories)
 LR_research/      ← Read for research workflows (1 file)
-auto-generated-.claude/skills/  ← Crystallized skills from prior runs; check skill-index.md
+auto-generated-skills/  ← Crystallized skills from prior runs; check skill-index.md
                          Currently contains only skill-index.md
 ```
 
@@ -65,7 +65,7 @@ Individual tool specs in `L1_tools/` (60 directories, each containing a `SKILL.m
 
 **Docking & scoring:**
 - `molclaw-quickvina-docking` — QuickVina2-GPU molecular docking
-- `molclaw-diffdock-auto` — DiffDock blind docking *(skill documentation exists, but DiffDock is not enabled in the current 79-tool MCP deployment)*
+- `molclaw-diffdock-auto` — DiffDock blind docking *(skill documentation exists, but DiffDock is not enabled in the current 81-tool MCP deployment)*
 - `molclaw-karmadock-tool` — KarmaDock large-scale docking
 - `molclaw-docking-screening` — unified docking workflow
 - `molclaw-equiscore-docking` — EquiScore rescoring (docking context)

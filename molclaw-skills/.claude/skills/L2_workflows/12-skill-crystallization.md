@@ -448,19 +448,19 @@ If any check fails, return to the appropriate phase (1–3) to correct the issue
 
 Save the generated skill document to the designated directory:
 
-- L1 skill: `[skill_package_root]/auto-generated-.claude/skills/L1_tools/[skill-name]/SKILL.md`
-- L2 workflow: `[skill_package_root]/auto-generated-.claude/skills/L2_workflows/[skill-name].md`
+- L1 skill: `[skill_package_root]/auto-generated-skills/L1_tools/[skill-name]/SKILL.md`
+- L2 workflow: `[skill_package_root]/auto-generated-skills/L2_workflows/[skill-name].md`
 
-**Path resolution:** `[skill_package_root]` is the directory containing the `L3_methodology/`, `L2_workflows/`, and `L1_tools/` subdirectories. Determine this by navigating up from the directory of the currently loaded L3 methodology document. If the `auto-generated-.claude/skills/` directory (or its subdirectories) does not exist, create it:
+**Path resolution:** `[skill_package_root]` is the directory containing the `L3_methodology/`, `L2_workflows/`, and `L1_tools/` subdirectories. Determine this by navigating up from the directory of the currently loaded L3 methodology document. If the `auto-generated-skills/` directory (or its subdirectories) does not exist, create it:
 ```bash
-mkdir -p [skill_package_root]/auto-generated-.claude/skills/L1_tools
-mkdir -p [skill_package_root]/auto-generated-.claude/skills/L2_workflows
+mkdir -p [skill_package_root]/auto-generated-skills/L1_tools
+mkdir -p [skill_package_root]/auto-generated-skills/L2_workflows
 ```
 If `skill-index.md` does not exist, initialize it with the header row (see Section 5.2).
 
 ### 5.2 Index Update
 
-Append an entry to `[skill_package_root]/auto-generated-.claude/skills/skill-index.md`:
+Append an entry to `[skill_package_root]/auto-generated-skills/skill-index.md`:
 
 ```markdown
 | [next #] | [skill-name] | [L1/L2] | [T1/T2/T3/T4/T5] | LOW | [date] | [comma-separated SCP tool names] | [source task summary] |
@@ -478,7 +478,7 @@ Add the following to the primary task's `result.md`:
 - **Level:** [L1/L2]-AUTO
 - **Trigger:** [T1/T2/T3/T4/T5] — [one-sentence trigger description]
 - **Confidence:** LOW (first application)
-- **Location:** auto-generated-.claude/skills/[path]
+- **Location:** auto-generated-skills/[path]
 - **Summary:** [2–3 sentence description of what the skill captures]
 ```
 

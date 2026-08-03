@@ -230,8 +230,8 @@ Run through the validation checklist from L2-12 Phase 4:
 
 Write the validated document to the appropriate path:
 
-- L1: `auto-generated-.claude/skills/L1_tools/[skill-name]/SKILL.md`
-- L2: `auto-generated-.claude/skills/L2_workflows/[skill-name].md`
+- L1: `auto-generated-skills/L1_tools/[skill-name]/SKILL.md`
+- L2: `auto-generated-skills/L2_workflows/[skill-name].md`
 
 Verify the file was written successfully and is non-empty.
 

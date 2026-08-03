@@ -31,30 +31,79 @@ class MCPToolExecutor:
         self.heartbeat_sec = self._resolve_timeout(None, "MOLCLAW_TOOL_HEARTBEAT_SEC")
 
         self._client = MCPClient(initialize_timeout=initialize_timeout)
+        self._closed = False
         self._loop = asyncio.new_event_loop()
         self._ready = threading.Event()
+        self._command_queue: asyncio.Queue | None = None
         self._thread = threading.Thread(target=self._run_loop, name="drug-agent-mcp-loop", daemon=True)
         self._thread.start()
-        self._ready.wait(timeout=2.0)
-        self._closed = False
+        if not self._ready.wait(timeout=2.0):
+            raise RuntimeError("MCP owner loop did not start")
         self.unknown_semantic_as_failure = self._resolve_bool_env(
             "DRUG_AGENT_UNKNOWN_SEMANTIC_AS_FAILURE",
             default=True,
         )
 
         if connect_on_init:
-            self._run(self._client.connect(), timeout=self._timeout_for("connect"), label="connect")
+            self._request("connect", timeout=self._timeout_for("connect"), label="connect")
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
+        self._command_queue = asyncio.Queue()
+        self._loop.create_task(self._client_owner())
         self._ready.set()
         self._loop.run_forever()
 
-    def _run(self, coro: Any, timeout: float | None, label: str) -> Any:
+    async def _client_owner(self) -> None:
+        """Own the MCP SDK contexts for their entire lifetime in one task.
+
+        AnyIO cancel scopes used by the streamable HTTP transport must be
+        entered and exited by the same asyncio task.  Synchronous callers send
+        commands to this owner instead of creating a new task for every MCP
+        method.
+        """
+        assert self._command_queue is not None
+        while True:
+            operation, arguments, response = await self._command_queue.get()
+            try:
+                if operation == "connect":
+                    result = await self._client.connect()
+                elif operation == "list_tools":
+                    result = await self._client.list_tools()
+                elif operation == "call_tool":
+                    result = await self._client.call_tool(arguments[0], arguments[1])
+                elif operation == "reconnect":
+                    if self._client.connected:
+                        await self._client.disconnect()
+                    result = await self._client.connect()
+                elif operation == "disconnect":
+                    result = await self._client.disconnect() if self._client.connected else None
+                elif operation == "close":
+                    result = await self._client.disconnect() if self._client.connected else None
+                    if not response.done():
+                        response.set_result(result)
+                    return
+                else:
+                    raise RuntimeError(f"Unknown MCP owner operation: {operation}")
+            except BaseException as exc:
+                if not response.done():
+                    response.set_exception(exc)
+            else:
+                if not response.done():
+                    response.set_result(result)
+
+    async def _enqueue_command(self, operation: str, arguments: tuple[Any, ...]) -> Any:
+        if self._command_queue is None:
+            raise RuntimeError("MCP owner queue is unavailable")
+        response = self._loop.create_future()
+        await self._command_queue.put((operation, arguments, response))
+        return await response
+
+    def _request(self, operation: str, *, timeout: float | None, label: str, arguments: tuple[Any, ...] = ()) -> Any:
         if self._closed:
             raise RuntimeError("MCPToolExecutor is closed")
 
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        future = asyncio.run_coroutine_threadsafe(self._enqueue_command(operation, arguments), self._loop)
         start = time.monotonic()
 
         while True:
@@ -83,11 +132,11 @@ class MCPToolExecutor:
                 continue
 
     def _ensure_connected(self) -> None:
-        self._run(self._client.connect(), timeout=self._timeout_for("connect"), label="connect")
+        self._request("connect", timeout=self._timeout_for("connect"), label="connect")
 
     def list_tools(self) -> list[dict[str, Any]]:
         self._ensure_connected()
-        raw = self._run(self._client.list_tools(), timeout=self._timeout_for("list_tools"), label="list_tools")
+        raw = self._request("list_tools", timeout=self._timeout_for("list_tools"), label="list_tools")
         return self._normalize_tool_list(raw)
 
     def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -116,10 +165,11 @@ class MCPToolExecutor:
 
         self._ensure_connected()
         try:
-            raw = self._run(
-                self._client.call_tool(tool_name, arguments),
+            raw = self._request(
+                "call_tool",
                 timeout=self._timeout_for("execute"),
                 label=f"call_tool:{tool_name}",
+                arguments=(tool_name, arguments),
             )
             parsed_payload = to_jsonable(raw.get("parsed"))
             raw_payload = to_jsonable(raw.get("raw"))
@@ -157,7 +207,7 @@ class MCPToolExecutor:
             # A transport exception invalidates the current MCP session. The
             # next model decision may retry and will establish a fresh one.
             try:
-                self._run(self._client.disconnect(), timeout=5.0, label="disconnect_after_error")
+                self._request("disconnect", timeout=5.0, label="disconnect_after_error")
             except Exception:
                 pass
             tool_success = evaluate_tool_success(
@@ -182,22 +232,18 @@ class MCPToolExecutor:
             }
 
     def reconnect(self) -> None:
-        try:
-            self._run(self._client.disconnect(), timeout=5.0, label="disconnect_for_reconnect")
-        except Exception:
-            pass
-        self._ensure_connected()
+        self._request("reconnect", timeout=self._timeout_for("connect"), label="reconnect")
 
     def close(self) -> None:
         if self._closed:
             return
         try:
-            self._run(self._client.disconnect(), timeout=5.0, label="disconnect")
+            self._request("close", timeout=5.0, label="close")
         except Exception:
             pass
+        self._closed = True
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=2.0)
-        self._closed = True
 
     @staticmethod
     def _resolve_timeout(value: float | None, env_key: str) -> float | None:

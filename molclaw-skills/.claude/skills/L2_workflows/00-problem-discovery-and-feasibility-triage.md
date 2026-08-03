@@ -50,11 +50,11 @@ The common signature is: the deliverable is a SET OF CANDIDATE PROBLEMS with the
 
 | Input | Source | Required? |
 |-------|--------|-----------|
-| L3 methodology (parent document) | `.claude/skills/L3_methodology/molclaw-drug-discovery-methodology.md` | Yes |
-| L3 Chapter 8 Supplement | `.claude/skills/L3_methodology/molclaw-drug-discovery-methodology-supplement-ch8.md` | Yes |
+| L3 methodology (parent document) | `skills/L3_methodology/molclaw-drug-discovery-methodology.md` | Yes |
+| L3 Chapter 8 Supplement | `skills/L3_methodology/molclaw-drug-discovery-methodology-supplement-ch8.md` | Yes |
 | Current SCP tool registry | Runtime enumeration via MCP server query | Yes |
-| List of existing L2 workflows | `ls .claude/skills/L2_workflows/` | Yes |
-| Auto-generated skill index (if exists) | `.claude/skills/auto-generated-.claude/skills/skill-index.md` | Optional |
+| List of existing L2 workflows | `ls skills/L2_workflows/` | Yes |
+| Auto-generated skill index (if exists) | `skills/auto-generated-skills/skill-index.md` | Optional |
 | User-specified domain constraints | Parsed from task text | Optional |
 | User-specified output quantity N | Parsed from task text (default: 5) | Optional |
 
@@ -178,7 +178,7 @@ A path is COVERED if an existing L2 workflow's phase sequence matches ≥ 70% of
 
 ### 2.4 Auto-Generated Skill Absorption Check
 
-If `.claude/skills/auto-generated-.claude/skills/skill-index.md` exists, read it and mark any path that is covered by an auto-generated skill with confidence ≥ MEDIUM as COVERED-AUTO. Do not re-propose these as novel candidates.
+If `skills/auto-generated-skills/skill-index.md` exists, read it and mark any path that is covered by an auto-generated skill with confidence ≥ MEDIUM as COVERED-AUTO. Do not re-propose these as novel candidates.
 
 **CHECKPOINT: Connectivity Graph Complete**
 - [ ] Every tool has declared produces/consumes edges
@@ -536,7 +536,7 @@ In addition to the standard discovery deliverables (Phase 6.3), closed-loop mode
 - **Coverage detection relies on 70% signature match heuristic.** A novel workflow that happens to share 7 of 10 tools with an existing L2 will be classified as COVERED and excluded from candidate proposals, even if the remaining 3 tools introduce genuinely new scientific value. Mitigation: surface PARTIAL paths explicitly in `discovery_trace.md` so the user can manually override.
 - **Path enumeration is structural, not semantic.** Two paths that share the same tool sequence but differ in scientific intent (e.g., "use MD for conformational sampling" vs "use MD for stability validation") will be merged. Mitigation: allow Phase 3.2 to split merged paths if the questions are materially different.
 - **Scientific value heuristics H1–H4 require domain knowledge.** H1 in particular requires the agent to have actually read and internalized L3 Chapter 6 limitations. If Chapter 6 was not loaded or was skimmed, H1 scores will be unreliable. Mitigation: Phase 5.1 MUST quote specific Chapter 6 text when scoring H1.
-- **Auto-generated skill absorption check depends on persistent storage.** On platforms without persistent `auto-generated-.claude/skills/`, Phase 2.4 will always return no absorption, causing repeat-discovery across sessions. Mitigation: deployment-level concern; see Principle 25.6a note on persistence.
+- **Auto-generated skill absorption check depends on persistent storage.** On platforms without persistent `auto-generated-skills/`, Phase 2.4 will always return no absorption, causing repeat-discovery across sessions. Mitigation: deployment-level concern; see Principle 25.6a note on persistence.
 - **No experimental-feasibility assessment (discovery-only mode).** When Phase 5.5 cannot find experimental benchmarks, results are validated only by internal consistency. Mitigation: Phase 5.5 STRONG/MODERATE/WEAK classification and Principle 26.4 EXPERIMENTAL-validation sections surface this honestly.
 - **Closed-loop mode assumes top-1 is correct.** In closed-loop mode, Phase 7 auto-selects the #1 ranked candidate. If the scoring weights or novelty assessment were inaccurate, the wrong problem may be executed. Mitigation: all scoring evidence is recorded in `candidate_problems.md` for post-hoc review; the user can re-run in discovery-only mode if results are unsatisfactory.
 

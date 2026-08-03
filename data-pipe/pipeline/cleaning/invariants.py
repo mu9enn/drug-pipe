@@ -270,6 +270,7 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         "warnings": [],
         "status_conflicts": [],
         "sequence_mismatches": [],
+        "out_of_order_observations": [],
         "prose_findings": _assistant_prose_findings(sample),
     }
     parts = protocol_parts(sample)
@@ -303,12 +304,25 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         if not pending:
             report["errors"].append("orphan_observation")
             continue
-        expected = pending.popleft()
-        if expected != observation["tool_name"]:
+        observed = observation["tool_name"]
+        try:
+            pending_index = pending.index(observed)
+        except ValueError:
+            expected = pending[0]
             report["errors"].append("tool_observation_order_mismatch")
             report["sequence_mismatches"].append(
-                {"expected": expected, "observed": observation["tool_name"]}
+                {"expected": expected, "observed": observed}
             )
+            continue
+        if pending_index:
+            report["warnings"].append("observation_returned_out_of_call_order")
+            report["out_of_order_observations"].append(
+                {
+                    "tool_name": observed,
+                    "pending_call_position": pending_index,
+                }
+            )
+        del pending[pending_index]
     if pending:
         report["errors"].append(f"missing_observations:{len(pending)}")
     if len(parts["finals"]) != 1:

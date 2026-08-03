@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from typing import Any
 
 from jsonschema import Draft7Validator
@@ -33,6 +34,7 @@ class ToolRegistry:
 
         self._tool_specs: list[dict[str, Any]] = []
         self._tool_map: dict[str, dict[str, Any]] = {}
+        self._catalog_lock = threading.RLock()
 
     @classmethod
     def from_env(cls, executor: MCPToolExecutor | None = None) -> "ToolRegistry":
@@ -43,46 +45,48 @@ class ToolRegistry:
         )
 
     def list_tools(self, force_refresh: bool = False) -> list[dict[str, Any]]:
-        if self._tool_specs and not force_refresh:
-            return self._tool_specs
+        with self._catalog_lock:
+            if self._tool_specs and not force_refresh:
+                return self._tool_specs
 
-        specs = self.executor.list_tools()
-        normalized_specs: list[dict[str, Any]] = []
-        tool_map: dict[str, dict[str, Any]] = {}
+            specs = self.executor.list_tools()
+            normalized_specs: list[dict[str, Any]] = []
+            tool_map: dict[str, dict[str, Any]] = {}
 
-        for spec in specs:
-            raw_name = spec.get("name")
-            if not isinstance(raw_name, str) or not raw_name.strip():
-                continue
+            for spec in specs:
+                raw_name = spec.get("name")
+                if not isinstance(raw_name, str) or not raw_name.strip():
+                    continue
 
-            bare_name = normalize_tool_name(raw_name)
-            norm = {
-                "name": bare_name,
-                "raw_name": raw_name,
-                "description": spec.get("description", ""),
-                "input_schema": spec.get("input_schema") or {},
-            }
-            normalized_specs.append(norm)
-            tool_map[bare_name] = norm
-
-        if self.include_local_tools:
-            for spec in LOCAL_TOOL_SPECS:
-                norm = {**spec, "raw_name": spec["name"], "executor": "local_sandbox"}
+                bare_name = normalize_tool_name(raw_name)
+                norm = {
+                    "name": bare_name,
+                    "raw_name": raw_name,
+                    "description": spec.get("description", ""),
+                    "input_schema": spec.get("input_schema") or {},
+                }
                 normalized_specs.append(norm)
-                tool_map[spec["name"]] = norm
+                tool_map[bare_name] = norm
 
-        self._tool_specs = normalized_specs
-        self._tool_map = tool_map
-        return self._tool_specs
+            if self.include_local_tools:
+                for spec in LOCAL_TOOL_SPECS:
+                    norm = {**spec, "raw_name": spec["name"], "executor": "local_sandbox"}
+                    normalized_specs.append(norm)
+                    tool_map[spec["name"]] = norm
+
+            self._tool_specs = normalized_specs
+            self._tool_map = tool_map
+            return self._tool_specs
 
     def install_catalog(self, specs: list[dict[str, Any]]) -> None:
         """Install a run-authoritative catalog on an isolated task executor."""
-        self._tool_specs = [dict(spec) for spec in specs]
-        self._tool_map = {
-            str(spec["name"]): spec
-            for spec in self._tool_specs
-            if isinstance(spec.get("name"), str) and spec.get("name")
-        }
+        with self._catalog_lock:
+            self._tool_specs = [dict(spec) for spec in specs]
+            self._tool_map = {
+                str(spec["name"]): spec
+                for spec in self._tool_specs
+                if isinstance(spec.get("name"), str) and spec.get("name")
+            }
 
     def load_tool_schema(self, tool_name: str) -> dict[str, Any] | None:
         bare_name = normalize_tool_name(tool_name)

@@ -1,0 +1,27 @@
+[
+  {
+    "id": "probe_frequent_retrieve_fix_egfr",
+    "task_type": "e2e",
+    "prompt": "Retrieve a human EGFR protein structure by gene name, then repair the retrieved PDB with fix_pdb using remove_water=true, remove_heterogens=true, and add_hydrogens=false. Return the repaired canonical artifact in an e2e final_answer. Use only the two necessary MolClaw calls."
+  },
+  {
+    "id": "probe_frequent_is_valid_smiles",
+    "task_type": "e2e",
+    "prompt": "Call is_valid_smiles exactly once for the SMILES CCO. After receiving the observation, return a concise e2e final_answer reporting whether it is valid. Do not call any other tool."
+  },
+  {
+    "id": "probe_unseen_visualize_molecule",
+    "task_type": "e2e",
+    "prompt": "Call visualize_molecule exactly once for the SMILES CCO. After receiving the observation, return a concise e2e final_answer containing the canonical image artifact. Do not call any other tool."
+  },
+  {
+    "id": "probe_unseen_retrieve_visualize_protein",
+    "task_type": "e2e",
+    "prompt": "Retrieve a human EGFR protein structure by gene name, then call visualize_protein on the retrieved canonical PDB artifact. Return the canonical visualization artifact in a concise e2e final_answer. Use only these two necessary MolClaw calls."
+  },
+  {
+    "id": "probe_local_write_read_minimal",
+    "task_type": "e2e",
+    "prompt": "Use Write to create run_log.md with exactly the text smoke ok, then use Read to read run_log.md back. Return a concise e2e final_answer confirming the observed text. Do not use Skill or any other tool."
+  }
+]

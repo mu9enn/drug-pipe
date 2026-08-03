@@ -9,7 +9,12 @@ fi
 cd "$SLIME"
 
 : "${MODEL_CHECKPOINT:?Set MODEL_CHECKPOINT to a Slime torch-distributed checkpoint directory}"
+EVAL_MODE=${EVAL_MODE:-molbench}
 MOLBENCH_ROOT=${MOLBENCH_ROOT:-$GROUP_SPACE/drug_wd/MolClaw/molbench}
+PROMPT_FILE=${PROMPT_FILE:-}
+PROMPT_SUITE_FILE=${PROMPT_SUITE_FILE:-}
+TASK_TYPE=${TASK_TYPE:-e2e}
+TASK_ID=${TASK_ID:-manual_prompt_001}
 MAX_WORKERS=${MAX_WORKERS:-2}
 MAX_STEPS=${MAX_STEPS:-0}
 TEMPERATURE=${TEMPERATURE:-0.0}
@@ -50,7 +55,20 @@ EXPERT_MODEL_PARALLEL_SIZE=${EXPERT_MODEL_PARALLEL_SIZE:-1}
 EXPERT_TENSOR_PARALLEL_SIZE=${EXPERT_TENSOR_PARALLEL_SIZE:-1}
 REAL_CPU=${REAL_CPU:-$(nproc)}
 
-for path in "$MODEL_CHECKPOINT" "$HF_CHECKPOINT" "$REF_LOAD" "$DRUG_AGENT_L1_SKILLS_ROOT" "$MOLBENCH_ROOT"; do
+REQUIRED_PATHS=("$MODEL_CHECKPOINT" "$HF_CHECKPOINT" "$REF_LOAD" "$DRUG_AGENT_L1_SKILLS_ROOT")
+case "$EVAL_MODE" in
+  molbench) REQUIRED_PATHS+=("$MOLBENCH_ROOT") ;;
+  single_prompt)
+    : "${PROMPT_FILE:?Set PROMPT_FILE for EVAL_MODE=single_prompt}"
+    REQUIRED_PATHS+=("$PROMPT_FILE")
+    ;;
+  prompt_suite)
+    : "${PROMPT_SUITE_FILE:?Set PROMPT_SUITE_FILE for EVAL_MODE=prompt_suite}"
+    REQUIRED_PATHS+=("$PROMPT_SUITE_FILE")
+    ;;
+  *) echo "Unsupported EVAL_MODE=$EVAL_MODE (expected molbench, single_prompt, or prompt_suite)" >&2; exit 2 ;;
+esac
+for path in "${REQUIRED_PATHS[@]}"; do
   [[ -e "$path" ]] || { echo "Required path not found: $path" >&2; exit 2; }
 done
 [[ -f "$MODEL_ARGS_FILE" ]] || { echo "MODEL_ARGS_FILE not found: $MODEL_ARGS_FILE" >&2; exit 2; }
@@ -99,9 +117,16 @@ export DRUG_AGENT_TASK_TIMEOUT_SEC="$TASK_TIMEOUT_SEC"
 export DRUG_AGENT_WORKSPACES_ROOT="$DRUG_AGENT_EVAL_RUN_DIR/workspaces"
 export DRUG_AGENT_EVAL_RUN_DIR MOLBENCH_ROOT DRUG_AGENT_L1_SKILLS_ROOT DRUG_AGENT_WORKSPACES_ROOT
 
+PREFLIGHT_INPUT_ARGS=()
+if [[ "$EVAL_MODE" == "molbench" ]]; then
+  PREFLIGHT_INPUT_ARGS+=(--molbench-root "$MOLBENCH_ROOT")
+elif [[ "$EVAL_MODE" == "prompt_suite" ]]; then
+  PREFLIGHT_INPUT_ARGS+=(--prompt-suite-file "$PROMPT_SUITE_FILE")
+else
+  PREFLIGHT_INPUT_ARGS+=(--prompt-file "$PROMPT_FILE" --task-type "$TASK_TYPE" --task-id "$TASK_ID")
+fi
 python -m drug_agent.evaluation.preflight \
   --checkpoint "$MODEL_CHECKPOINT" \
-  --molbench-root "$MOLBENCH_ROOT" \
   --run-dir "$DRUG_AGENT_EVAL_RUN_DIR" \
   --max-workers "$MAX_WORKERS" \
   --max-steps "$MAX_STEPS" \
@@ -114,12 +139,22 @@ python -m drug_agent.evaluation.preflight \
   --num-gpus "$NUM_GPUS" \
   --tensor-model-parallel-size "$TENSOR_MODEL_PARALLEL_SIZE" \
   --pipeline-model-parallel-size "$PIPELINE_MODEL_PARALLEL_SIZE" \
+  "${PREFLIGHT_INPUT_ARGS[@]}" \
   "${ENV_FILE_ARGS[@]}"
 
 export DRUG_AGENT_EXPECTED_TOOL_CATALOG="$DRUG_AGENT_EVAL_RUN_DIR/tool_catalog.json"
 
 EVAL_CONFIG="$DRUG_AGENT_EVAL_RUN_DIR/eval_config.yaml"
-python - "$EVAL_CONFIG" "$DRUG_AGENT_EVAL_RUN_DIR/molbench_eval.jsonl" "$TEMPERATURE" "$MAX_NEW_TOKENS" <<'PY'
+if [[ "$EVAL_MODE" == "molbench" ]]; then
+  EVAL_DATASET="$DRUG_AGENT_EVAL_RUN_DIR/molbench_eval.jsonl"
+  EVAL_LOGGER=drug_agent.evaluation.logger.log_eval_rollout_data
+  EVAL_TASK_COUNT=186
+else
+  EVAL_DATASET="$DRUG_AGENT_EVAL_RUN_DIR/prompt_eval.jsonl"
+  EVAL_LOGGER=drug_agent.evaluation.prompt_logger.log_eval_rollout_data
+  EVAL_TASK_COUNT=$(wc -l < "$EVAL_DATASET")
+fi
+python - "$EVAL_CONFIG" "$EVAL_DATASET" "$TEMPERATURE" "$MAX_NEW_TOKENS" <<'PY'
 import sys
 from pathlib import Path
 path, dataset, temperature, max_tokens = sys.argv[1:]
@@ -134,7 +169,7 @@ Path(path).write_text(
     "    label_key: label\n"
     "    metadata_key: metadata\n"
     "  datasets:\n"
-    "    - name: drug_agent_molbench\n"
+    "    - name: drug_agent_online_eval\n"
     f"      path: {dataset}\n"
     "      rm_type: drug_agent_eval\n"
     "      custom_generate_function_path: drug_agent.rollout.generate_with_drug_agent.generate\n",
@@ -147,6 +182,14 @@ if [[ "${RESET_RAY:-1}" == "1" ]]; then
   pkill -9 sglang >/dev/null 2>&1 || true
 fi
 export MASTER_ADDR=${MASTER_ADDR:-127.0.0.1}
+# The MCP endpoint uses HTTP(S)_PROXY on egress-restricted GPU workers, but
+# Ray control-plane traffic must stay local. Without this exclusion, the Ray
+# Jobs client or SGLang health checks can send loopback/node-local traffic
+# through the relay and either fail or stall before model startup.
+NODE_LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+LOCAL_NO_PROXY="127.0.0.1,localhost,::1,$MASTER_ADDR${NODE_LOCAL_IP:+,$NODE_LOCAL_IP}"
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}$LOCAL_NO_PROXY"
+export no_proxy="${no_proxy:+$no_proxy,}$LOCAL_NO_PROXY"
 ray start --head --node-ip-address "$MASTER_ADDR" --num-gpus "$NUM_GPUS" --num-cpus "$REAL_CPU" \
   --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 
@@ -184,8 +227,22 @@ PERF_ARGS=(
 )
 [[ "$TENSOR_MODEL_PARALLEL_SIZE" -gt 1 ]] && PERF_ARGS+=(--sequence-parallel)
 
+# Evaluation favors a reliable startup over CUDA-graph throughput.  In particular,
+# SGLang's TP=8 custom all-reduce graph capture is not supported by every H200
+# worker/runtime combination.  Training launchers are intentionally unaffected.
+SGLANG_RUNTIME_ARGS=()
+if [[ "${SGLANG_DISABLE_CUDA_GRAPH:-1}" == "1" ]]; then
+  SGLANG_RUNTIME_ARGS+=(--sglang-disable-cuda-graph)
+fi
+# Custom all-reduce has hung during the first health generation on TP=4 and
+# failed CUDA-graph capture on TP=8 on the current H200 image. Evaluation is
+# latency-insensitive, so prefer NCCL's stable path. Training is unaffected.
+if [[ "${SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-1}" == "1" ]]; then
+  SGLANG_RUNTIME_ARGS+=(--sglang-disable-custom-all-reduce)
+fi
+
 RAY_SUBMIT_LOG="$DRUG_AGENT_EVAL_RUN_DIR/ray_submit.log"
-echo "[drug-agent eval] checkpoint=$MODEL_CHECKPOINT run_dir=$DRUG_AGENT_EVAL_RUN_DIR tasks=186 workers=$MAX_WORKERS"
+echo "[drug-agent eval] mode=$EVAL_MODE checkpoint=$MODEL_CHECKPOINT run_dir=$DRUG_AGENT_EVAL_RUN_DIR tasks=$EVAL_TASK_COUNT workers=$MAX_WORKERS"
 set +e
 ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV_JSON" -- \
   python3 train.py \
@@ -196,9 +253,10 @@ ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV_
   --num-rollout 0 --rollout-batch-size 1 --n-samples-per-prompt 1 --global-batch-size 1 \
   --lr-decay-iters 1 --eval-interval 1 --eval-config "$EVAL_CONFIG" \
   --custom-rm-path drug_agent.evaluation.reward.reward \
-  --custom-eval-rollout-log-function-path drug_agent.evaluation.logger.log_eval_rollout_data \
+  --custom-eval-rollout-log-function-path "$EVAL_LOGGER" \
   --rollout-num-gpus "$NUM_GPUS" --rollout-num-gpus-per-engine "$NUM_GPUS" \
   --sglang-server-concurrency "$MAX_WORKERS" --sglang-mem-fraction-static "${SGLANG_MEM_FRACTION_STATIC:-0.60}" \
+  "${SGLANG_RUNTIME_ARGS[@]}" \
   --eval-max-prompt-len "$MAX_CONTEXT_LEN" --eval-max-context-len "$MAX_CONTEXT_LEN" \
   --attention-dropout 0.0 --hidden-dropout 0.0 --attention-backend flash \
   --optimizer adam --lr 1e-6 --lr-decay-style constant \

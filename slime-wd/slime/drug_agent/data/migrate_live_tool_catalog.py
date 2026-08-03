@@ -200,9 +200,17 @@ def _load_catalog(path: Path) -> dict[str, dict[str, Any]]:
     return catalog
 
 
-def _adapt_call(name: str, arguments: dict[str, Any], catalog: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any], bool]:
+def _adapt_call(
+    name: str,
+    arguments: dict[str, Any],
+    catalog: dict[str, dict[str, Any]],
+    *,
+    allow_invalid_failed_call: bool = False,
+) -> tuple[str, dict[str, Any], bool, bool]:
     bare = normalize_tool_name(name)
+    source_arguments = dict(arguments)
     migrated = False
+    tool_migrated = False
     if bare not in catalog:
         target = MIGRATIONS.get(bare)
         if target is None:
@@ -212,22 +220,71 @@ def _adapt_call(name: str, arguments: dict[str, Any], catalog: dict[str, dict[st
             raise ValueError(f"migration_target_not_in_live_catalog:{bare}")
         arguments = adapter(arguments)
         migrated = True
+        tool_migrated = True
     schema = catalog[bare].get("input_schema") or catalog[bare].get("inputSchema") or {}
     normalized = _normalize_current_arguments(bare, arguments, schema)
     migrated = migrated or normalized != arguments
     arguments = normalized
     errors = sorted(Draft7Validator(schema).iter_errors(arguments), key=lambda item: list(item.path))
     if errors:
+        if allow_invalid_failed_call and not tool_migrated:
+            # A failed call followed by its recorded error observation is useful
+            # replanning evidence. Preserve the historical call byte-for-byte
+            # instead of dropping the entire recovered trajectory.
+            return bare, source_arguments, bare != name, True
         raise ValueError(f"arguments_not_valid_for_live_schema:{bare}:{errors[0].message}")
-    return bare, arguments, migrated or bare != name
+    return bare, arguments, migrated or bare != name, False
+
+
+def _observation_is_error(body: str) -> bool:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("is_error") is True:
+        return True
+    status = str(payload.get("status") or "").strip().lower()
+    return status in {"error", "failed", "failure"}
+
+
+def _paired_failed_call_indexes(assistant_content: str, observation_content: str) -> set[int]:
+    calls = list(TOOL_CALL_RE.finditer(assistant_content))
+    observations = list(OBSERVATION_RE.finditer(observation_content))
+    if not calls or len(calls) != len(observations):
+        return set()
+    failed: set[int] = set()
+    for index, (call_match, observation_match) in enumerate(zip(calls, observations)):
+        try:
+            call = json.loads(call_match.group(1).strip())
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(call, dict):
+            continue
+        call_name = normalize_tool_name(call.get("tool_name"))
+        observation_name = normalize_tool_name(observation_match.group("name"))
+        if call_name != observation_name:
+            continue
+        if _observation_is_error(observation_match.group("body")):
+            failed.add(index)
+    return failed
 
 
 def _rewrite_message(
-    content: str, role: str, catalog: dict[str, dict[str, Any]]
+    content: str,
+    role: str,
+    catalog: dict[str, dict[str, Any]],
+    *,
+    failed_call_indexes: set[int] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     changes: list[dict[str, Any]] = []
+    call_index = 0
 
     def call_replace(match: re.Match[str]) -> str:
+        nonlocal call_index
+        current_call_index = call_index
+        call_index += 1
         payload = json.loads(match.group(1).strip())
         if not isinstance(payload, dict):
             raise ValueError("tool_call_payload_not_object")
@@ -235,7 +292,18 @@ def _rewrite_message(
         if old in LOCAL_TOOL_NAMES:
             return match.group(0)
         arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
-        new, adapted, changed = _adapt_call(old, arguments, catalog)
+        new, adapted, changed, retained_failed = _adapt_call(
+            old,
+            arguments,
+            catalog,
+            allow_invalid_failed_call=current_call_index in (failed_call_indexes or set()),
+        )
+        if retained_failed:
+            changes.append({
+                "kind": "schema_invalid_failed_call_retained",
+                "tool_name": old,
+                "call_index": current_call_index,
+            })
         if changed:
             changes.append({"kind": "tool_call", "old_tool": old, "new_tool": new, "arguments_changed": adapted != arguments})
         payload["tool_name"] = new
@@ -297,11 +365,26 @@ def migrate_records(input_path: Path, catalog_path: Path, output_root: Path) -> 
         migrated_messages = []
         record_changes: list[dict[str, Any]] = []
         try:
-            for message in messages:
+            for message_index, message in enumerate(messages):
                 item = dict(message)
                 if isinstance(item.get("content"), str):
+                    failed_call_indexes: set[int] = set()
+                    if (
+                        item.get("role") == "assistant"
+                        and message_index + 1 < len(messages)
+                        and isinstance(messages[message_index + 1], dict)
+                        and messages[message_index + 1].get("role") == "user"
+                        and isinstance(messages[message_index + 1].get("content"), str)
+                    ):
+                        failed_call_indexes = _paired_failed_call_indexes(
+                            item["content"],
+                            messages[message_index + 1]["content"],
+                        )
                     item["content"], changes = _rewrite_message(
-                        item["content"], str(item.get("role") or ""), catalog
+                        item["content"],
+                        str(item.get("role") or ""),
+                        catalog,
+                        failed_call_indexes=failed_call_indexes,
                     )
                     record_changes.extend(changes)
                 migrated_messages.append(item)

@@ -42,7 +42,7 @@ Avoid using this skill for:
 The skill is invoked by running the wiki script with a query:
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "your query" [options]
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "your query" [options]
 ```
 
 ### Options
@@ -74,7 +74,7 @@ python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "your query" 
 Search for Wikipedia articles matching a term:
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "quantum computing" --mode search
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "quantum computing" --mode search
 ```
 
 Output:
@@ -99,13 +99,13 @@ Output:
 Get a concise summary of a Wikipedia page:
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Python (programming language)" --mode summary
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Python (programming language)" --mode summary
 ```
 
 Or with custom sentence count:
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Albert Einstein" --mode summary --sentences 3
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Albert Einstein" --mode summary --sentences 3
 ```
 
 Output:
@@ -125,7 +125,7 @@ Output:
 Retrieve the complete article with sections:
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Machine learning" --mode full
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Machine learning" --mode full
 ```
 
 Output:
@@ -154,11 +154,11 @@ Output:
 Search or fetch content in other languages:
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Paris" --mode summary --lang fr
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Paris" --mode summary --lang fr
 ```
 
 ```bash
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "東京" --mode summary --lang ja
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "東京" --mode summary --lang ja
 ```
 
 ## Workflow
@@ -388,7 +388,7 @@ The `--break-system-packages` flag is needed for externally-managed Python envir
 If you get "Permission denied" error:
 
 ```bash
-chmod +x ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py
+chmod +x ~/.openclaw/skills/wikipedia-search/scripts/wiki.py
 ```
 
 ### Python Not Found
@@ -422,49 +422,49 @@ python3 -m pip install Wikipedia-API --user
 
 ```bash
 # Start with search
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "neural networks" --mode search
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "neural networks" --mode search
 
 # Get summary of main article
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Artificial neural network" --mode summary
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Artificial neural network" --mode summary
 
 # Get full content for deep dive
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Artificial neural network" --mode full
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Artificial neural network" --mode full
 ```
 
 ### Quick Facts
 
 ```bash
 # Who is someone?
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Marie Curie" --mode summary --sentences 2
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Marie Curie" --mode summary --sentences 2
 
 # What is something?
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Blockchain" --mode summary --sentences 3
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Blockchain" --mode summary --sentences 3
 
 # Where is something?
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Machu Picchu" --mode summary
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Machu Picchu" --mode summary
 ```
 
 ### Historical Information
 
 ```bash
 # Historical events
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "World War II" --mode full
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "World War II" --mode full
 
 # Historical figures
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Leonardo da Vinci" --mode summary --sentences 10
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Leonardo da Vinci" --mode summary --sentences 10
 ```
 
 ### Scientific Concepts
 
 ```bash
 # Physics
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Quantum entanglement" --mode summary
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Quantum entanglement" --mode summary
 
 # Biology
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "DNA" --mode full
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "DNA" --mode full
 
 # Chemistry
-python ~/.openclaw/.claude/skills/wikipedia-search/scripts/wiki.py "Periodic table" --mode summary
+python ~/.openclaw/skills/wikipedia-search/scripts/wiki.py "Periodic table" --mode summary
 ```
 
 ## See Also

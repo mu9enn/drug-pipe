@@ -396,6 +396,26 @@ class ClaudePatchCaptureTest(unittest.TestCase):
 
 
 class InvariantTest(unittest.TestCase):
+    def test_allows_concurrent_tool_observations_to_return_out_of_call_order(self) -> None:
+        sample = sample_record()
+        sample["messages"][2]["content"] = (
+            '<tool_call>{"arguments":{"index":1},"tool_name":"dock"}</tool_call>\n'
+            '<tool_call>{"arguments":{"path":"notes.txt"},"tool_name":"Write"}</tool_call>'
+        )
+        sample["messages"][3]["content"] = (
+            '<observation tool_name="Write">'
+            '{"content":{"status":"success"},"is_error":false,"status":"success",'
+            '"tool_name":"Write"}</observation>\n'
+            '<observation tool_name="dock">'
+            '{"content":{"status":"success","value":1},"is_error":false,'
+            '"status":"success","tool_name":"dock"}</observation>'
+        )
+        report = validate_final_record(sample)
+        self.assertNotIn("tool_observation_order_mismatch", report["errors"])
+        self.assertNotIn("missing_observations:1", report["errors"])
+        self.assertIn("observation_returned_out_of_call_order", report["warnings"])
+        self.assertEqual(report["out_of_order_observations"][0]["tool_name"], "Write")
+
     def test_prose_audit_targets_teacher_orchestration_without_timeline_rules(self) -> None:
         sample = sample_record()
         sample["messages"][2]["content"] = (

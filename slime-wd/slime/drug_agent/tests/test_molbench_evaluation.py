@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from drug_agent.evaluation.molbench_adapter import build_molbench_dataset
 from drug_agent.evaluation.official_eval import _load_eval_runner
 from drug_agent.evaluation.preflight import _checkpoint_info, _validate_model_assets
+from drug_agent.evaluation.prompt_adapter import build_prompt_suite_dataset, build_single_prompt_dataset
+from drug_agent.evaluation.prompt_logger import log_eval_rollout_data
 from drug_agent.protocol.react_protocol import parse_runtime_decision, project_final_answer
 
 
@@ -97,3 +101,81 @@ class CheckpointPreflightTest(unittest.TestCase):
             (checkpoint / "iter_0000007/common.pt").unlink()
             with self.assertRaises(FileNotFoundError):
                 _checkpoint_info(checkpoint)
+
+
+class SinglePromptAdapterTest(unittest.TestCase):
+    def test_builds_one_fresh_prompt_without_teacher_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt = root / "question.txt"
+            prompt.write_text("Use a real tool, then report its observation.\n")
+
+            manifest = build_single_prompt_dataset(
+                prompt,
+                root / "run",
+                task_type="e2e",
+                task_id="manual_test",
+                max_steps=0,
+            )
+
+            self.assertEqual(manifest["sample_count"], 1)
+            row = json.loads((root / "run/prompt_eval.jsonl").read_text())
+            self.assertEqual([message["role"] for message in row["prompt"]], ["system", "user"])
+            self.assertEqual(row["prompt"][1]["content"], "Use a real tool, then report its observation.")
+            self.assertEqual(row["metadata"]["env_kwargs"]["task_type"], "e2e")
+            self.assertEqual(row["metadata"]["env_kwargs"]["max_steps"], 0)
+            self.assertNotIn("assistant", [message["role"] for message in row["prompt"]])
+
+    def test_rejects_unknown_task_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt = Path(tmp) / "question.txt"
+            prompt.write_text("question")
+            with self.assertRaises(ValueError):
+                build_single_prompt_dataset(prompt, Path(tmp) / "run", task_type="unknown")
+
+    def test_builds_multi_prompt_suite_with_unique_fresh_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            suite = root / "suite.json"
+            suite.write_text(json.dumps([
+                {"id": "one", "task_type": "e2e", "prompt": "first"},
+                {"id": "two", "task_type": "kg", "prompt": "second"},
+            ]))
+
+            manifest = build_prompt_suite_dataset(suite, root / "run", max_steps=0)
+
+            rows = [json.loads(line) for line in (root / "run/prompt_eval.jsonl").read_text().splitlines()]
+            self.assertEqual(manifest["sample_count"], 2)
+            self.assertEqual([row["id"] for row in rows], ["one", "two"])
+            self.assertTrue(all([message["role"] for message in row["prompt"]] == ["system", "user"] for row in rows))
+            self.assertTrue(all(row["metadata"]["env_kwargs"]["max_steps"] == 0 for row in rows))
+
+    def test_prompt_logger_preserves_actions_observations_and_final(self):
+        class Sample:
+            status = "completed"
+            metadata = {
+                "manual_prompt": "test question",
+                "env_kwargs": {"task_id": "manual_test", "task_type": "e2e"},
+                "drug_agent_trace": {
+                    "done_reason": "final_answer",
+                    "actions": [{"raw_response": "<thought>inspect</thought>"}],
+                    "observations": [{"tool_name": "fix_pdb", "status": "success"}],
+                    "final_answer": {"task_type": "e2e", "result": "ok", "evidence": []},
+                    "projected_final_answer": "ok",
+                    "num_steps": 2,
+                    "num_tool_success": 1,
+                    "num_tool_error": 0,
+                    "artifact_audit": {"path_map": {}},
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"DRUG_AGENT_EVAL_RUN_DIR": tmp}
+        ):
+            self.assertTrue(
+                log_eval_rollout_data("rollout_1", None, {"single": {"samples": [Sample()]}}, {})
+            )
+            payload = json.loads((Path(tmp) / "prompt_result.json").read_text())
+            self.assertEqual(payload["trace"]["actions"][0]["raw_response"], "<thought>inspect</thought>")
+            self.assertEqual(payload["trace"]["observations"][0]["tool_name"], "fix_pdb")
+            self.assertEqual(payload["result"]["projected_final_answer"], "ok")

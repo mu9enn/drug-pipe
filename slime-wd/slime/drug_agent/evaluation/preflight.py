@@ -9,6 +9,7 @@ from pathlib import Path
 
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT
 from drug_agent.evaluation.molbench_adapter import build_molbench_dataset
+from drug_agent.evaluation.prompt_adapter import build_prompt_suite_dataset, build_single_prompt_dataset
 from drug_agent.tools.runtime_env import (
     load_molclaw_environment,
     missing_molclaw_environment,
@@ -93,9 +94,13 @@ def _git_commit(repo_root: Path) -> str | None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Prepare a strict live MolClaw/MolBench evaluation run")
+    parser = argparse.ArgumentParser(description="Prepare a strict live MolClaw evaluation run")
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--molbench-root", required=True)
+    parser.add_argument("--molbench-root")
+    parser.add_argument("--prompt-file")
+    parser.add_argument("--prompt-suite-file")
+    parser.add_argument("--task-type", default="e2e")
+    parser.add_argument("--task-id", default="manual_prompt_001")
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--env-file", action="append", default=[])
     parser.add_argument("--max-workers", type=int, default=2)
@@ -115,6 +120,9 @@ def main() -> int:
             "max-workers and task-timeout-sec must be positive; "
             "max-steps must be non-negative (0 means unlimited)"
         )
+    input_count = sum(bool(value) for value in (args.molbench_root, args.prompt_file, args.prompt_suite_file))
+    if input_count != 1:
+        raise ValueError("Provide exactly one of --molbench-root, --prompt-file, or --prompt-suite-file")
 
     load_molclaw_environment(args.env_file)
     missing = missing_molclaw_environment()
@@ -127,7 +135,31 @@ def main() -> int:
         Path(args.hf_checkpoint).expanduser().resolve(),
         Path(args.model_args_file).expanduser().resolve(),
     )
-    benchmark = build_molbench_dataset(args.molbench_root, run_dir)
+    if args.prompt_suite_file:
+        evaluation_mode = "prompt_suite"
+        input_manifest = build_prompt_suite_dataset(
+            args.prompt_suite_file,
+            run_dir,
+            max_steps=args.max_steps,
+        )
+        input_manifest_path = run_dir / "prompt_manifest.json"
+        input_counts = {"manual_prompt": input_manifest["sample_count"]}
+    elif args.prompt_file:
+        evaluation_mode = "single_prompt"
+        input_manifest = build_single_prompt_dataset(
+            args.prompt_file,
+            run_dir,
+            task_type=args.task_type,
+            task_id=args.task_id,
+            max_steps=args.max_steps,
+        )
+        input_manifest_path = run_dir / "prompt_manifest.json"
+        input_counts = {"manual_prompt": input_manifest["sample_count"]}
+    else:
+        evaluation_mode = "molbench"
+        input_manifest = build_molbench_dataset(args.molbench_root, run_dir)
+        input_manifest_path = run_dir / "benchmark_manifest.json"
+        input_counts = input_manifest["counts"]
     if not DRUG_AGENT_L1_SKILLS_ROOT.is_dir():
         raise FileNotFoundError(f"L1 skills root not found: {DRUG_AGENT_L1_SKILLS_ROOT}")
     l1_snapshot = _l1_snapshot_info(DRUG_AGENT_L1_SKILLS_ROOT)
@@ -149,10 +181,11 @@ def main() -> int:
         "schema_version": "drug_agent_online_eval_run_v1",
         "created_at": utc_now_iso(),
         "code_commit": _git_commit(repo_root),
+        "evaluation_mode": evaluation_mode,
         "checkpoint": checkpoint,
         "model_assets": model_assets,
-        "benchmark_manifest": str(run_dir / "benchmark_manifest.json"),
-        "benchmark_counts": benchmark["counts"],
+        "input_manifest": str(input_manifest_path),
+        "input_counts": input_counts,
         "tool_catalog_path": str(run_dir / "tool_catalog.json"),
         "tool_catalog_sha256": catalog_hash,
         "mcp_tool_count": len(mcp_catalog),
@@ -177,6 +210,9 @@ def main() -> int:
         },
         "mcp_environment": redacted_environment_summary(),
     }
+    if evaluation_mode == "molbench":
+        manifest["benchmark_manifest"] = str(input_manifest_path)
+        manifest["benchmark_counts"] = input_counts
     write_json(run_dir / "run_manifest.json", manifest)
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
     return 0

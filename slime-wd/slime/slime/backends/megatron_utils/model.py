@@ -33,10 +33,42 @@ from slime.utils.memory_utils import clear_memory
 from .checkpoint import load_checkpoint, save_checkpoint
 from .cp_utils import reduce_train_step_metrics
 from .data import DataIterator, get_batch
+from .fp8_optimizer_state_offload import (
+    bind_fp8_optimizer_state_offload,
+    install_fp8_optimizer_state_offload_patch,
+    split_fp8_optimizer_param_groups,
+)
 from .loss import loss_function
 from .model_provider import get_model_provider_func
 
 logger = logging.getLogger(__name__)
+install_fp8_optimizer_state_offload_patch()
+
+
+def _optimizer_state_offload_instances(optimizer: MegatronOptimizer) -> list[MegatronOptimizer]:
+    """Return MCore optimizers which implement the state-offload lifecycle."""
+    return [
+        instance
+        for instance in getattr(optimizer, "chained_optimizers", ())
+        if all(
+            hasattr(instance, method)
+            for method in ("offload_states", "reload_offloaded_states", "release_offloaded_gpu_states")
+        )
+    ]
+
+
+def _offload_optimizer_states_if_needed(optimizer: MegatronOptimizer) -> None:
+    """Start D2H state offload, avoiding a duplicate copy of already-offloaded state."""
+    offload_master_weights = os.environ.get("OFFLOAD_OPTIMIZER_MASTER_WEIGHTS", "1") != "0"
+    for instance in _optimizer_state_offload_instances(optimizer):
+        state_offloader = getattr(instance, "_state_offloader", None)
+        if state_offloader is not None and not getattr(state_offloader, "_offloaded", False):
+            state_offloader.offload(offload_master_weights=offload_master_weights)
+
+
+def _release_offloaded_optimizer_states(optimizer: MegatronOptimizer) -> None:
+    for instance in _optimizer_state_offload_instances(optimizer):
+        instance.release_offloaded_gpu_states()
 
 
 def _disable_tqdm_for_non_main_rank() -> bool:
@@ -230,6 +262,16 @@ def setup_model_and_optimizer(
         model_chunks=model,
         use_gloo_process_groups=args.enable_gloo_process_groups,
     )
+    if args.use_precision_aware_optimizer and args.offload_optimizer_states:
+        bound_offloaders = bind_fp8_optimizer_state_offload(optimizer)
+        fp8_group_count = split_fp8_optimizer_param_groups(optimizer)
+        if fp8_group_count:
+            logger.info(
+                "Split precision-aware FusedAdam into %d bounded parameter groups "
+                "and bound %d state offloaders",
+                fp8_group_count,
+                bound_offloaders,
+            )
     opt_param_scheduler = get_optimizer_param_scheduler(args, optimizer)
     return model, optimizer, opt_param_scheduler
 
@@ -588,10 +630,18 @@ def train_one_step(
         assert update_successful
         opt_param_scheduler.step(increment=step_global_batch_size)
 
+        # Keep the steady state small for colocated training. The next
+        # finalize_model_grads call starts the asynchronous H2D reload before
+        # optimizer.step(); this D2H copy overlaps the gradient cleanup below.
+        if args.offload_optimizer_states:
+            _offload_optimizer_states_if_needed(optimizer)
+
     # release grad
     for model_chunk in model:
         model_chunk.zero_grad_buffer()
     optimizer.zero_grad()
+    if args.offload_optimizer_states:
+        _release_offloaded_optimizer_states(optimizer)
 
     if mpu.is_pipeline_last_stage(ignore_virtual=True):
         loss_reduced = reduce_train_step_metrics(
@@ -672,7 +722,26 @@ def train(
         config.param_sync_func = [model_chunk.start_param_sync for model_chunk in model]
         if len(model) == 1:
             config.param_sync_func = config.param_sync_func[0]
-    config.finalize_model_grads_func = finalize_model_grads
+    if args.offload_optimizer_states:
+
+        def finalize_model_grads_with_state_reload(*fmg_args, **fmg_kwargs):
+            for optim_instance in _optimizer_state_offload_instances(optimizer):
+                optim_instance.reload_offloaded_states()
+            return finalize_model_grads(*fmg_args, **fmg_kwargs)
+
+        config.finalize_model_grads_func = finalize_model_grads_with_state_reload
+    else:
+        config.finalize_model_grads_func = finalize_model_grads
+
+    # The first step has master weights but no Adam moments yet. Offload those
+    # master weights before forward; later steps arrive here already offloaded
+    # by train_one_step's post-step path.
+    if args.offload_optimizer_states:
+        _offload_optimizer_states_if_needed(optimizer)
+        for model_chunk in model:
+            model_chunk.zero_grad_buffer()
+        optimizer.zero_grad()
+        _release_offloaded_optimizer_states(optimizer)
 
     pre_hook_enabled = False
 

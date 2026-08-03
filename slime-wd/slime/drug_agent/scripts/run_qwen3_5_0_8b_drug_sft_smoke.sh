@@ -9,20 +9,23 @@ else
 fi
 
 cd "$SLIME"
+export OFFLOAD_OPTIMIZER_MASTER_WEIGHTS=${OFFLOAD_OPTIMIZER_MASTER_WEIGHTS:-${SFT_OFFLOAD_OPTIMIZER_MASTER_WEIGHTS:-1}}
 source drug_agent/scripts/offline_training_env.sh
+MEGATRON_LM_PATH=${MEGATRON_LM_PATH:-/root/Megatron-LM}
 
 # Colocated SGLang uses TorchMemorySaver to release and restore GPU memory.
 # TorchMemorySaver currently rejects PyTorch expandable allocator segments.
-if [[ "${PYTORCH_CUDA_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
+if [[ "${SFT_DEBUG_TRAIN_ONLY:-0}" != "1" && "${PYTORCH_CUDA_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
   echo "[drug_agent] Unsetting incompatible PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}" >&2
   unset PYTORCH_CUDA_ALLOC_CONF
 fi
-if [[ "${PYTORCH_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
+if [[ "${SFT_DEBUG_TRAIN_ONLY:-0}" != "1" && "${PYTORCH_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
   echo "[drug_agent] Unsetting incompatible PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF}" >&2
   unset PYTORCH_ALLOC_CONF
 fi
 
 unset RAY_ADDRESS || true
+bash drug_agent/scripts/guard_ray_restart.sh
 pkill -9 sglang 2>/dev/null || true
 sleep 2
 ray stop --force 2>/dev/null || true
@@ -70,6 +73,7 @@ ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-8}
 GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-8}
 NUM_EPOCH=${NUM_EPOCH:-1}
 MAX_TOKENS_PER_GPU=${MAX_TOKENS_PER_GPU:-8192}
+LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
 LR=${LR:-1e-5}
 SFT_EPOCH_ONLY=${SFT_EPOCH_ONLY:-0}
 
@@ -79,12 +83,20 @@ CONTEXT_PARALLEL_SIZE=${CONTEXT_PARALLEL_SIZE:-1}
 EXPERT_MODEL_PARALLEL_SIZE=${EXPERT_MODEL_PARALLEL_SIZE:-1}
 EXPERT_TENSOR_PARALLEL_SIZE=${EXPERT_TENSOR_PARALLEL_SIZE:-1}
 
-MODEL_PARALLEL_SIZE=$((TENSOR_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE * CONTEXT_PARALLEL_SIZE * EXPERT_MODEL_PARALLEL_SIZE))
+MODEL_PARALLEL_SIZE=$((TENSOR_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE * CONTEXT_PARALLEL_SIZE))
 if [ "$MODEL_PARALLEL_SIZE" -le 0 ] || [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne 0 ]; then
-  echo "NUM_GPUS must be divisible by TP*PP*CP*EP: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE CP=$CONTEXT_PARALLEL_SIZE EP=$EXPERT_MODEL_PARALLEL_SIZE" >&2
+  echo "NUM_GPUS must be divisible by TP*PP*CP: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE CP=$CONTEXT_PARALLEL_SIZE" >&2
   exit 2
 fi
 DATA_PARALLEL_SIZE=$((NUM_GPUS / MODEL_PARALLEL_SIZE))
+# Megatron builds the expert grid independently from the dense TP/CP grid:
+# world_size must be divisible by ETP*EP*PP.  In particular CP is not part of
+# this product (e.g. TP2/CP4/EP8 is valid on eight ranks when ETP=PP=1).
+EXPERT_MODEL_SIZE=$((EXPERT_TENSOR_PARALLEL_SIZE * EXPERT_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE))
+if [ "$EXPERT_MODEL_SIZE" -le 0 ] || [ $((NUM_GPUS % EXPERT_MODEL_SIZE)) -ne 0 ]; then
+  echo "NUM_GPUS must be divisible by ETP*EP*PP: NUM_GPUS=$NUM_GPUS ETP=$EXPERT_TENSOR_PARALLEL_SIZE EP=$EXPERT_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE" >&2
+  exit 2
+fi
 
 if [ "$ROLLOUT_BATCH_SIZE" -lt "$GLOBAL_BATCH_SIZE" ]; then
   echo "ROLLOUT_BATCH_SIZE must be >= GLOBAL_BATCH_SIZE: ROLLOUT_BATCH_SIZE=$ROLLOUT_BATCH_SIZE GLOBAL_BATCH_SIZE=$GLOBAL_BATCH_SIZE" >&2
@@ -130,15 +142,19 @@ if [ ! -f "$MODEL_ARGS_FILE" ]; then
 fi
 source "$MODEL_ARGS_FILE"
 
-CKPT_ARGS=(
-  --hf-checkpoint "$HF_CHECKPOINT"
-  --ref-load "$REF_LOAD"
-  --save "$SAVE_DIR"
-  --save-interval "$SAVE_INTERVAL"
-  --save-retain-last "$CHECKPOINT_KEEP_LAST"
-)
+CKPT_ARGS=(--hf-checkpoint "$HF_CHECKPOINT" --ref-load "$REF_LOAD")
+if [ "${DISABLE_CHECKPOINT_SAVE:-0}" != "1" ]; then
+  CKPT_ARGS+=(
+    --save "$SAVE_DIR"
+    --save-interval "$SAVE_INTERVAL"
+    --save-retain-last "$CHECKPOINT_KEEP_LAST"
+  )
+fi
 if [ -n "$LOAD" ]; then
   CKPT_ARGS+=(--load "$LOAD")
+fi
+if [ "${NO_SAVE_OPTIM:-0}" = "1" ]; then
+  CKPT_ARGS+=(--no-save-optim --no-save-rng)
 fi
 
 SFT_ARGS=(
@@ -155,7 +171,11 @@ SFT_ARGS=(
   --loss-mask-type qwen3_5
   --calculate-per-token-loss
   --disable-compute-advantages-and-returns
+  --log-probs-chunk-size "$LOG_PROBS_CHUNK_SIZE"
 )
+if [ "${RECOMPUTE_LOSS_FUNCTION:-0}" = "1" ]; then
+  SFT_ARGS+=(--recompute-loss-function)
+fi
 if [ "$SFT_EPOCH_ONLY" = "1" ]; then
   SFT_ARGS+=(--num-epoch "$NUM_EPOCH")
 else
@@ -203,14 +223,53 @@ fi
 if [ -n "${LR_WARMUP_FRACTION:-}" ]; then
   OPTIMIZER_ARGS+=(--lr-warmup-fraction "$LR_WARMUP_FRACTION")
 fi
+if [ "${OPTIMIZER_CPU_OFFLOAD:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(--optimizer-cpu-offload)
+  if [ -n "${OPTIMIZER_OFFLOAD_FRACTION:-}" ]; then
+    OPTIMIZER_ARGS+=(--optimizer-offload-fraction "$OPTIMIZER_OFFLOAD_FRACTION")
+  fi
+  if [ "${OVERLAP_CPU_OPTIMIZER_D2H_H2D:-1}" = "1" ]; then
+    OPTIMIZER_ARGS+=(--overlap-cpu-optimizer-d2h-h2d)
+  fi
+fi
+if [ "${USE_PRECISION_AWARE_OPTIMIZER:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(--use-precision-aware-optimizer)
+fi
+if [ "${OFFLOAD_OPTIMIZER_STATES:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(--offload-optimizer-states)
+fi
+if [ -n "${MAIN_GRADS_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--main-grads-dtype "$MAIN_GRADS_DTYPE")
+fi
+if [ -n "${MAIN_PARAMS_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--main-params-dtype "$MAIN_PARAMS_DTYPE")
+fi
+if [ -n "${EXP_AVG_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--exp-avg-dtype "$EXP_AVG_DTYPE")
+fi
+if [ -n "${EXP_AVG_SQ_DTYPE:-}" ]; then
+  OPTIMIZER_ARGS+=(--exp-avg-sq-dtype "$EXP_AVG_SQ_DTYPE")
+fi
+if [ "${FP8_PARAM_GATHER:-0}" = "1" ]; then
+  OPTIMIZER_ARGS+=(
+    --fp8-format "${FP8_FORMAT:-e4m3}"
+    --fp8-recipe "${FP8_RECIPE:-blockwise}"
+    --fp8-param-gather
+  )
+fi
 
 MISC_ARGS=(
   --attention-dropout 0.0
   --hidden-dropout 0.0
-  --accumulate-allreduce-grads-in-fp32
   --attention-softmax-in-fp32
   --attention-backend flash
 )
+if [ "${ACCUMULATE_ALLREDUCE_GRADS_IN_FP32:-1}" = "1" ]; then
+  MISC_ARGS+=(--accumulate-allreduce-grads-in-fp32)
+fi
+if [ "${MOE_ENABLE_DEEPEP:-0}" = "1" ]; then
+  MISC_ARGS+=(--moe-token-dispatcher-type flex --moe-enable-deepep)
+fi
 
 PLACEMENT_ARGS=()
 if [ "${SFT_DEBUG_TRAIN_ONLY:-0}" = "1" ] && [ "${SFT_DISABLE_OFFLOAD:-0}" = "1" ]; then
@@ -269,7 +328,7 @@ collect_ray_job_logs_on_failure() {
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
-    \"PYTHONPATH\": \"${PYTHON_CPU_FIX_DIR}:/root/Megatron-LM/:${SLIME}:${SCRIPT_DIR:-}:${PYTHONPATH:-}\",
+    \"PYTHONPATH\": \"${PYTHON_CPU_FIX_DIR}:${MEGATRON_LM_PATH}:${SLIME}:${SCRIPT_DIR:-}:${PYTHONPATH:-}\",
     \"PYTHON_CPU_COUNT\": \"${REAL_CPU}\",
     \"PATH\": \"${PATH}\",
     \"LD_LIBRARY_PATH\": \"${LD_LIBRARY_PATH:-}\",
@@ -277,7 +336,9 @@ RUNTIME_ENV_JSON="{
     \"NVIDIA_VISIBLE_DEVICES\": \"${NVIDIA_VISIBLE_DEVICES:-all}\",
     \"NVIDIA_DRIVER_CAPABILITIES\": \"${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
+    \"PYTORCH_CUDA_ALLOC_CONF\": \"${PYTORCH_CUDA_ALLOC_CONF:-}\",
     \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
+    \"NVSHMEM_DISABLE_NCCL\": \"1\",
     \"NCCL_IB_DISABLE\": \"${NCCL_IB_DISABLE:-1}\",
     \"OUTPUTS_ROOT\": \"${OUTPUTS_ROOT}\",
     \"DRUG_AGENT_DATA_ROOT\": \"${DRUG_AGENT_DATA_ROOT}\",
@@ -294,6 +355,7 @@ ray job submit --address="http://127.0.0.1:8265" \
   -- python3 train.py \
   --actor-num-nodes 1 \
   --actor-num-gpus-per-node "$NUM_GPUS" \
+  --num-gpus-per-node "$NUM_GPUS" \
   "${PLACEMENT_ARGS[@]}" \
   "${MODEL_ARGS[@]}" \
   "${CKPT_ARGS[@]}" \
