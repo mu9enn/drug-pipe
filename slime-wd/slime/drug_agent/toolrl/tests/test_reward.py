@@ -142,3 +142,50 @@ def test_official_final_answer_extension_scores_structured_result_without_summar
     out = _reward(sample, mode="official")
     assert out["score"] == 4.0
     assert out["diagnostics"]["official_toolrl_extension"] == "drug_pipe_terminal_decision_extension"
+
+
+def test_molclaw_terminal_exact_answer_scores_one_without_summary():
+    final = {"task_type": "kg", "result": "artifact", "evidence": []}
+    sample = _sample(
+        '<thought>done</thought><final_answer>' + __import__("json").dumps(final) + '</final_answer>',
+        {"decision_type": "final_answer", "target_final_answer": {**final, "summary": "duplicate"}},
+    )
+    out = _reward(sample)
+    assert out["score"] == 1.0
+    assert out["diagnostics"]["terminal_exact_match"] is True
+
+
+def test_molclaw_terminal_malformed_empty_call_set_is_negative():
+    sample = _sample(
+        "unstructured output with no final answer",
+        {"decision_type": "final_answer", "target_final_answer": {"result": "expected"}},
+    )
+    out = _reward(sample)
+    assert out["score"] == -0.5
+    assert out["diagnostics"]["terminal_exact_match"] is False
+    assert out["components"]["tool_call_score"] == 0.0
+
+
+def test_molclaw_terminal_wrong_valid_answer_is_negative():
+    predicted = {"task_type": "kg", "result": "wrong", "evidence": []}
+    expected = {"task_type": "kg", "result": "expected", "evidence": []}
+    sample = _sample(
+        '<thought>done</thought><final_answer>' + __import__("json").dumps(predicted) + '</final_answer>',
+        {"decision_type": "final_answer", "target_final_answer": expected},
+    )
+    out = _reward(sample)
+    assert out["score"] == -0.5
+    assert out["errors"][0]["type"] == "FinalAnswerMismatch"
+
+
+def test_molclaw_malformed_tool_response_cannot_receive_positive_dense_credit():
+    sample = _sample(
+        '<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call> garbage',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x"}}],
+        },
+    )
+    out = _reward(sample)
+    assert out["diagnostics"]["parse_ok"] is False
+    assert out["score"] <= -0.3

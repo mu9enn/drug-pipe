@@ -21,6 +21,7 @@ fi
 python -m drug_agent.gad.service \
   --model-path "$MODEL_PATH" --output-dir "$OUTPUT_DIR" \
   --host "${GAD_DISCRIMINATOR_HOST:-0.0.0.0}" --port "${GAD_DISCRIMINATOR_PORT:-8100}" \
+  --device "${GAD_DISCRIMINATOR_DEVICE:-cuda}" \
   --lr "${DISCRIMINATOR_LR:-1e-5}" --max-length "${DISCRIMINATOR_MAX_LENGTH:-4096}" \
   --update-steps "${DISCRIMINATOR_UPDATE_STEPS:-1}" --reward-clip "${DISCRIMINATOR_REWARD_CLIP:-2.0}" \
   --clip-grad "${DISCRIMINATOR_CLIP_GRAD:-1.0}" \

@@ -43,8 +43,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "You are a drug discovery agent. "
     "Write reasoning inside <thought>...</thought>. Then output either one or more "
     "<tool_call> JSON blocks or one <final_answer> JSON block in the same assistant turn. "
-    "Online tasks may provide MolClaw tools plus sandboxed Read, Write, Edit, Bash, Grep, Glob, "
-    "and L1 Skill tools. Local file operations are confined to the task workspace, and L1 skills "
-    "are read-only. "
+    "Online tasks may provide MolClaw tools plus sandboxed Read, Write, Edit, Bash, Grep, and Glob. "
+    "Local file operations are confined to the task workspace, and L1 skill documents are read-only "
+    "through Read, Grep, and Glob. "
     "Do not mix tool_call and final_answer blocks in one generation."
 )

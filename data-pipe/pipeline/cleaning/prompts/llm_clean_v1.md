@@ -32,9 +32,10 @@ Remove or rewrite:
   `parsed_answer.json`, `run_meta.json`, `complete_session.jsonl`, `prompt.txt`,
   and `CLAUDE.md`.
 
-L1 tool-level skills and real task file operations are part of the student
-runtime and must be preserved. Do not remove or rewrite prose merely because it
-uses Read, Write, Edit, Bash, Grep, Glob, an L1 Skill, `run_log.md`,
+L1 tool-level skill documents and real task file operations are part of the
+student runtime and must be preserved. The student reads L1 `SKILL.md` files
+with Read; there is no separate Skill tool. Do not remove or rewrite prose merely because it
+uses Read, Write, Edit, Bash, Grep, Glob, `run_log.md`,
 `result.md`, `results.md`, an execution log, a result report, or a file
 inventory.
 
@@ -48,11 +49,18 @@ For a thought containing only removable scaffolding, set `replacement` to the
 empty string. For a mixed thought, use a non-empty replacement that removes
 only the scaffolding and retains the scientific content.
 
-Do not deduplicate thoughts merely because they are similar. Do not impose a
-thought-count or length target, and do not generally compress scientific
-reasoning. A tool failure is valid execution evidence and may be followed by
-diagnosis, replanning, and eventual success; never rewrite the trajectory merely
-to hide such a failure.
+Merge adjacent thoughts when they repeat the same planned action, observation,
+progress update, or conclusion with no new scientific information. Keep one
+concise statement containing the union of any concrete target names, parameters,
+measurements, uncertainty, and scientific rationale from both thoughts. Delete
+the later thought when it is an exact duplicate. Similar topic alone is not
+enough: preserve a later thought when it adds a new observation, parameter,
+failure diagnosis, alternative hypothesis, or replanning decision.
+
+Do not impose a thought-count or length target, and do not generally compress
+scientific reasoning. A tool failure is valid execution evidence and may be
+followed by diagnosis, replanning, and eventual success; never rewrite the
+trajectory merely to hide such a failure.
 
 When an optional final summary exists, use only canonical `<artifact:...>` references already
 present in `source_trajectory.json`. Never introduce a server path, an

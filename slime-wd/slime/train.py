@@ -1,3 +1,5 @@
+import os
+
 import ray
 
 from slime.ray.placement_group import create_placement_groups, create_rollout_manager, create_training_models
@@ -29,6 +31,12 @@ def train(args):
 
     # Always push actor weights to rollout once weights are loaded.
     actor_model.update_weights()
+
+    verify_first_update_equal = os.environ.get("SLIME_VERIFY_FIRST_UPDATE_EQUAL", "0") == "1"
+    if verify_first_update_equal:
+        # Snapshot the *loaded actor* (rather than the rollout engine's original
+        # HF weights) so a zero-LR first optimizer step can be checked exactly.
+        ray.get(rollout_manager.check_weights.remote(action="snapshot"))
 
     if args.check_weight_update_equal:
         ray.get(rollout_manager.check_weights.remote(action="compare"))
@@ -95,6 +103,9 @@ def train(args):
         if args.offload_rollout:
             ray.get(rollout_manager.onload_weights.remote())
         actor_model.update_weights()
+
+        if verify_first_update_equal and rollout_id == 0:
+            ray.get(rollout_manager.check_weights.remote(action="compare"))
 
         if args.offload_rollout:
             ray.get(rollout_manager.onload_kv.remote())

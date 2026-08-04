@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 # TODO: may need to copy those 2 functions and do refactoring.
@@ -104,13 +105,14 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, checkpointing_con
     ), f"{args.load=} does not exist or is an empty directory. Did you specify the wrong folder?"
 
     if _is_megatron_checkpoint(load_path):
-        return _load_checkpoint_megatron(
-            ddp_model=ddp_model,
-            optimizer=optimizer,
-            opt_param_scheduler=opt_param_scheduler,
-            checkpointing_context=checkpointing_context,
-            skip_load_to_model_and_opt=skip_load_to_model_and_opt,
-        )
+        with _allow_missing_lora_factory_keys(getattr(args, "megatron_lora", False)):
+            return _load_checkpoint_megatron(
+                ddp_model=ddp_model,
+                optimizer=optimizer,
+                opt_param_scheduler=opt_param_scheduler,
+                checkpointing_context=checkpointing_context,
+                skip_load_to_model_and_opt=skip_load_to_model_and_opt,
+            )
     else:
         return _load_checkpoint_hf(
             ddp_model=ddp_model,
@@ -118,6 +120,88 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, checkpointing_con
             args=args,
             load_path=load_path,
         )
+
+
+@contextmanager
+def _allow_missing_lora_factory_keys(enabled: bool):
+    """Let a PEFT model restore a checkpoint created before LoRA injection.
+
+    MCore strictness can filter ordinary missing adapter tensors, but tensor
+    factories are merged afterwards and historically require identical dict
+    keys.  Megatron-Bridge wraps several fused projections in factories, so a
+    full-parameter SFT checkpoint has no ``.adapter.`` subtree to merge.  Skip
+    only those missing LoRA factory leaves; retain the normal hard failure for
+    every base-model key.
+    """
+    if not enabled:
+        yield
+        return
+
+    from megatron.core.dist_checkpointing import mapping, serialization
+
+    original = serialization.apply_factory_merges
+
+    def drop_fp8_extra_state(tree):
+        """Discard runtime FP8 calibration metadata when changing module topology."""
+        removed = 0
+        if isinstance(tree, dict):
+            for child_key in list(tree):
+                if isinstance(child_key, str) and "_extra_state" in child_key:
+                    del tree[child_key]
+                    removed += 1
+                else:
+                    removed += drop_fp8_extra_state(tree[child_key])
+        elif isinstance(tree, list):
+            for child in tree:
+                removed += drop_fp8_extra_state(child)
+        return removed
+
+    def merge_allowing_missing_adapter(x1, x2, key=()):
+        if isinstance(x2, mapping.ShardedTensorFactory):
+            return x2.merge_fn(x1)
+        if isinstance(x1, dict) and isinstance(x2, dict):
+            for child_key, child_factory in x2.items():
+                if child_key not in x1:
+                    full_key = ".".join(str(part) for part in (*key, child_key))
+                    if ".adapter." in f".{full_key}.":
+                        logger.info("Keeping initialized LoRA tensor absent from base checkpoint: %s", full_key)
+                        continue
+                    raise ValueError(
+                        "Different non-LoRA dict keys encountered in LoRA factory merge "
+                        f"at {full_key}: checkpoint={x1.keys()} runtime={x2.keys()}"
+                    )
+                x1[child_key] = merge_allowing_missing_adapter(
+                    x1[child_key], child_factory, key=(*key, child_key)
+                )
+            if not key:
+                # TransformerEngine's delayed-scaling state is tied to the
+                # exact linear-module topology.  Adapter injection changes the
+                # runtime FP8 metadata layout (for example 3 vs 384 scale
+                # entries) even though the frozen base weights are identical.
+                # Fine-tuning should warm fresh scales instead of restoring
+                # incompatible calibration history.
+                removed = drop_fp8_extra_state(x1)
+                logger.info("Dropped %d FP8 extra-state entries while restoring a LoRA finetune", removed)
+            return x1
+        if isinstance(x1, list) and isinstance(x2, list):
+            if len(x1) != len(x2):
+                raise ValueError(f"Different list lengths in LoRA factory merge at {key}: {len(x1)} != {len(x2)}")
+            for index, child_factory in enumerate(x2):
+                x1[index] = merge_allowing_missing_adapter(x1[index], child_factory, key=(*key, index))
+            return x1
+        if isinstance(x1, list) and isinstance(x2, dict):
+            for index, child_factory in x2.items():
+                if not isinstance(index, int) or index >= len(x1):
+                    raise ValueError(f"Invalid list key in LoRA factory merge at {key}: {index}")
+                x1[index] = merge_allowing_missing_adapter(x1[index], child_factory, key=(*key, index))
+            return x1
+        return x1
+
+    serialization.apply_factory_merges = merge_allowing_missing_adapter
+    try:
+        yield
+    finally:
+        serialization.apply_factory_merges = original
 
 
 def _is_megatron_checkpoint(path: str | Path) -> bool:

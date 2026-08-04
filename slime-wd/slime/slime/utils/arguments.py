@@ -219,6 +219,14 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 "--log-probs-chunk-size", type=int, default=-1, help="Chunk size to compute log probs to save memory"
             )
             parser.add_argument(
+                "--recompute-vocab-log-probs",
+                action="store_true",
+                help=(
+                    "Reconstruct vocab softmax in backward instead of retaining "
+                    "one logits-sized fused-cross-entropy clone."
+                ),
+            )
+            parser.add_argument(
                 "--only-train-params-name-list",
                 type=str,
                 nargs="*",
@@ -278,6 +286,44 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                     "so you only need to provide a huggingface checkpoint that has the same architecture as the model you want to train. "
                     "It doesn't necessary need to contain the most up-to-date parameters."
                 ),
+            )
+            parser.add_argument(
+                "--megatron-lora",
+                action="store_true",
+                help=(
+                    "Enable Megatron-Bridge LoRA. The frozen base checkpoint is loaded normally, "
+                    "while only the injected adapter parameters are optimized."
+                ),
+            )
+            parser.add_argument("--megatron-lora-rank", type=int, default=32)
+            parser.add_argument("--megatron-lora-alpha", type=int, default=64)
+            parser.add_argument("--megatron-lora-dropout", type=float, default=0.0)
+            parser.add_argument(
+                "--megatron-lora-target-modules",
+                nargs="+",
+                default=["linear_qkv", "linear_proj", "linear_fc1", "linear_fc2"],
+                help="Megatron-Bridge module names or wildcard patterns to adapt.",
+            )
+            parser.add_argument(
+                "--megatron-lora-sync-dir",
+                type=str,
+                default=None,
+                help="Shared directory used to export the current HF PEFT adapter for SGLang.",
+            )
+            parser.add_argument(
+                "--megatron-lora-skip-initial-base-sync",
+                action="store_true",
+                help=(
+                    "Skip the one-time full Megatron-to-SGLang base-weight update. Use this only when "
+                    "--hf-checkpoint is an independently exported/quantized copy of the exact Megatron "
+                    "training checkpoint; subsequent updates still hot-reload the LoRA adapter."
+                ),
+            )
+            parser.add_argument(
+                "--sglang-lora-name",
+                type=str,
+                default="slime_actor",
+                help="Runtime adapter name selected for every SGLang rollout request.",
             )
             parser.add_argument(
                 "--model-name",
@@ -412,6 +458,16 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                     "It should be able to judge whether the result of a prompt should be selected or not."
                     "We will do dynamic filter for sampling as in DAPO. e.g. not all correct or all wrong samples."
                     "You could use `slime.rollout.filter_hub.dynamic_sampling_filters.check_reward_nonzero_std` as an example."
+                ),
+            )
+            parser.add_argument(
+                "--dynamic-sampling-max-dropped-groups",
+                type=int,
+                default=None,
+                help=(
+                    "Optional per-rollout cap on groups rejected by the dynamic sampling filter. "
+                    "After the cap, a rejected group is admitted (and normally has zero group advantage) "
+                    "so sparse rewards cannot leave rollout generation in an unbounded loop."
                 ),
             )
 
@@ -645,6 +701,22 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
             )
             parser.add_argument(
                 "--n-samples-per-prompt", type=int, default=1, help="Number of responses for each prompt in generation"
+            )
+            parser.add_argument(
+                "--sft-max-sequence-len",
+                type=int,
+                default=None,
+                help=(
+                    "Optional hard sequence-length cap for SFT samples. Unlike max_tokens_per_gpu, "
+                    "this also bounds a single oversized sample. The SFT rollout preserves a head "
+                    "prefix and the most recent suffix when applying the cap."
+                ),
+            )
+            parser.add_argument(
+                "--sft-truncation-head-tokens",
+                type=int,
+                default=4096,
+                help="Number of leading tokens to preserve when sft_max_sequence_len truncates a sample.",
             )
 
             # gbs of the training, note that the gbs is of sample, not of prompts,
@@ -1929,6 +2001,24 @@ def slime_validate_args(args):
 
     if args.only_train_params_name_list and args.freeze_params_name_list:
         raise ValueError("You can only specify ONE of: --only-train-params-name-list, or --freeze-params-name-list.")
+
+    if getattr(args, "megatron_lora", False):
+        if args.train_backend != "megatron":
+            raise ValueError("--megatron-lora currently requires --train-backend megatron.")
+        if args.only_train_params_name_list or args.freeze_params_name_list:
+            raise ValueError("--megatron-lora cannot be combined with the parameter freeze/name-list options.")
+        if args.megatron_lora_rank <= 0 or args.megatron_lora_alpha <= 0:
+            raise ValueError("LoRA rank and alpha must both be positive.")
+        if not 0.0 <= args.megatron_lora_dropout < 1.0:
+            raise ValueError("LoRA dropout must be in [0, 1).")
+        if not args.debug_train_only and not args.megatron_lora_sync_dir:
+            raise ValueError("Online --megatron-lora requires --megatron-lora-sync-dir.")
+        # A full-parameter SFT checkpoint has no adapter keys. Leave missing
+        # LoRA tensors at their zero-B initialization while loading every base
+        # tensor from that checkpoint.
+        args.dist_ckpt_strictness = "log_all"
+    elif getattr(args, "megatron_lora_skip_initial_base_sync", False):
+        raise ValueError("--megatron-lora-skip-initial-base-sync requires --megatron-lora.")
 
     if args.update_weight_mode == "delta":
         if args.colocate:

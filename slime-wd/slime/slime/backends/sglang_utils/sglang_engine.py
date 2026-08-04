@@ -468,6 +468,15 @@ class SGLangEngine(RayActor):
         response.raise_for_status()
         return response
 
+    def load_lora_adapter(self, lora_name: str, lora_path: str):
+        return self._make_request(
+            "load_lora_adapter",
+            {"lora_name": lora_name, "lora_path": lora_path, "pinned": False},
+        )
+
+    def unload_lora_adapter(self, lora_name: str):
+        return self._make_request("unload_lora_adapter", {"lora_name": lora_name})
+
     def post_process_weights(
         self,
         restore_weights_before_load: bool = False,

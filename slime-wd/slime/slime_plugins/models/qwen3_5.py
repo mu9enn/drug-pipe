@@ -205,9 +205,10 @@ def get_qwen3_5_spec(args, config, vp_stage):
         kwargs["vp_stage"] = vp_stage
     transformer_layer_spec = get_gpt_decoder_block_spec(config, **kwargs)
 
-    assert config.pipeline_model_parallel_layout is None, "not support this at the moment"
-
     # Slice the layer specs to only include the layers that are built in this pipeline stage.
+    # MCore's block-spec builder and offset helpers are layout-aware.  The old
+    # blanket assertion predated that support and prevented asymmetric Qwen3.5
+    # stages even though the local specs below remain contiguous and ordered.
     num_layers_to_build = get_num_layers_to_build(config, vp_stage=vp_stage)
     offset = get_transformer_layer_offset(config, vp_stage=vp_stage)
 

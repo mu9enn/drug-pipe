@@ -55,6 +55,30 @@ class GADDiscriminator:
         self.running_mean = 0.0
         self.running_m2 = 0.0
 
+    def wake(self) -> None:
+        """Move model and optimizer state to the configured accelerator."""
+        if self.device.type == "cpu":
+            return
+        self.backbone.to(self.device)
+        self.score_head.to(self.device)
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if self.torch.is_tensor(value):
+                    state[key] = value.to(self.device, non_blocking=True)
+
+    def offload(self) -> None:
+        """Release HBM between reward requests on a colocated RL worker."""
+        if self.device.type == "cpu":
+            return
+        cpu = self.torch.device("cpu")
+        self.backbone.to(cpu)
+        self.score_head.to(cpu)
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if self.torch.is_tensor(value):
+                    state[key] = value.to(cpu)
+        self.torch.cuda.empty_cache()
+
     def _render(self, states: list[list[dict[str, Any]]], candidates: list[str]) -> list[str]:
         return [
             self.tokenizer.apply_chat_template(

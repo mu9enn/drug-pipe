@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-LOCAL_TOOL_NAMES = ("Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill")
+LOCAL_TOOL_NAMES = ("Read", "Write", "Edit", "Bash", "Grep", "Glob")
 
 LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
     {
@@ -69,14 +69,6 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
             "required": ["pattern"],
-        },
-    },
-    {
-        "name": "Skill",
-        "description": "Read one named tool-level (L1) skill.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"skill": {"type": "string"}, "name": {"type": "string"}},
         },
     },
     {
@@ -333,19 +325,6 @@ class LocalToolExecutor:
                 if regex.search(line):
                     matches.append({"path": self._display(safe_path), "line": line_no, "text": line})
         return {"matches": matches}
-
-    def _run_skill(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        name = arguments.get("skill") or arguments.get("name")
-        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
-            raise LocalToolError("`skill` must name one L1 skill")
-        path = self._path(f"skills/L1_tools/{name}/SKILL.md")
-        if not path.is_file():
-            raise LocalToolError(f"L1 skill not found: {name}")
-        return {
-            "skill": name,
-            "path": f"skills/L1_tools/{name}/SKILL.md",
-            "content": path.read_text(encoding="utf-8"),
-        }
 
     def _run_bash(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = self._require_string(arguments, "command").strip()

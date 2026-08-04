@@ -1,6 +1,7 @@
 # Adapt from https://github.com/NVIDIA/Megatron-LM/blob/b1efb3c7126ef7615e8c333432d76e08038e17ff/pretrain_gpt.py
 import argparse
 import inspect
+import logging
 import re
 from contextlib import nullcontext
 from typing import Literal
@@ -19,6 +20,9 @@ from megatron.training.arguments import core_transformer_config_from_args
 
 from slime.utils.megatron_bridge_utils import patch_auto_bridge_hf_config
 from slime.utils.misc import load_function
+
+
+logger = logging.getLogger(__name__)
 
 
 # Adapt from https://github.com/volcengine/verl/blob/c3b20575d2bc815fcccd84bddb4c0401fc4b632b/verl/models/llama/megatron/layers/parallel_linear.py#L82
@@ -98,9 +102,14 @@ def _get_model_provider_func(
         provider.variable_seq_lengths = args.variable_seq_lengths
         if hasattr(args, "moe_token_dispatcher_type"):
             provider.moe_token_dispatcher_type = args.moe_token_dispatcher_type
-        if getattr(args, "decoder_first_pipeline_num_layers", None) is not None:
+        if getattr(args, "pipeline_model_parallel_layout", None) is not None:
+            provider.pipeline_model_parallel_layout = args.pipeline_model_parallel_layout
+        elif getattr(args, "decoder_first_pipeline_num_layers", None) is not None:
             provider.num_layers_in_first_pipeline_stage = args.decoder_first_pipeline_num_layers
-        if getattr(args, "decoder_last_pipeline_num_layers", None) is not None:
+        if (
+            getattr(args, "pipeline_model_parallel_layout", None) is None
+            and getattr(args, "decoder_last_pipeline_num_layers", None) is not None
+        ):
             provider.num_layers_in_last_pipeline_stage = args.decoder_last_pipeline_num_layers
         provider.finalize()
 
@@ -239,7 +248,37 @@ def _get_model_provider_func(
     return model_provider
 
 
-def wrap_model_provider_with_freeze(original_provider, args):
+def _apply_megatron_lora(model, args):
+    """Inject Megatron-Bridge LoRA before Megatron wraps the model in DDP."""
+    from megatron.bridge.peft.lora import LoRA
+
+    peft = LoRA(
+        target_modules=list(args.megatron_lora_target_modules),
+        dim=args.megatron_lora_rank,
+        alpha=args.megatron_lora_alpha,
+        dropout=args.megatron_lora_dropout,
+        lora_dtype=torch.bfloat16,
+    )
+    model = peft(model, training=True)
+    peft.set_params_to_save(model)
+    # Keep the concrete config reachable after DDP wrapping for adapter export.
+    model._slime_lora_config = peft
+
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    logger.info(
+        "Injected Megatron LoRA: rank=%d alpha=%d trainable=%d total=%d (%.4f%%) targets=%s",
+        args.megatron_lora_rank,
+        args.megatron_lora_alpha,
+        trainable,
+        total,
+        100.0 * trainable / total,
+        args.megatron_lora_target_modules,
+    )
+    return model
+
+
+def wrap_model_provider_with_freeze(original_provider, args, role="actor"):
     def wrapped_provider(
         pre_process=True,
         post_process=True,
@@ -255,6 +294,8 @@ def wrap_model_provider_with_freeze(original_provider, args):
                 provider_kwargs[key] = kwargs.get(key, None)
 
         model = original_provider(**provider_kwargs)
+        if role == "actor" and getattr(args, "megatron_lora", False):
+            model = _apply_megatron_lora(model, args)
         freeze_model_params(model, args)
 
         return model
@@ -263,7 +304,7 @@ def wrap_model_provider_with_freeze(original_provider, args):
 
 
 def get_model_provider_func(args, role="actor"):
-    return wrap_model_provider_with_freeze(_get_model_provider_func(args, role), args)
+    return wrap_model_provider_with_freeze(_get_model_provider_func(args, role), args, role=role)
 
 
 def freeze_model_params(model: GPTModel, args: argparse.Namespace):

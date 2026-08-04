@@ -290,12 +290,15 @@ checkpoint 根目录必须含 `latest_checkpointed_iteration.txt` 和对应 iter
 ```bash
 TOOL_CATALOG=/path/to/eval_run/tool_catalog.json \
 INPUT="$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl" \
-OUTPUT_ROOT="$DRUG_AGENT_DATA_ROOT/live_tool_catalog_v1" \
+OUTPUT_ROOT="$DRUG_AGENT_DATA_ROOT/live_tool_catalog_v2" \
 bash drug_agent/scripts/migrate_and_regenerate_live_tool_data.sh
 ```
 
 迁移只影响未来数据，不修改已经训练完成的 checkpoint。迁移后必须先阅读
-`migration_report.json`、`migration_rejected.jsonl` 和 `derived_data_manifest.json`，再决定是否冻结新训练集。
+`migration/migration_report.json`、`migration/migration_rejected.jsonl`、
+`adjacent_thought_dedup_report.json`、`assistant_decision_length_audit.json` 和
+`derived_data_manifest.json`，再决定是否冻结新训练集。脚本会以实时 81 个 MCP 工具加当前
+6 个本地工具重建 catalog；超长 assistant decision 只审计，不会在迁移中截断或改写。
 
 ## 非侵入式检查
 

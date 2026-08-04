@@ -109,12 +109,22 @@ class MegatronTrainRayActor(TrainRayActor):
                 self.model,
                 convert_to_global_name=args.megatron_to_hf_mode == "raw",
             ),
-            single_tag=None,
+            # LoRA runs do not switch among full actor/ref copies. Keeping a
+            # 122B pinned-CPU backup would defeat parameter-efficient tuning.
+            single_tag="actor" if getattr(args, "megatron_lora", False) else None,
+            verify_live_weights=not getattr(args, "megatron_lora", False),
         )
         self._active_model_tag: str | None = "actor"
         self.weights_backuper.backup("actor")
 
-        if with_ref:
+        # A LoRA reference policy is exactly the frozen base with adapters
+        # disabled.  Do not load/back up another 122B checkpoint: the no-op
+        # LoRA backuper intentionally owns only the live ``actor`` tag, and a
+        # full pinned-CPU reference copy would defeat parameter efficiency.
+        self._lora_reference_via_disabled_adapter = bool(with_ref and getattr(args, "megatron_lora", False))
+        if self._lora_reference_via_disabled_adapter:
+            logger.info("LoRA reference policy will be evaluated with adapter layers disabled")
+        elif with_ref:
             self.load_other_checkpoint("ref", args.ref_load)
 
         # Load teacher model for Megatron-based on-policy distillation
@@ -128,13 +138,27 @@ class MegatronTrainRayActor(TrainRayActor):
             if args.update_weights_interval == 1:
                 self.weights_backuper.backup("rollout_actor")
 
+        # Loading reference/teacher checkpoints above mutates the live model
+        # without an optimizer object.  Restore the trainable actor and align
+        # the optimizer's master parameters exactly once before the first
+        # update; otherwise the first optimizer step can copy stale masters
+        # over the actor independently of the configured learning rate.
+        if self._active_model_tag != "actor":
+            self._switch_model("actor")
+        if self.optimizer is not None:
+            self.optimizer.reload_model_params()
+
         if self.args.vocab_size is None:
             # Prefer HF config vocab_size (which may include model-native padding)
             # over tokenizer vocab_size (which may be smaller, e.g. GPT-OSS).
             hf_vocab = getattr(self.hf_config, "vocab_size", None)
             self.args.vocab_size = hf_vocab if hf_vocab is not None else self.tokenizer.vocab_size
 
-        if self.args.colocate:
+        if getattr(self.args, "megatron_lora", False):
+            from .update_weight.update_weight_lora import UpdateWeightFromLoRA
+
+            update_weight_cls = UpdateWeightFromLoRA
+        elif self.args.colocate:
             update_weight_cls = UpdateWeightFromTensor
         elif self.args.update_weight_mode == "delta":
             # Lazy import: the delta module pulls DeltaEncoding/DeltaParam/DeltaSpec from
@@ -448,7 +472,24 @@ class MegatronTrainRayActor(TrainRayActor):
 
         with inverse_timer("train_wait"), timer("train"):
             if self.args.compute_advantages_and_returns:
-                if "ref" in self.weights_backuper.backup_tags:
+                if self._lora_reference_via_disabled_adapter:
+                    from megatron.core.utils import unwrap_model
+
+                    roots = unwrap_model(self.model)
+                    peft = getattr(roots[0], "_slime_lora_config", None)
+                    if peft is None:
+                        raise RuntimeError("Megatron LoRA config is missing while computing the reference policy")
+                    if self.args.use_routing_replay:
+                        os.environ["ROUTING_REPLAY_STAGE"] = "fallthrough"
+                    with peft.disable_adapter(self.model):
+                        rollout_data.update(
+                            self.compute_log_prob(
+                                data_iterator,
+                                num_microbatches,
+                                store_prefix="ref_",
+                            )
+                        )
+                elif "ref" in self.weights_backuper.backup_tags:
                     if self.args.use_routing_replay:
                         os.environ["ROUTING_REPLAY_STAGE"] = "fallthrough"
                     self._switch_model("ref")

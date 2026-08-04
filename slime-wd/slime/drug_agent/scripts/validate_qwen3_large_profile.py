@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 from typing import Any
 
@@ -174,6 +175,54 @@ def main() -> None:
     elif ep != 1 or etp != 1:
         fail("dense model must use EP=ETP=1")
 
+    first_layers_raw = os.environ.get("NUM_LAYERS_IN_FIRST_PIPELINE_STAGE")
+    last_layers_raw = os.environ.get("NUM_LAYERS_IN_LAST_PIPELINE_STAGE")
+    layout_raw = os.environ.get("PIPELINE_MODEL_PARALLEL_LAYOUT")
+    layout_stage_layers: list[int] | None = None
+    if layout_raw:
+        layout = layout_raw.replace(r"\|", "|")
+        stages = layout.split("|")
+        if len(stages) != pp:
+            fail(f"pipeline layout must contain PP={pp} stages; got {len(stages)}: {layout}")
+        if layout.count("E") != 1 or not layout.startswith("E"):
+            fail("pipeline layout must start with exactly one embedding layer E")
+        if layout.count("L") != 1 or not layout.endswith("L"):
+            fail("pipeline layout must end with exactly one loss layer L")
+        layout_stage_layers = []
+        for stage in stages:
+            decoder_layers = sum(int(count or "1") for count in re.findall(r"t(?:\*(\d+))?", stage))
+            layout_stage_layers.append(decoder_layers)
+        total_layers = int(model_args["--num-layers"])
+        if sum(layout_stage_layers) != total_layers:
+            fail(
+                f"pipeline layout decoder count must equal {total_layers}; "
+                f"got stages={layout_stage_layers}"
+            )
+        if first_layers_raw and int(first_layers_raw) != layout_stage_layers[0]:
+            fail("profile first-stage metadata disagrees with pipeline layout")
+        if last_layers_raw and int(last_layers_raw) != layout_stage_layers[-1]:
+            fail("profile last-stage metadata disagrees with pipeline layout")
+    elif bool(first_layers_raw) != bool(last_layers_raw):
+        fail("uneven pipeline requires both first- and last-stage layer counts")
+    elif first_layers_raw:
+        if pp < 2:
+            fail("uneven pipeline requires PP>=2")
+        first_layers = int(first_layers_raw)
+        last_layers = int(last_layers_raw)
+        total_layers = int(model_args["--num-layers"])
+        middle_stages = pp - 2
+        middle_layers = total_layers - first_layers - last_layers
+        invalid_middle = (
+            middle_layers != 0
+            if middle_stages == 0
+            else middle_layers <= 0 or middle_layers % middle_stages != 0
+        )
+        if first_layers <= 0 or last_layers <= 0 or invalid_middle:
+            fail(
+                f"uneven PP layer counts must leave an equal positive share for {middle_stages} "
+                f"middle stages out of {total_layers}; got first={first_layers}, last={last_layers}"
+            )
+
     prompt_len = env_int("ROLLOUT_MAX_PROMPT_LEN")
     response_len = env_int("ROLLOUT_MAX_RESPONSE_LEN")
     context_len = env_int("ROLLOUT_MAX_CONTEXT_LEN")
@@ -201,8 +250,19 @@ def main() -> None:
     fp32_accum = os.environ.get("ACCUMULATE_ALLREDUCE_GRADS_IN_FP32") == "1"
     if fp32_accum != (dtypes["main_grad"] == "fp32"):
         fail("FP32 accumulation flag and MAIN_GRADS_DTYPE disagree")
-    optimizer_cpu_offload = os.environ.get("OPTIMIZER_CPU_OFFLOAD") == "1"
-    if optimizer_cpu_offload and any(value != "fp32" for value in dtypes.values()):
+    cpu_offloads = {
+        "sft": os.environ.get("OPTIMIZER_CPU_OFFLOAD") == "1",
+        "toolrl": os.environ.get(
+            "TOOLRL_OPTIMIZER_CPU_OFFLOAD", os.environ.get("OPTIMIZER_CPU_OFFLOAD", "0")
+        )
+        == "1",
+        "gad": os.environ.get(
+            "GAD_OPTIMIZER_CPU_OFFLOAD", os.environ.get("OPTIMIZER_CPU_OFFLOAD", "0")
+        )
+        == "1",
+    }
+    optimizer_cpu_offload = cpu_offloads["sft"]
+    if any(cpu_offloads.values()) and any(value != "fp32" for value in dtypes.values()):
         fail(
             "this pinned Megatron HybridDeviceOptimizer CPUAdam path keeps the "
             "offloaded main parameter, gradient and Adam moments in FP32; "
@@ -224,11 +284,11 @@ def main() -> None:
     # CPUAdam in the exact image does not consume the precision-aware moment
     # dtype arguments. TE's state-offloader, in contrast, stores the main
     # parameter and two moments but not the gradient on host.
-    state_bytes = 16 if optimizer_cpu_offload else sum(dtype_bytes[value] for value in dtypes.values())
+    state_bytes = 16 if any(cpu_offloads.values()) else sum(dtype_bytes[value] for value in dtypes.values())
     state_offload = os.environ.get("OFFLOAD_OPTIMIZER_STATES") == "1"
     fp8_param_gather = os.environ.get("FP8_PARAM_GATHER") == "1"
     fp8_recipe = os.environ.get("FP8_RECIPE")
-    if state_offload and optimizer_cpu_offload:
+    if state_offload and any(cpu_offloads.values()):
         fail("OFFLOAD_OPTIMIZER_STATES and OPTIMIZER_CPU_OFFLOAD are mutually exclusive")
     if fp8_param_gather and not state_offload:
         fail("this low-memory FP8 profile requires OFFLOAD_OPTIMIZER_STATES=1")
@@ -259,13 +319,24 @@ def main() -> None:
         )
     result = {
         "profile": profile,
-        "topology": {"world": num_gpus, "tp": tp, "pp": pp, "cp": cp, "ep": ep, "etp": etp},
+        "topology": {
+            "world": num_gpus,
+            "tp": tp,
+            "pp": pp,
+            "cp": cp,
+            "ep": ep,
+            "etp": etp,
+            "first_stage_layers": int(first_layers_raw) if first_layers_raw else None,
+            "last_stage_layers": int(last_layers_raw) if last_layers_raw else None,
+            "pipeline_layout": layout_raw.replace(r"\|", "|") if layout_raw else None,
+            "pipeline_stage_layers": layout_stage_layers,
+        },
         "hf": hf,
         "datasets": counts,
         "optimizer": {
             "offload_fractions": fractions,
             "host_memory_bound_fraction": peak_fraction,
-            "cpu_offload": optimizer_cpu_offload,
+            "cpu_offload": cpu_offloads,
             "state_offload": state_offload,
             "fp8_param_gather": fp8_param_gather,
             "fp8_recipe": fp8_recipe,

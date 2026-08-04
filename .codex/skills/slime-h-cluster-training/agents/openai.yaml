@@ -1,0 +1,4 @@
+interface:
+  display_name: "Slime H-Cluster Training"
+  short_description: "Plan, launch, and diagnose Slime training on H-cluster GPUs"
+  default_prompt: "Use $slime-h-cluster-training to plan and safely validate this Slime SFT, ToolRL, or GAD run on a 4-GPU or 8-GPU H-cluster worker."

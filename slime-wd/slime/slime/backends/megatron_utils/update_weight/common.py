@@ -7,6 +7,7 @@ import torch
 import torch.distributed as dist
 from megatron.core import mpu
 from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
+from megatron.training.global_vars import get_args
 
 from slime.backends.megatron_utils.misc_utils import strip_param_name_prefix
 from slime.utils.types import ParamInfo
@@ -148,6 +149,11 @@ def _named_params_and_buffers_vanilla(model: Sequence[torch.nn.Module]) -> Itera
             return f"vp_stages.{vp_stage}.{strip_param_name_prefix(name)}"
 
         for name, param in model_module.named_parameters():
+            args = get_args()
+            if getattr(args, "megatron_lora", False):
+                if param.requires_grad:
+                    continue
+                name = name.replace(".to_wrap.", ".")
             yield _compute_fqn(name), param
 
         for name, buffer in model_module.named_buffers():
@@ -178,6 +184,13 @@ def _named_params_and_buffers_global(
         else:
             layer_offset = get_transformer_layer_offset(model_module.config)
         for name, param in model_module.named_parameters():
+            if getattr(args, "megatron_lora", False):
+                # The first online sync sends the frozen SFT base into the FP8
+                # rollout model. Adapter tensors are exported through the HF
+                # PEFT path and hot-reloaded separately after every update.
+                if param.requires_grad:
+                    continue
+                name = name.replace(".to_wrap.", ".")
             # for model without ddp wrap
             if not name.startswith("module.module."):
                 name = "module." + name

@@ -37,7 +37,7 @@ except ImportError:
 
 
 MOLCLAW_PREFIX = "mcp__molclaw-scp__"
-LOCAL_TOOL_NAMES = frozenset({"Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"})
+LOCAL_TOOL_NAMES = frozenset({"Read", "Write", "Edit", "Bash", "Grep", "Glob"})
 SAFE_BASH_COMMANDS = frozenset(
     {"pwd", "ls", "find", "cat", "head", "tail", "grep", "wc", "stat", "mkdir", "cp", "base64", "realpath", "readlink", "test", "echo", "cd"}
 )
@@ -63,14 +63,14 @@ TEACHER_SIDECAR_NAMES = frozenset(
 )
 HIGHER_ORDER_RANKING_MARKERS = ("equiscore", "consensus")
 CANONICAL_SYSTEM_PROMPT = """You are a scientific agent operating under the canonical ReAct protocol.
-Use only recorded MolClaw calls and supported local file/skill calls from the recorded execution.
+Use only recorded MolClaw calls and supported local file calls from the recorded execution.
 Write scientific reasoning inside
 <thought>...</thought>, calls inside <tool_call>...</tool_call>, recorded results inside
 <observation>...</observation>, and the grounded result inside <final_answer>...</final_answer>.
 Never invent a tool result. Observations must come from execution history, and the final answer
 must be supported by the task result and recorded observations."""
 MOLCLAW_ONLY_SYSTEM_PROMPT = CANONICAL_SYSTEM_PROMPT.replace(
-    "recorded MolClaw calls and supported local file/skill calls",
+    "recorded MolClaw calls and supported local file calls",
     "recorded MolClaw calls",
 )
 IMPORTANT_OBSERVATION_KEYS = (
@@ -106,16 +106,6 @@ def bare_tool_name(raw_name: str) -> str | None:
     return None
 
 
-def _l1_skill_names() -> frozenset[str]:
-    skill_root = Path(__file__).resolve().parents[3] / "molclaw-skills" / ".claude" / "skills" / "L1_tools"
-    if not skill_root.is_dir():
-        return frozenset()
-    return frozenset(path.name for path in skill_root.iterdir() if path.is_dir())
-
-
-L1_SKILL_NAMES = _l1_skill_names()
-
-
 def _walk_strings(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
@@ -148,14 +138,6 @@ def _canonicalize_l1_paths(value: Any) -> Any:
     if isinstance(value, list):
         return [_canonicalize_l1_paths(item) for item in value]
     return value
-
-
-def _skill_name(arguments: dict[str, Any]) -> str:
-    for key in ("skill", "name", "skill_name"):
-        value = arguments.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip().split("/")[-1]
-    return ""
 
 
 def _has_disallowed_skill_level(arguments: dict[str, Any]) -> bool:
@@ -233,8 +215,6 @@ def _classify_tool(
     teacher_access_reason = _teacher_local_access_reason(arguments)
     if teacher_access_reason:
         return None, None, teacher_access_reason
-    if raw_name == "Skill" and _skill_name(arguments) not in L1_SKILL_NAMES:
-        return None, None, "non_l1_skill"
     if raw_name == "Bash":
         safe, reason = _bash_is_safe(arguments)
         if not safe:

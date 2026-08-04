@@ -70,8 +70,8 @@ training 中不会被执行，也不会取得新 observation。正式训练入�
 `DRUG_AGENT_ALLOW_TOOL_ENV=1`。
 
 Slime online inference 与 `debug_one_task.py` 可同时使用 MolClaw 和逐任务沙箱中的
-`Read/Write/Edit/Bash/Grep/Glob/L1 Skill`。本地路径被限制在 sample workspace，L1
-skills 只读，受限 Bash 不启动 shell 且禁止网络、解释器、删除、提权、进程控制与路径逃逸。
+`Read/Write/Edit/Bash/Grep/Glob`。本地路径被限制在 sample workspace，L1 skill 文档通过 Read/Grep/Glob
+只读访问，受限 Bash 不启动 shell 且禁止网络、解释器、删除、提权、进程控制与路径逃逸。
 这不会改变 formal SFT、ToolRL、GAD 的 offline boundary 或 reward 定义。
 
 正式 MolBench 测评由 `run_molbench_eval.sh` 以 eval-only 模式加载指定 Slime

@@ -175,6 +175,8 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         "sampling_params": sampling_params,
         "return_logprob": True,
     }
+    if getattr(args, "megatron_lora", False):
+        payload["lora_path"] = args.sglang_lora_name
 
     if args.use_rollout_routing_replay:
         payload["return_routed_experts"] = True
@@ -424,6 +426,12 @@ async def generate_rollout_async(
 
     data = []
     all_data = []
+    dropped_groups = 0
+    max_dropped_groups = args.dynamic_sampling_max_dropped_groups
+    if max_dropped_groups is not None and max_dropped_groups < 1:
+        raise ValueError(
+            f"dynamic_sampling_max_dropped_groups must be positive or unset; got {max_dropped_groups}"
+        )
     do_print = True
     pbar = tqdm(total=target_data_size * args.n_samples_per_prompt, desc="Rollout generation")
     while len(data) < target_data_size:
@@ -449,8 +457,22 @@ async def generate_rollout_async(
             dynamic_filter_output = call_dynamic_filter(dynamic_filter, args, group)
             if not dynamic_filter_output.keep:
                 metric_gatherer.on_dynamic_filter_drop(reason=dynamic_filter_output.reason)
-                state.remaining_batch_size -= 1
-                continue
+                dropped_groups += 1
+                if max_dropped_groups is None or dropped_groups < max_dropped_groups:
+                    logger.warning(
+                        "Dynamic sampling dropped group %d%s: %s",
+                        dropped_groups,
+                        "" if max_dropped_groups is None else f"/{max_dropped_groups}",
+                        dynamic_filter_output.reason,
+                    )
+                    state.remaining_batch_size -= 1
+                    continue
+                logger.warning(
+                    "Dynamic sampling reached the cap of %d dropped groups; admitting this group "
+                    "to prevent an unbounded sparse-reward loop. Its group-normalized advantage "
+                    "is expected to be zero when all rewards are equal.",
+                    max_dropped_groups,
+                )
 
             # add the samples to the data
             # NOTE: here we have not stored all the unused samples back to the data buffer.
@@ -459,6 +481,8 @@ async def generate_rollout_async(
                 pbar.update(args.n_samples_per_prompt)
 
     pbar.close()
+    if dropped_groups:
+        logger.info("Dynamic sampling dropped %d group(s) in rollout %d", dropped_groups, rollout_id)
     sample = data[-1][0][0] if isinstance(data[-1][0], list) else data[-1][0]
     logger.info(
         f"Finish rollout: {[str(sample.prompt) + sample.response]}, label: {str(sample.label)[:100]}, reward: {sample.reward}",

@@ -6,6 +6,24 @@ from pathlib import Path
 from typing import Any
 
 
+def _require_rdkit() -> None:
+    try:
+        import rdkit  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "RDKit is required for MolBench chemical evaluation."
+        ) from exc
+
+
+def _require_pytdc() -> None:
+    try:
+        import tdc  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyTDC is required for MolBench molecule-optimization evaluation."
+        ) from exc
+
+
 def _load_eval_runner(molbench_root: Path):
     path = molbench_root / "eval/eval_runner.py"
     if not path.is_file():
@@ -33,10 +51,16 @@ def run_official_evaluation(run_dir: str | Path, molbench_root: str | Path) -> d
         (module.ChemCoTBenchMolEditEval(), run_root / "preds/molbench-mo-edit"),
         (module.ChemCoTBenchMolOptPhyschemEval(), run_root / "preds/molbench-mo-opt"),
     ]
+    selected_jobs = [(evaluator, preds_dir) for evaluator, preds_dir in jobs if preds_dir.is_dir()]
+    if not selected_jobs:
+        raise FileNotFoundError(f"No supported MolBench prediction directories found under {run_root / 'preds'}")
+    if (run_root / "preds/rdkit_bench").is_dir():
+        _require_rdkit()
+    if (run_root / "preds/molbench-mo-opt").is_dir():
+        _require_pytdc()
+
     metrics: dict[str, Any] = {}
-    for evaluator, preds_dir in jobs:
-        if not preds_dir.is_dir():
-            raise FileNotFoundError(f"Expected prediction directory missing: {preds_dir}")
+    for evaluator, preds_dir in selected_jobs:
         result = evaluator.run(str(preds_dir), str(run_root), str(eval_root))
         if result:
             metrics.update(result)

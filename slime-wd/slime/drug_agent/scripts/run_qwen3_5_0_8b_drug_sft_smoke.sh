@@ -29,7 +29,8 @@ bash drug_agent/scripts/guard_ray_restart.sh
 pkill -9 sglang 2>/dev/null || true
 sleep 2
 ray stop --force 2>/dev/null || true
-pkill -9 ray python 2>/dev/null || true
+pkill -9 -x raylet 2>/dev/null || true
+pkill -9 -x gcs_server 2>/dev/null || true
 sleep 2
 
 export PYTHONBUFFERED=16
@@ -74,6 +75,7 @@ GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-8}
 NUM_EPOCH=${NUM_EPOCH:-1}
 MAX_TOKENS_PER_GPU=${MAX_TOKENS_PER_GPU:-8192}
 LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
+RECOMPUTE_VOCAB_LOG_PROBS=${RECOMPUTE_VOCAB_LOG_PROBS:-0}
 LR=${LR:-1e-5}
 SFT_EPOCH_ONLY=${SFT_EPOCH_ONLY:-0}
 
@@ -173,6 +175,13 @@ SFT_ARGS=(
   --disable-compute-advantages-and-returns
   --log-probs-chunk-size "$LOG_PROBS_CHUNK_SIZE"
 )
+if [ -n "${SFT_MAX_SEQUENCE_LEN:-}" ]; then
+  SFT_ARGS+=(--sft-max-sequence-len "$SFT_MAX_SEQUENCE_LEN")
+  SFT_ARGS+=(--sft-truncation-head-tokens "${SFT_TRUNCATION_HEAD_TOKENS:-4096}")
+fi
+if [[ "$RECOMPUTE_VOCAB_LOG_PROBS" == 1 ]]; then
+  SFT_ARGS+=(--recompute-vocab-log-probs)
+fi
 if [ "${RECOMPUTE_LOSS_FUNCTION:-0}" = "1" ]; then
   SFT_ARGS+=(--recompute-loss-function)
 fi
@@ -195,8 +204,21 @@ PERF_ARGS=(
   --use-dynamic-batch-size
   --max-tokens-per-gpu "$MAX_TOKENS_PER_GPU"
 )
+if [ -n "${PIPELINE_MODEL_PARALLEL_LAYOUT:-}" ]; then
+  PERF_ARGS+=(--pipeline-model-parallel-layout "$PIPELINE_MODEL_PARALLEL_LAYOUT")
+else
+  if [ -n "${NUM_LAYERS_IN_FIRST_PIPELINE_STAGE:-}" ]; then
+    PERF_ARGS+=(--decoder-first-pipeline-num-layers "$NUM_LAYERS_IN_FIRST_PIPELINE_STAGE")
+  fi
+  if [ -n "${NUM_LAYERS_IN_LAST_PIPELINE_STAGE:-}" ]; then
+    PERF_ARGS+=(--decoder-last-pipeline-num-layers "$NUM_LAYERS_IN_LAST_PIPELINE_STAGE")
+  fi
+fi
 if [ "$TENSOR_MODEL_PARALLEL_SIZE" -gt 1 ]; then
   PERF_ARGS+=(--sequence-parallel)
+fi
+if [ "${BALANCE_DATA:-0}" = "1" ]; then
+  PERF_ARGS+=(--balance-data)
 fi
 if [ "${RECOMPUTE_FULL:-0}" = "1" ]; then
   PERF_ARGS+=(
@@ -214,6 +236,12 @@ OPTIMIZER_ARGS=(
   --adam-beta1 "${ADAM_BETA1:-0.9}"
   --adam-beta2 "${ADAM_BETA2:-0.95}"
 )
+# Method-specific precision is useful on 8-GPU SFT: it can use precision-aware
+# moments without making the colocated CPUAdam RL paths claim lower host state.
+MAIN_GRADS_DTYPE=${SFT_MAIN_GRADS_DTYPE:-${MAIN_GRADS_DTYPE:-}}
+MAIN_PARAMS_DTYPE=${SFT_MAIN_PARAMS_DTYPE:-${MAIN_PARAMS_DTYPE:-}}
+EXP_AVG_DTYPE=${SFT_EXP_AVG_DTYPE:-${EXP_AVG_DTYPE:-}}
+EXP_AVG_SQ_DTYPE=${SFT_EXP_AVG_SQ_DTYPE:-${EXP_AVG_SQ_DTYPE:-}}
 if [ -n "${LR_DECAY_ITERS:-}" ]; then
   OPTIMIZER_ARGS+=(--lr-decay-iters "$LR_DECAY_ITERS")
 fi
@@ -269,6 +297,12 @@ if [ "${ACCUMULATE_ALLREDUCE_GRADS_IN_FP32:-1}" = "1" ]; then
 fi
 if [ "${MOE_ENABLE_DEEPEP:-0}" = "1" ]; then
   MISC_ARGS+=(--moe-token-dispatcher-type flex --moe-enable-deepep)
+fi
+if [ "${OVERLAP_GRAD_REDUCE:-0}" = "1" ]; then
+  MISC_ARGS+=(--overlap-grad-reduce)
+fi
+if [ "${OVERLAP_PARAM_GATHER:-0}" = "1" ]; then
+  MISC_ARGS+=(--overlap-param-gather)
 fi
 
 PLACEMENT_ARGS=()

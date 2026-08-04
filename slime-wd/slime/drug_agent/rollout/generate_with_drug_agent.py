@@ -33,8 +33,8 @@ ROLLOUT_FORMAT_REMINDER = (
     "Never mix tool calls and final answer in one generation."
 )
 LOCAL_TOOL_REMINDER = (
-    "\nAvailable local tools: Read, Write, Edit, Bash, Grep, Glob, and Skill. "
-    "They operate only in this task's workspace; Skill exposes only read-only L1 tool skills."
+    "\nAvailable local tools: Read, Write, Edit, Bash, Grep, and Glob. "
+    "They operate only in this task's workspace; Read, Grep, and Glob may inspect read-only L1 skill documents."
 )
 
 

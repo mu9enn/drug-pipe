@@ -1,10 +1,51 @@
 import inspect
+import os
+from collections import defaultdict
 
 import torch
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_mtp_block_spec
+from safetensors import safe_open
 
 from mbridge.core import register_model
+from mbridge.core.safetensor_io import SafeTensorIO
 from mbridge.models import Qwen2MoEBridge
+
+
+class Qwen35DequantFP8SafeTensorIO(SafeTensorIO):
+    """Load official block-FP8 weights on the conversion rank's CUDA device."""
+
+    def load_some_hf_weight(self, hf_weight_names: list[str]) -> dict[str, torch.Tensor]:
+        from mbridge.models.ext.deepseek_v3.kernel import weight_dequant
+
+        file_to_weight_map = defaultdict(list)
+        for name in hf_weight_names:
+            file_to_weight_map[self.index[name]].append(name)
+
+        device = f"cuda:{torch.cuda.current_device()}"
+        ret = {}
+        old_default_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+        try:
+            for filename, weight_names in file_to_weight_map.items():
+                with safe_open(os.path.join(self.hf_dir, filename), framework="pt", device=device) as handle:
+                    for name in weight_names:
+                        weight = handle.get_tensor(name)
+                        scale_name = f"{name}_scale_inv"
+                        if weight.element_size() == 1 and scale_name in self.index:
+                            scale_filename = self.index[scale_name]
+                            if scale_filename == filename:
+                                scale_inv = handle.get_tensor(scale_name)
+                            else:
+                                with safe_open(
+                                    os.path.join(self.hf_dir, scale_filename), framework="pt", device=device
+                                ) as scale_handle:
+                                    scale_inv = scale_handle.get_tensor(scale_name)
+                            ret[name] = weight_dequant(weight, scale_inv)
+                        else:
+                            ret[name] = weight
+        finally:
+            torch.set_default_dtype(old_default_dtype)
+        return ret
 
 
 @register_model(["qwen3_5", "qwen3_5_moe"])
@@ -98,6 +139,52 @@ class Qwen3_5Bridge(Qwen2MoEBridge):
         "mlp.experts.linear_fc2": ["mtp.layers.{layer_number}.mlp.experts.{expert_id}.down_proj.weight"],
     }
 
+    def _uses_hf_block_fp8_weights(self) -> bool:
+        """Return whether the source checkpoint is Hugging Face block FP8.
+
+        Qwen's official FP8 checkpoints use per-expert tensors plus companion
+        ``weight_scale_inv`` tensors.  The BF16 checkpoints supported by the
+        original bridge use fused expert tensors, so the two formats require
+        different name mappings as well as FP8 dequantization while importing.
+        """
+        quantization_config = getattr(self.hf_config, "quantization_config", None)
+        if isinstance(quantization_config, dict):
+            quant_method = quantization_config.get("quant_method")
+        else:
+            quant_method = getattr(quantization_config, "quant_method", None)
+        return quant_method == "fp8"
+
+    def _get_safetensor_io(self, weights_path: str):
+        if self._uses_hf_block_fp8_weights():
+            # This loader consumes each weight_scale_inv tensor and materializes
+            # the corresponding BF16 value on the current conversion rank.  The
+            # saved torch_dist checkpoint therefore starts from the official
+            # FP8 checkpoint's dequantized values instead of its raw E4M3 codes.
+            return Qwen35DequantFP8SafeTensorIO(self._get_actual_hf_path(weights_path))
+        return super()._get_safetensor_io(weights_path)
+
+    def _global_expert_id(self, mcore_weights_name: str) -> int:
+        local_expert_id = int(mcore_weights_name.split("weight")[-1])
+        from megatron.core import mpu
+
+        ep_size = mpu.get_expert_model_parallel_world_size()
+        if ep_size == 1:
+            return local_expert_id
+        num_experts = self._get_text_config().num_experts
+        assert num_experts % ep_size == 0, (num_experts, ep_size)
+        num_local_experts = num_experts // ep_size
+        return mpu.get_expert_model_parallel_rank() * num_local_experts + local_expert_id
+
+    def _weight_name_mapping_fp8_expert(self, name: str, prefix: str) -> list[str]:
+        layer_number = name.split(".")[2]
+        expert_id = self._global_expert_id(name)
+        hf_prefix = prefix.format(layer_number=layer_number, expert_id=expert_id)
+        if "linear_fc1" in name:
+            return [f"{hf_prefix}.gate_proj.weight", f"{hf_prefix}.up_proj.weight"]
+        if "linear_fc2" in name:
+            return [f"{hf_prefix}.down_proj.weight"]
+        raise NotImplementedError(f"Unsupported FP8 expert parameter name: {name}")
+
     # Override to make ffn_hidden_size optional (Qwen3.5 MoE has no intermediate_size)
     _CONFIG_MAPPING = {
         "num_layers": "num_hidden_layers",
@@ -164,6 +251,12 @@ class Qwen3_5Bridge(Qwen2MoEBridge):
         For regular layers: experts use fused 3D format (all experts in one tensor).
         For MTP layers: experts use individual format (per-expert tensors).
         """
+        if self._uses_hf_block_fp8_weights() and "mlp.experts.linear_fc" in name:
+            return self._weight_name_mapping_fp8_expert(
+                name,
+                "model.language_model.layers.{layer_number}.mlp.experts.{expert_id}",
+            )
+
         layer_number = name.split(".")[2]
         convert_names = []
         for keyword, mapping_names in self._MLP_MAPPING.items():
@@ -182,6 +275,12 @@ class Qwen3_5Bridge(Qwen2MoEBridge):
 
     def _weight_name_mapping_mtp_mlp(self, name: str) -> list[str]:
         """Handle MTP MLP mappings, keeping per-expert tensors unfused for MoE layers."""
+        if self._uses_hf_block_fp8_weights() and "mlp.experts.linear_fc" in name:
+            return self._weight_name_mapping_fp8_expert(
+                name,
+                "mtp.layers.{layer_number}.mlp.experts.{expert_id}",
+            )
+
         layer_number = name.split(".")[2]
         mapping = self._MTP_MLP_MAPPING if "mlp.experts.linear_fc" in name else self._MLP_MAPPING
         convert_names = []

@@ -2,22 +2,27 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from drug_agent.evaluation.molbench_adapter import build_molbench_dataset
-from drug_agent.evaluation.official_eval import _load_eval_runner
+from drug_agent.evaluation.official_eval import (
+    _load_eval_runner,
+    _require_pytdc,
+    _require_rdkit,
+    run_official_evaluation,
+)
 from drug_agent.evaluation.preflight import _checkpoint_info, _validate_model_assets
 from drug_agent.evaluation.prompt_adapter import build_prompt_suite_dataset, build_single_prompt_dataset
 from drug_agent.evaluation.prompt_logger import log_eval_rollout_data
 from drug_agent.protocol.react_protocol import parse_runtime_decision, project_final_answer
 
 
-MOLBENCH_ROOT = Path(
-    "/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug_wd/MolClaw/molbench"
-)
+MOLBENCH_ROOT = Path(__file__).resolve().parents[3] / "molbench"
 
 
 @unittest.skipUnless(MOLBENCH_ROOT.is_dir(), "local MolBench reference assets unavailable")
@@ -43,6 +48,59 @@ class MolBenchAdapterTest(unittest.TestCase):
             mo_rows = [row for row in rows if row["metadata"]["benchmark"]["suite"].startswith("molbench_mo_")]
             self.assertTrue(all(row["label"]["source_smiles"] for row in mo_rows))
             self.assertTrue(all(" " not in row["label"]["source_smiles"] for row in mo_rows))
+
+    def test_selects_first_two_ms1_tasks_without_building_an_ad_hoc_dataset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = build_molbench_dataset(
+                MOLBENCH_ROOT,
+                tmp,
+                selected_suites=["molbench_ms1"],
+                limit_per_suite=2,
+            )
+            rows = [json.loads(line) for line in (Path(tmp) / "molbench_eval.jsonl").read_text().splitlines()]
+            self.assertEqual([row["id"] for row in rows], ["molbench_ms1_001", "molbench_ms1_002"])
+            self.assertEqual(manifest["total"], 2)
+            self.assertEqual(manifest["counts"], {
+                "molbench_ms1": 2, "molbench_ms2": 0, "molbench_ms3": 0, "molbench_mo": 0,
+            })
+            self.assertEqual(manifest["source_counts"], {
+                "molbench_ms1": 50, "molbench_ms2": 33, "molbench_ms3": 25, "molbench_mo": 78,
+            })
+            self.assertTrue(all([message["role"] for message in row["prompt"]] == ["system", "user"] for row in rows))
+
+    def test_official_wrapper_scores_a_ms1_only_subset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pred_dir = root / "preds/rdkit_bench"
+            pred_dir.mkdir(parents=True)
+            (pred_dir / "all.json").write_text(json.dumps([
+                {"gt": "CCO", "json_results": {"output": "CCO"}},
+                {"gt": "CCN", "json_results": {"output": "CCO"}},
+            ]))
+            fake_rdkit = types.ModuleType("rdkit")
+            fake_rdkit.Chem = types.SimpleNamespace(
+                MolFromSmiles=lambda value: object() if value in {"CCO", "CCN"} else None
+            )
+            with patch.dict(sys.modules, {"rdkit": fake_rdkit}):
+                metrics = run_official_evaluation(root, MOLBENCH_ROOT)
+            self.assertEqual(metrics["rdkit_bench_all"]["n_samples"], 2)
+            self.assertEqual(metrics["rdkit_bench_all"]["acc"], 0.5)
+            self.assertEqual(metrics["rdkit_bench_all"]["validity"], 1.0)
+            self.assertEqual(set(metrics), {"rdkit_bench_all"})
+
+    def test_ms1_evaluator_fails_explicitly_without_rdkit(self):
+        with patch.dict(sys.modules, {"rdkit": None}):
+            with self.assertRaisesRegex(
+                RuntimeError, "RDKit is required for MolBench chemical evaluation"
+            ):
+                _require_rdkit()
+
+    def test_mo_evaluator_fails_explicitly_without_pytdc(self):
+        with patch.dict(sys.modules, {"tdc": None}):
+            with self.assertRaisesRegex(
+                RuntimeError, "PyTDC is required for MolBench molecule-optimization evaluation"
+            ):
+                _require_pytdc()
 
     def test_wrapper_uses_external_ac_and_vs_evaluator_classes(self):
         module = _load_eval_runner(MOLBENCH_ROOT)

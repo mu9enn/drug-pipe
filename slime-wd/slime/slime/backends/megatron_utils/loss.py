@@ -50,7 +50,8 @@ def get_responses(
 
     Args:
         logits: Model outputs with shape `[1, T, V]` (policy) or `[1, T, 1]`
-            (value). Must be float32.
+            (value). Normally float32; the bounded recompute path also accepts
+            model-precision BF16/FP16 logits and upcasts each tile internally.
         args: Configuration containing `rollout_temperature` for scaling.
         unconcat_tokens: List of token tensors (prompt+response) per sample.
         total_lengths: Total sequence lengths (prompt+response) per sample.
@@ -63,7 +64,10 @@ def get_responses(
     """
     qkv_format = args.qkv_format
 
-    assert logits.dtype == torch.float32, f"{logits.dtype}"
+    allowed_dtypes = (torch.float32,)
+    if getattr(args, "recompute_vocab_log_probs", False):
+        allowed_dtypes += (torch.bfloat16, torch.float16)
+    assert logits.dtype in allowed_dtypes, f"{logits.dtype}"
     assert len(logits.shape) == 3, f"{logits.shape}"
 
     if qkv_format == "thd":
@@ -404,7 +408,10 @@ def get_log_probs_and_entropy(
     assert non_loss_data
     qkv_format = args.qkv_format
 
-    assert logits.dtype == torch.float32, f"{logits.dtype}"
+    allowed_dtypes = (torch.float32,)
+    if getattr(args, "recompute_vocab_log_probs", False):
+        allowed_dtypes += (torch.bfloat16, torch.float16)
+    assert logits.dtype in allowed_dtypes, f"{logits.dtype}"
     assert len(logits.shape) == 3, f"{logits.shape}"
 
     if qkv_format == "thd":
@@ -436,6 +443,7 @@ def get_log_probs_and_entropy(
         tp_group,
         with_entropy=with_entropy,
         chunk_size=chunk_size,
+        recompute_log_probs=getattr(args, "recompute_vocab_log_probs", False),
     )
     log_prob_full = log_prob_full.squeeze(-1)  # [T, 1] -> [T]
 

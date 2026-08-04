@@ -1,0 +1,67 @@
+--- a/python/sglang/srt/models/qwen3_5.py
++++ b/python/sglang/srt/models/qwen3_5.py
+@@ -1691,7 +1691,6 @@
+             "_input_scale",
+         )
+ 
+-        is_fused_expert = False
+         fused_expert_params_mapping = [
+             ("experts.w13_weight", "experts.gate_up_proj", 0, "w1"),
+             ("experts.w2_weight", "experts.down_proj", 0, "w2"),
+@@ -1761,6 +1760,15 @@
+         params_dict = dict(self.named_parameters(remove_duplicate=False))
+ 
+         for name, loaded_weight in weights:
++            # Online updates are delivered in independent flattened buckets.
++            # Decide the expert representation from each tensor name rather
++            # than retaining the decision made for a previous tensor/bucket.
++            is_fused_expert = (
++                "experts.gate_up_proj" in name or "experts.down_proj" in name
++            )
++            current_expert_params_mapping = (
++                fused_expert_params_mapping if is_fused_expert else expert_params_mapping
++            )
+             if "rotary_emb.inv_freq" in name:
+                 continue
+             if "mtp" in name:
+@@ -1796,11 +1802,6 @@
+                     )
+ 
+             for param_name, weight_name, shard_id in stacked_params_mapping:
+-                if "experts.gate_up_proj" in name or "experts.down_proj" in name:
+-                    # Online Megatron conversion sends fused names with a `.weight` suffix.
+-                    is_fused_expert = True
+-                    expert_params_mapping = fused_expert_params_mapping
+-
+                 # Skip non-stacked layers and experts (experts handled below).
+                 if weight_name not in name:
+                     continue
+@@ -1831,7 +1832,7 @@
+                 # Track if this is an expert weight to enable early skipping
+                 is_expert_weight = False
+ 
+-                for mapping in expert_params_mapping:
++                for mapping in current_expert_params_mapping:
+                     param_name, weight_name, expert_id, shard_id = mapping
+                     if weight_name not in name:
+                         continue
+@@ -1909,7 +1910,19 @@
+                             name_mapped.endswith(ignore_suffixes)
+                             and name_mapped not in params_dict
+                         ):
+                             continue
++                        if name_mapped not in params_dict:
++                            candidates = [
++                                key
++                                for key in params_dict
++                                if ".mlp.experts." in key
++                                and key.split(".mlp.experts.", 1)[0]
++                                == name_mapped.split(".mlp.experts.", 1)[0]
++                            ]
++                            raise KeyError(
++                                f"expert source={name!r}, mapped={name_mapped!r}, "
++                                f"candidates={candidates[:32]!r}"
++                            )
+                         param = params_dict[name_mapped]
+                         # We should ask the weight loader to return success or
+                         # not here since otherwise we may skip experts with

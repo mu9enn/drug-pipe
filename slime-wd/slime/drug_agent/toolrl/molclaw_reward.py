@@ -219,6 +219,75 @@ def _format_reward(parsed: dict[str, Any]) -> float:
     return 1.0
 
 
+def _molclaw_final_answer_reward(sample: Any, parsed: dict[str, Any]) -> dict[str, Any]:
+    """Score terminal decisions without treating an empty call set as correct.
+
+    The dense tool-call scorer intentionally gives full tool-component credit
+    when both predicted and gold call lists are empty.  That is correct for a
+    *valid* no-call decision, but terminal rows carry their supervision in
+    ``target_final_answer`` instead.  Applying the tool scorer to those rows
+    lets malformed text with no final-answer block receive a positive reward.
+    Keep terminal decisions on the same [-0.5, 1.0] MolClaw scale while
+    requiring both canonical ReAct format and exact structured output (with
+    the duplicated human-readable summary ignored, as in official ToolRL).
+    """
+    has_only_final = bool(
+        parsed.get("ok")
+        and parsed.get("has_final_answer")
+        and not parsed.get("has_tool_call")
+    )
+    target = _without_summary(_target_final_answer(sample))
+    predicted = _without_summary(parsed.get("final_answer"))
+    exact = bool(has_only_final and predicted == target)
+    score = 1.0 if exact else -0.5
+    format_reward = 1.0 if has_only_final else -0.3
+    correctness = 1.0 if exact else 0.0
+    error_type = None
+    error_message = None
+    if not has_only_final:
+        error_type = parsed.get("error_type") or "TerminalDecisionFormatMismatch"
+        error_message = parsed.get("error_message") or "expected one valid final_answer decision"
+    elif not exact:
+        error_type = "FinalAnswerMismatch"
+        error_message = "predicted final answer does not match target_final_answer"
+
+    return {
+        "score": score,
+        "format": format_reward,
+        "tool_name": 0.0,
+        "param_name": 0.0,
+        "param_value": 0.0,
+        "matched_calls": 0.0,
+        "components": {
+            "format": format_reward,
+            "terminal_correctness": correctness,
+            "tool_name": 0.0,
+            "param_name": 0.0,
+            "param_value": 0.0,
+            "matched_calls": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "tool_call_score": 0.0,
+        },
+        "diagnostics": {
+            "reward_mode": "molclaw",
+            "expected_decision_type": "final_answer",
+            "predicted_decision_type": "final_answer" if has_only_final else "invalid",
+            "parse_ok": bool(parsed.get("ok")),
+            "has_final_answer": bool(parsed.get("has_final_answer")),
+            "terminal_exact_match": exact,
+            "pred_call_count": 0,
+            "gold_call_count": 0,
+            "matched_calls": 0,
+            "unmatched_pred_count": 0,
+            "unmatched_gold_count": 0,
+        },
+        "errors": [] if exact else [{"type": error_type, "message": error_message}],
+        "warnings": [],
+    }
+
+
 def _pair_tool_calls(pred: list[dict[str, Any]], gold: list[dict[str, Any]], config: dict[str, Any]) -> list[ToolCallScore]:
     if not pred or not gold:
         return []
@@ -453,6 +522,16 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         sample.metadata["toolrl_reward"] = to_jsonable(out)
         return out
 
+    # Terminal rows have no gold tool calls by construction.  They must be
+    # scored against target_final_answer before the dense empty-call shortcut,
+    # otherwise malformed/no-output generations receive positive reward.
+    if _decision_type(sample) == "final_answer":
+        out = _molclaw_final_answer_reward(sample, parsed)
+        if not isinstance(sample.metadata, dict):
+            sample.metadata = {}
+        sample.metadata["toolrl_reward"] = to_jsonable(out)
+        return out
+
     format_reward = _format_reward(parsed)
     tool_metrics = _tool_reward_components(pred_calls, gold_calls, config=config)
 
@@ -481,6 +560,12 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         score -= min(0.15, 0.03 * (num_gold - num_pred))
     if parsed.get("non_molclaw_tool_calls"):
         score -= min(0.10, 0.02 * len(parsed.get("non_molclaw_tool_calls") or []))
+    if not parsed.get("ok"):
+        # Dense partial-call credit is useful only inside a valid ReAct
+        # envelope.  Extra free text or malformed tags must never turn into a
+        # positive training target even if a recoverable call happened to
+        # match the gold call.
+        score = min(score, -0.3)
     score = clamp(score, -0.5, 1.0)
 
     components = {

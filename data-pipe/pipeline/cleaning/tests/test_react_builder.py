@@ -10,7 +10,7 @@ import unittest
 PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
 from cleaning.invariants import validate_final_record  # noqa: E402
-from cleaning.react_builder import L1_SKILL_NAMES, _compact_observation, reconstruct_react_messages  # noqa: E402
+from cleaning.react_builder import _compact_observation, reconstruct_react_messages  # noqa: E402
 from cleaning.trace_parser import discover_rollout_samples  # noqa: E402
 
 
@@ -33,10 +33,6 @@ def extract_final_payload(messages: list[dict]) -> dict:
 
 
 class ReactConstructorTest(unittest.TestCase):
-    def test_l1_registry_uses_the_canonical_repository_skills_bundle(self) -> None:
-        self.assertIn("molclaw-fix-pdb", L1_SKILL_NAMES)
-        self.assertIn("molclaw-quickvina-docking", L1_SKILL_NAMES)
-
     def test_invariant_rejects_consecutive_assistant_turns(self) -> None:
         record = {
             "schema_version": "drug_agent_sft_react_json_v1",
@@ -232,7 +228,7 @@ class ReactConstructorTest(unittest.TestCase):
         )
         self.assertEqual(stats["reordered_observation_count"], 2)
 
-    def test_retains_only_l1_skill_and_safe_local_tools(self) -> None:
+    def test_retains_l1_read_and_safe_local_tools_without_skill_wrapper(self) -> None:
         l1_path = (
             "/home/teacher/project/.claude/skills/L1_tools/"
             "molclaw-pdbfixer/SKILL.md"
@@ -288,11 +284,12 @@ class ReactConstructorTest(unittest.TestCase):
         rendered = "\n".join(message["content"] for message in messages)
         self.assertIn("skills/L1_tools/molclaw-pdbfixer/SKILL.md", rendered)
         self.assertIn("scientific details scientific details", rendered)
-        self.assertIn('"tool_name":"Skill"', rendered)
+        self.assertNotIn('"tool_name":"Skill"', rendered)
         self.assertIn('"tool_name":"Bash"', rendered)
         self.assertIn('"tool_name":"Write"', rendered)
         self.assertEqual(stats["molclaw_usage_count"], 1)
-        self.assertEqual(stats["retained_local_tool_call_count"], 4)
+        self.assertEqual(stats["retained_local_tool_call_count"], 3)
+        self.assertEqual(stats["dropped_tool_reason_hist"]["unsupported_teacher_tool"], 1)
 
     def test_drops_l2_l3_teacher_tools_and_unsafe_bash_with_audit(self) -> None:
         events = [
@@ -342,8 +339,7 @@ class ReactConstructorTest(unittest.TestCase):
             self.assertNotIn(f'"tool_name":"{name}"', rendered)
         self.assertEqual(stats["molclaw_usage_count"], 1)
         self.assertEqual(stats["dropped_observation_count"], 5)
-        self.assertEqual(stats["dropped_tool_reason_hist"]["unsupported_teacher_tool"], 2)
-        self.assertEqual(stats["dropped_tool_reason_hist"]["non_l1_skill"], 1)
+        self.assertEqual(stats["dropped_tool_reason_hist"]["unsupported_teacher_tool"], 3)
         self.assertEqual(stats["dropped_tool_reason_hist"]["unsafe_bash_command"], 1)
 
     def test_drops_teacher_sidecars_and_non_l1_skill_catalog_access(self) -> None:

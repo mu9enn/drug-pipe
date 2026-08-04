@@ -9,11 +9,15 @@ _SourceGetter = Callable[[], Iterable[tuple[str, torch.Tensor]]]
 
 class TensorBackuper(ABC):
     @staticmethod
-    def create(source_getter, single_tag):
+    def create(source_getter, single_tag, verify_live_weights=True):
         if single_tag is None:
             return _TensorBackuperNormal(source_getter=source_getter)
         else:
-            return _TensorBackuperNoop(source_getter=source_getter, single_tag=single_tag)
+            return _TensorBackuperNoop(
+                source_getter=source_getter,
+                single_tag=single_tag,
+                verify_live_weights=verify_live_weights,
+            )
 
     def __init__(self, source_getter: _SourceGetter):
         self._source_getter = source_getter
@@ -75,9 +79,10 @@ class _TensorBackuperNormal(TensorBackuper):
 
 
 class _TensorBackuperNoop(TensorBackuper):
-    def __init__(self, source_getter, single_tag):
+    def __init__(self, source_getter, single_tag, verify_live_weights=True):
         super().__init__(source_getter=source_getter)
         self._single_tag = single_tag
+        self._verify_live_weights = verify_live_weights
         # Sanity check for safety
         self._backup_hash_dict = None
 
@@ -88,17 +93,20 @@ class _TensorBackuperNoop(TensorBackuper):
     def get(self, tag: str):
         ans = dict(self._source_getter())
         ans = {k: v.detach() for k, v in ans.items()}
-        assert _compute_hash_dict(ans) == self._backup_hash_dict
+        if self._verify_live_weights:
+            assert _compute_hash_dict(ans) == self._backup_hash_dict
         return ans
 
     def backup(self, tag: str) -> None:
         assert tag == self._single_tag
-        self._backup_hash_dict = _compute_hash_dict(dict(self._source_getter()))
+        if self._verify_live_weights:
+            self._backup_hash_dict = _compute_hash_dict(dict(self._source_getter()))
         torch.cuda.synchronize()
 
     def restore(self, tag: str) -> None:
         assert tag == self._single_tag
-        assert _compute_hash_dict(dict(self._source_getter())) == self._backup_hash_dict
+        if self._verify_live_weights:
+            assert _compute_hash_dict(dict(self._source_getter())) == self._backup_hash_dict
         torch.cuda.synchronize()
 
 

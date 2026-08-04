@@ -1,0 +1,16 @@
+--- a/python/sglang/srt/models/qwen3_5.py
++++ b/python/sglang/srt/models/qwen3_5.py
+@@ -1758,6 +1758,13 @@
+ 
+         loaded_params: Set[str] = set()
+         params_dict = dict(self.named_parameters(remove_duplicate=False))
++        # SGLang's LoRA wrappers move each original parameter below a
++        # ``base_layer`` module.  Online actor refits still use canonical HF
++        # names, so expose aliases that point at those exact base Parameters.
++        # Adapter Parameters retain their own names and are hot-loaded later.
++        for param_name, param in list(params_dict.items()):
++            if ".base_layer." in param_name:
++                params_dict.setdefault(param_name.replace(".base_layer.", "."), param)
+ 
+         for name, loaded_weight in weights:
+             # Online updates are delivered in independent flattened buckets.

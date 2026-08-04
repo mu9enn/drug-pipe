@@ -6,9 +6,114 @@ import unittest
 from pathlib import Path
 
 from drug_agent.data.migrate_live_tool_catalog import migrate_records
+from drug_agent.data.normalize_tool_catalog import normalize_catalog
 
 
 class LiveToolMigrationTest(unittest.TestCase):
+    def test_runtime_catalog_replaces_captured_local_tools_without_skill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "catalog.json"
+            source.write_text(json.dumps({"tools": [
+                {"name": "fix_pdb", "input_schema": {"type": "object"}},
+                {"name": "Skill", "executor": "local_sandbox", "input_schema": {}},
+            ]}) + "\n")
+            normalized = normalize_catalog(source, root / "normalized.json")
+            names = [tool["name"] for tool in normalized["tools"]]
+            self.assertEqual(normalized["mcp_tool_count"], 1)
+            self.assertEqual(normalized["local_tool_count"], 6)
+            self.assertEqual(normalized["tool_count"], 7)
+            self.assertNotIn("Skill", names)
+            self.assertIn("Read", names)
+            self.assertIn("Glob", names)
+
+    def test_gene_structure_optional_organism_is_not_materialized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.jsonl"
+            source.write_text(json.dumps({
+                "id": "react_kg_gene_default",
+                "messages": [
+                    {"role": "system", "content": "Use real MolClaw calls and supported local file/skill calls."},
+                    {"role": "user", "content": "not an excluded prompt"},
+                    {"role": "assistant", "content": (
+                        '<tool_call>{"tool_name":"retrieve_protein_structure_by_gene_name",'
+                        '"arguments":{"gene_name":"TP53"}}</tool_call>'
+                    )},
+                    {"role": "user", "content": (
+                        '<observation tool_name="retrieve_protein_structure_by_gene_name">'
+                        '{"status":"success"}</observation>'
+                    )},
+                ],
+            }) + "\n")
+            catalog = root / "catalog.json"
+            catalog.write_text(json.dumps({"tools": [{
+                "name": "retrieve_protein_structure_by_gene_name",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "gene_name": {"type": "string"},
+                        "organism": {"type": "string", "default": "9606"},
+                        "sort_by": {"type": "string", "default": "length"},
+                    },
+                    "required": ["gene_name"],
+                    "additionalProperties": False,
+                },
+            }]}) + "\n")
+
+            report = migrate_records(source, catalog, root / "out")
+
+            self.assertEqual(report["accepted_count"], 1)
+            migrated = json.loads((root / "out/react_trajectories.jsonl").read_text())
+            content = migrated["messages"][2]["content"]
+            self.assertNotIn("organism", content)
+            self.assertNotIn("sort_by", content)
+            self.assertEqual(
+                migrated["messages"][0]["content"],
+                "Use real MolClaw calls and supported local file calls.",
+            )
+
+    def test_stale_required_defaults_are_not_synthesized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.jsonl"
+            source.write_text(json.dumps({
+                "id": "react_kg_gene_required",
+                "messages": [
+                    {"role": "user", "content": "not an excluded prompt"},
+                    {"role": "assistant", "content": (
+                        '<tool_call>{"tool_name":"retrieve_protein_structure_by_gene_name",'
+                        '"arguments":{"gene_name":"TP53"}}</tool_call>'
+                    )},
+                    {"role": "user", "content": (
+                        '<observation tool_name="retrieve_protein_structure_by_gene_name">'
+                        '{"status":"success"}</observation>'
+                    )},
+                ],
+            }) + "\n")
+            catalog = root / "catalog.json"
+            catalog.write_text(json.dumps({"tools": [{
+                "name": "retrieve_protein_structure_by_gene_name",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "gene_name": {"type": "string"},
+                        "organism": {"type": "string"},
+                        "sort_by": {"type": "string"},
+                    },
+                    "required": ["gene_name", "organism", "sort_by"],
+                    "additionalProperties": False,
+                },
+            }]}) + "\n")
+
+            report = migrate_records(source, catalog, root / "out")
+
+            self.assertEqual(report["accepted_count"], 1)
+            migrated = json.loads((root / "out/react_trajectories.jsonl").read_text())
+            content = migrated["messages"][1]["content"]
+            self.assertNotIn("organism", content)
+            self.assertNotIn("sort_by", content)
+
     def test_structured_name_argument_and_observation_migration(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

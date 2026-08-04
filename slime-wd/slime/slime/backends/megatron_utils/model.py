@@ -9,6 +9,7 @@ from functools import partial
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
 from megatron.core import mpu
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import finalize_model_grads
@@ -38,10 +39,12 @@ from .fp8_optimizer_state_offload import (
     install_fp8_optimizer_state_offload_patch,
     split_fp8_optimizer_param_groups,
 )
+from .hybrid_optimizer_stream_patch import install_hybrid_optimizer_h2d_wait_patch
 from .loss import loss_function
 from .model_provider import get_model_provider_func
 
 logger = logging.getLogger(__name__)
+install_hybrid_optimizer_h2d_wait_patch()
 install_fp8_optimizer_state_offload_patch()
 
 
@@ -69,6 +72,53 @@ def _offload_optimizer_states_if_needed(optimizer: MegatronOptimizer) -> None:
 def _release_offloaded_optimizer_states(optimizer: MegatronOptimizer) -> None:
     for instance in _optimizer_state_offload_instances(optimizer):
         instance.release_offloaded_gpu_states()
+
+
+def _drop_optimizer_cpu_state_before_weights_only_save(optimizer: MegatronOptimizer) -> int:
+    """Release offloaded Adam state before a terminal weights-only checkpoint.
+
+    The 122B FP8 profile streams its two Adam moments to CPU between steps.
+    Those buffers are not part of a ``--no-save-optim`` checkpoint, but keeping
+    them alive while torch.distributed.checkpoint stages model shards nearly
+    doubles host memory.  This operation deliberately makes the optimizer
+    unusable, so require an explicit terminal-save opt-in in addition to
+    Megatron's weights-only flag.
+
+    Returns the number of CPU tensor bytes released by this rank.
+    """
+    args = get_args()
+    if not getattr(args, "no_save_optim", False):
+        return 0
+    if os.environ.get("SLIME_DROP_OPTIMIZER_STATE_BEFORE_WEIGHTS_ONLY_SAVE", "0") != "1":
+        return 0
+
+    released_bytes = 0
+    for instance in _optimizer_state_offload_instances(optimizer):
+        state_offloader = getattr(instance, "_state_offloader", None)
+        cpu_buffers = getattr(state_offloader, "_opt_state_cpu_buffers", None)
+        if not isinstance(cpu_buffers, dict):
+            continue
+        for param_buffers in cpu_buffers.values():
+            for tensor in param_buffers.values():
+                if isinstance(tensor, torch.Tensor):
+                    released_bytes += tensor.untyped_storage().nbytes()
+        cpu_buffers.clear()
+
+    gc.collect()
+    # Large pageable tensor allocations can remain in glibc arenas after the
+    # final reference is dropped.  Return free arenas to the pod cgroup before
+    # distributed checkpointing starts; failure to trim is non-fatal.
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (ImportError, OSError, AttributeError):
+        pass
+    logger.info(
+        "Released %.2f GiB of offloaded optimizer CPU state before weights-only save",
+        released_bytes / 1024**3,
+    )
+    return released_bytes
 
 
 def _disable_tqdm_for_non_main_rank() -> bool:
@@ -498,6 +548,31 @@ def train_one_step(
     """
     args = get_args()
 
+    verify_first_step_params = (
+        os.environ.get("SLIME_VERIFY_FIRST_STEP_PARAMS", "0") == "1"
+        and rollout_id == 0
+        and step_id == 0
+    )
+
+    # A zero-LR first step is a useful integrity gate for finetuning from a
+    # weights-only checkpoint: the live model must not jump when the optimizer
+    # copies its FP32 master shards back into BF16 model parameters.  Keep a
+    # small, deterministic sample on every rank so this check is cheap even for
+    # very large models.  This is intentionally opt-in because it synchronizes
+    # all training ranks once for diagnostics.
+    first_step_param_samples = []
+    if verify_first_step_params:
+        for model_chunk in model:
+            for name, param in model_chunk.named_parameters():
+                if param.numel() == 0:
+                    continue
+                flat = param.detach().view(-1)
+                # TransformerEngine/Megatron sharded parameter wrappers may
+                # expose a logical ``numel`` larger than their locally
+                # addressable storage.  A bounded contiguous slice is valid
+                # for both ordinary tensors and those wrappers.
+                first_step_param_samples.append((name, flat[:16].float().clone()))
+
     # Set grad to zero.
     for model_chunk in model:
         model_chunk.zero_grad_buffer()
@@ -581,6 +656,14 @@ def train_one_step(
             if args.enable_mtp_training:
                 forward_kwargs["mtp_kwargs"] = {"mtp_labels": batch["tokens"]}
 
+            # Float16Module otherwise materializes the complete vocabulary
+            # output in FP32 on the last pipeline stage.  For long sequences
+            # that fixed upcast is several GiB (5.57 GiB for the measured
+            # 122B batch).  The recomputed log-prob path performs numerically
+            # stable FP32 work one bounded token tile at a time instead.
+            if getattr(args, "recompute_vocab_log_probs", False):
+                forward_kwargs["fp32_output"] = False
+
             output_tensor = model(**forward_kwargs)
 
         if os.environ.get("ENABLE_ROUTING_REPLAY", "0") == "1":
@@ -622,8 +705,40 @@ def train_one_step(
         check_mtp_only_grad(model, step_id)
 
     if valid_step:
+        if verify_first_step_params:
+            learning_rates = [float(group["lr"]) for group in optimizer.param_groups]
+            logger.info(
+                "First-step parameter integrity gate before optimizer.step: "
+                "lr_min=%g lr_max=%g sampled_tensors=%d",
+                min(learning_rates),
+                max(learning_rates),
+                len(first_step_param_samples),
+            )
+
         # Update parameters.
         update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
+
+        if verify_first_step_params:
+            local_max_delta = torch.zeros((), device=torch.cuda.current_device(), dtype=torch.float32)
+            sample_offset = 0
+            for model_chunk in model:
+                for _name, param in model_chunk.named_parameters():
+                    if param.numel() == 0:
+                        continue
+                    flat = param.detach().view(-1)
+                    before_name, before_values = first_step_param_samples[sample_offset]
+                    del before_name
+                    local_max_delta = torch.maximum(
+                        local_max_delta,
+                        (flat[:16].float() - before_values).abs().max(),
+                    )
+                    sample_offset += 1
+            dist.all_reduce(local_max_delta, op=dist.ReduceOp.MAX)
+            if dist.get_rank() == 0:
+                logger.info(
+                    "First-step parameter integrity gate after optimizer.step: global_sampled_max_abs_delta=%g",
+                    local_max_delta.item(),
+                )
 
         # Update learning rate. Use the per-step global_batch_size when dynamic
         # batching is on so the scheduler's samples-seen counter tracks reality.
@@ -642,6 +757,12 @@ def train_one_step(
     optimizer.zero_grad()
     if args.offload_optimizer_states:
         _release_offloaded_optimizer_states(optimizer)
+        # FP8 group-wise Adam initialization leaves small cached segments on
+        # every rank. On the measured 122B steady state GPU 0 had 1.68 GiB
+        # reserved-but-unused yet only 0.95 GiB globally free, so FLA could not
+        # obtain its contiguous 1.24 GiB recurrent-state workspace. Return
+        # those segments once per global update, after D2H state release.
+        torch.cuda.empty_cache()
 
     if mpu.is_pipeline_last_stage(ignore_virtual=True):
         loss_reduced = reduce_train_step_metrics(
@@ -725,7 +846,29 @@ def train(
     if args.offload_optimizer_states:
 
         def finalize_model_grads_with_state_reload(*fmg_args, **fmg_kwargs):
+            # Long variable-length microbatches can leave hundreds of MiB in
+            # inactive allocator segments.  The FP8 state reloader restores
+            # many small storages and otherwise may fail even when reserved
+            # but unused memory exceeds the requested allocation.
+            torch.cuda.empty_cache()
             for optim_instance in _optimizer_state_offload_instances(optimizer):
+                state_offloader = getattr(optim_instance, "_state_offloader", None)
+                adam_optimizer = getattr(state_offloader, "adam_optimizer", None)
+                # The patched FP8 FusedAdam reloads one bounded moment group
+                # inside step() and evicts it immediately afterward.  A bulk
+                # reload here recreates the full-state HBM peak and is not
+                # needed for gradient finalization.  Master weights are kept
+                # resident by the 122B profile; retain the stock path if a
+                # different profile explicitly offloaded them.
+                if (
+                    state_offloader is not None
+                    and getattr(adam_optimizer, "_slime_state_offloader", None)
+                    is state_offloader
+                    and not getattr(
+                        state_offloader, "_offloaded_mcore_master_weights", False
+                    )
+                ):
+                    continue
                 optim_instance.reload_offloaded_states()
             return finalize_model_grads(*fmg_args, **fmg_kwargs)
 
@@ -922,6 +1065,7 @@ def save(
     args = get_args()
     if should_disable_forward_pre_hook(args):
         disable_forward_pre_hook(model)
+    _drop_optimizer_cpu_state_before_weights_only_save(optimizer)
     save_checkpoint(
         iteration,
         model,

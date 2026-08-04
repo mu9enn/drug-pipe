@@ -31,7 +31,7 @@ PROMPT_SUITE_FILE=${PROMPT_SUITE_FILE:-}
 # Edit this question directly, or override it with QUESTION='...' bash ...
 DEFAULT_QUESTION='Complete a real tool-use smoke test and ground every claim in actual observations.
 
-1. Use the Skill tool to read the L1 skill named molclaw-fix-pdb.
+1. Use Read to inspect skills/L1_tools/molclaw-fix-pdb/SKILL.md.
 2. Call the MolClaw tool fix_pdb with input_path /data/lwj/wll/code/DrugAgentTools/sxy_sum/tests/fixtures/protein.pdb, remove_water=true, remove_heterogens=true, and add_hydrogens=false.
 3. Use Write to create run_log.md in the task workspace, recording the returned canonical output artifact and a short factual status.
 4. Use Read to read run_log.md back.

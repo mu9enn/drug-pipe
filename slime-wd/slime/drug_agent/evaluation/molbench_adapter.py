@@ -69,6 +69,40 @@ def _sample(
     }
 
 
+def _suite_group(sample: dict[str, Any]) -> str:
+    suite = str(sample["metadata"]["benchmark"]["suite"])
+    return "molbench_mo" if suite.startswith("molbench_mo_") else suite
+
+
+def _select_samples(
+    samples: list[dict[str, Any]],
+    *,
+    selected_suites: list[str] | None,
+    limit_per_suite: int,
+) -> list[dict[str, Any]]:
+    suites = list(dict.fromkeys(selected_suites or []))
+    unknown = sorted(set(suites) - set(EXPECTED_COUNTS))
+    if unknown:
+        raise ValueError(f"Unknown MolBench suite selection: {unknown}")
+    if limit_per_suite < 0:
+        raise ValueError("limit_per_suite must be non-negative (0 means unlimited)")
+    if not suites and limit_per_suite == 0:
+        return list(samples)
+
+    active_suites = suites or list(EXPECTED_COUNTS)
+    kept: list[dict[str, Any]] = []
+    counts: dict[str, int] = {suite: 0 for suite in active_suites}
+    for sample in samples:
+        suite = _suite_group(sample)
+        if suite not in counts:
+            continue
+        if limit_per_suite and counts[suite] >= limit_per_suite:
+            continue
+        kept.append(sample)
+        counts[suite] += 1
+    return kept
+
+
 def _extract_pair(question: str) -> tuple[str, str]:
     match_a = re.search(r"Molecule A:\s*([^\n]+)", question)
     match_b = re.search(r"Molecule B:\s*([^\n]+)", question)
@@ -88,7 +122,13 @@ def _extract_source_smiles(query: str, marker: str) -> str:
     return value.strip().rstrip(".")
 
 
-def build_molbench_dataset(molbench_root: str | Path, output_dir: str | Path) -> dict[str, Any]:
+def build_molbench_dataset(
+    molbench_root: str | Path,
+    output_dir: str | Path,
+    *,
+    selected_suites: list[str] | None = None,
+    limit_per_suite: int = 0,
+) -> dict[str, Any]:
     root = Path(molbench_root).expanduser().resolve()
     output = ensure_dir(output_dir)
     data_root = root / "data"
@@ -181,16 +221,28 @@ def build_molbench_dataset(molbench_root: str | Path, output_dir: str | Path) ->
                 )
             )
 
-    counts = {
+    source_counts = {
         "molbench_ms1": sum(s["metadata"]["benchmark"]["suite"] == "molbench_ms1" for s in samples),
         "molbench_ms2": sum(s["metadata"]["benchmark"]["suite"] == "molbench_ms2" for s in samples),
         "molbench_ms3": sum(s["metadata"]["benchmark"]["suite"] == "molbench_ms3" for s in samples),
         "molbench_mo": sum(s["metadata"]["benchmark"]["suite"].startswith("molbench_mo_") for s in samples),
     }
-    if counts != EXPECTED_COUNTS:
-        raise ValueError(f"Unexpected selected benchmark counts: {counts}, expected {EXPECTED_COUNTS}")
+    if source_counts != EXPECTED_COUNTS:
+        raise ValueError(f"Unexpected source benchmark counts: {source_counts}, expected {EXPECTED_COUNTS}")
     if len(overlap_audit) != 4:
         raise ValueError(f"Expected four MS-2 overlap exclusions, found {len(overlap_audit)}")
+
+    samples = _select_samples(
+        samples,
+        selected_suites=selected_suites,
+        limit_per_suite=limit_per_suite,
+    )
+    counts = {
+        suite: sum(_suite_group(sample) == suite for sample in samples)
+        for suite in EXPECTED_COUNTS
+    }
+    if not samples:
+        raise ValueError("MolBench selection produced no samples")
 
     dataset_path = output / "molbench_eval.jsonl"
     write_jsonl(dataset_path, samples)
@@ -202,12 +254,18 @@ def build_molbench_dataset(molbench_root: str | Path, output_dir: str | Path) ->
         "molbench_root": str(root),
         "dataset_path": str(dataset_path),
         "counts": counts,
+        "source_counts": source_counts,
         "total": len(samples),
+        "selection": {
+            "suites": list(dict.fromkeys(selected_suites or [])),
+            "limit_per_suite": limit_per_suite,
+        },
         "excluded_training_overlap": len(overlap_audit),
         "source_files": [{"path": str(path), "sha256": _sha256_file(path)} for path in source_files],
         "source_mo_manifest_total": raw_mo_manifest.get("total_samples"),
+        "available_mo_total": source_counts["molbench_mo"],
         "selected_mo_total": counts["molbench_mo"],
-        "missing_mo_target_optimization": int(raw_mo_manifest.get("total_samples", 0)) - counts["molbench_mo"],
+        "missing_mo_target_optimization": int(raw_mo_manifest.get("total_samples", 0)) - source_counts["molbench_mo"],
     }
     write_json(output / "benchmark_manifest.json", manifest)
     return manifest
@@ -217,8 +275,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build fresh held-out Drug-Agent MolBench evaluation JSONL")
     parser.add_argument("--molbench-root", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--suite", action="append", default=[])
+    parser.add_argument("--limit-per-suite", type=int, default=0)
     args = parser.parse_args()
-    print(json.dumps(build_molbench_dataset(args.molbench_root, args.output_dir), ensure_ascii=False, indent=2))
+    print(json.dumps(build_molbench_dataset(
+        args.molbench_root,
+        args.output_dir,
+        selected_suites=args.suite,
+        limit_per_suite=args.limit_per_suite,
+    ), ensure_ascii=False, indent=2))
     return 0
 
 

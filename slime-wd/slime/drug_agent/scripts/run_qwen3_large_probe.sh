@@ -70,6 +70,16 @@ require_fresh_dir() {
   fi
 }
 
+require_colocated_online_support() {
+  local method=$1
+  local supported=$2
+  if [[ "$supported" != 1 && "${ALLOW_UNSUPPORTED_COLOCATED_RL:-0}" != 1 ]]; then
+    echo "$MODEL_PROFILE does not fit colocated $method on its current $NUM_GPUS actor GPUs." >&2
+    echo "Use separate rollout/discriminator resources, then set ALLOW_UNSUPPORTED_COLOCATED_RL=1 only after adapting the launcher." >&2
+    exit 2
+  fi
+}
+
 case "$ACTION" in
   validate)
     validate_profile
@@ -99,9 +109,11 @@ case "$ACTION" in
       bash drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh
     ;;
   toolrl-one-group)
+    require_colocated_online_support ToolRL "${COLOCATED_TOOLRL_SUPPORTED:-1}"
     validate_profile
     worker_preflight
     require_path torch_dist "$REF_LOAD"
+    require_path rollout_HF "${ROLLOUT_HF_CHECKPOINT:-$HF_CHECKPOINT}"
     TOOLRL_LOAD_ENV=()
     if [[ -n "${SFT_LOAD:-}" ]]; then
       require_path SFT_LOAD "$SFT_LOAD"
@@ -117,11 +129,13 @@ case "$ACTION" in
       bash drug_agent/toolrl/scripts/run_toolrl_grpo.sh
     ;;
   gad-negatives-one)
+    require_colocated_online_support GAD-negative-generation "${COLOCATED_GAD_SUPPORTED:-1}"
     validate_profile
     worker_preflight
     : "${SFT_LOAD:?Set SFT_LOAD to a completed SFT checkpoint}"
     require_path SFT_LOAD "$SFT_LOAD"
     require_path torch_dist "$REF_LOAD"
+    require_path rollout_HF "${ROLLOUT_HF_CHECKPOINT:-$HF_CHECKPOINT}"
     GAD_NEGATIVE_CACHE=${GAD_NEGATIVE_CACHE:-$PROBE_ROOT/gad_negative_one.jsonl}
     if [[ -e "$GAD_NEGATIVE_CACHE" ]]; then
       echo "Probe negative cache already exists: $GAD_NEGATIVE_CACHE" >&2
@@ -151,6 +165,7 @@ case "$ACTION" in
       bash drug_agent/gad/scripts/serve_discriminator.sh
     ;;
   gad-one-group)
+    require_colocated_online_support GAD "${COLOCATED_GAD_SUPPORTED:-1}"
     validate_profile
     # Online GAD adds a colocated discriminator to the actor, rollout engine,
     # and CPUAdam transient. This has a stricter measured memory gate than
@@ -163,6 +178,7 @@ case "$ACTION" in
     require_path SFT_LOAD "$SFT_LOAD"
     require_path DISCRIMINATOR_RESUME "$DISCRIMINATOR_RESUME"
     require_path GAD_WARMUP_MANIFEST "$GAD_WARMUP_MANIFEST"
+    require_path rollout_HF "${ROLLOUT_HF_CHECKPOINT:-$HF_CHECKPOINT}"
     SAVE_DIR=${SAVE_DIR:-$PROBE_ROOT/gad_one_group}
     require_fresh_dir "$SAVE_DIR"
     PROMPT_DATA=${PROMPT_DATA:-$GAD_DATA} STUDENT_WARMUP_LOAD="$SFT_LOAD" \

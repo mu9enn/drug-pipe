@@ -536,7 +536,7 @@ PYTHONPATH=. python -m pipeline.cleaning.python_clean \
   --output-root "$PYTHON_CLEAN"
 ```
 
-默认保留 MolClaw 与受支持的 `Read/Write/Edit/Bash/Grep/Glob/L1 Skill`。如需差异检查，
+默认保留 MolClaw 与受支持的 `Read/Write/Edit/Bash/Grep/Glob`；L1 skill 文档通过 Read 读取。如需差异检查，
 另选输出目录并增加 `--only-molclaw-tool`；两次 manifest 的
 `python_valid_count/rejected_count` 应一致。
 

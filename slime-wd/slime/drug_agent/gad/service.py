@@ -78,14 +78,22 @@ async def score_and_update(payload: dict[str, Any]):
     if update_steps < 1:
         raise HTTPException(status_code=400, detail="update_steps must be >= 1")
     async with LOCK:
-        result = DISCRIMINATOR.score_and_update(
-            states,
-            teacher,
-            student,
-            update_steps=update_steps,
-            clip_grad=float(payload.get("clip_grad") or CONFIG["clip_grad"]),
-            reward_clip=float(payload.get("reward_clip") or CONFIG["reward_clip"]),
-        )
+        if CONFIG["offload_after_request"]:
+            DISCRIMINATOR.wake()
+        try:
+            result = DISCRIMINATOR.score_and_update(
+                states,
+                teacher,
+                student,
+                update_steps=update_steps,
+                clip_grad=float(payload.get("clip_grad") or CONFIG["clip_grad"]),
+                reward_clip=float(payload.get("reward_clip") or CONFIG["reward_clip"]),
+            )
+        finally:
+            # The HTTP response is not released until all discriminator HBM is
+            # gone, so Slime cannot begin the 122B actor backward too early.
+            if CONFIG["offload_after_request"]:
+                DISCRIMINATOR.offload()
         LAST_METRICS = result["metrics"]
         if DISCRIMINATOR.version % CONFIG["save_interval"] == 0:
             output_dir = Path(CONFIG["output_dir"])
@@ -124,6 +132,11 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8100)
+    parser.add_argument(
+        "--device",
+        default="cuda",
+        help="Discriminator device (for example cuda, cuda:7, or cpu). CPU is a slow, memory-safe fallback.",
+    )
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--max-length", type=int, default=4096)
     parser.add_argument("--update-steps", type=int, default=1)
@@ -131,6 +144,11 @@ def main() -> int:
     parser.add_argument("--reward-clip", type=float, default=2.0)
     parser.add_argument("--save-interval", type=int, default=50)
     parser.add_argument("--keep-last-checkpoints", type=int, default=2)
+    parser.add_argument(
+        "--offload-after-request",
+        action="store_true",
+        help="Keep the discriminator on CPU between requests for colocated large-model RL.",
+    )
     args = parser.parse_args()
     if args.update_steps < 1 or args.save_interval < 1 or args.keep_last_checkpoints < 1 or args.reward_clip <= 0:
         parser.error(
@@ -140,10 +158,12 @@ def main() -> int:
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     resume_backbone = Path(args.resume) / "backbone" if args.resume else None
     init_path = str(resume_backbone) if resume_backbone and resume_backbone.is_dir() else args.model_path
-    DISCRIMINATOR = GADDiscriminator(init_path, lr=args.lr, max_length=args.max_length)
+    DISCRIMINATOR = GADDiscriminator(init_path, lr=args.lr, max_length=args.max_length, device=args.device)
     if args.resume:
         DISCRIMINATOR.load(args.resume)
     CONFIG = vars(args)
+    if args.offload_after_request:
+        DISCRIMINATOR.offload()
     import uvicorn
 
     print(json.dumps({"event": "gad_service_start", **CONFIG}, ensure_ascii=False), flush=True)

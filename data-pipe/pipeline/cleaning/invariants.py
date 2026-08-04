@@ -34,8 +34,8 @@ L2_L3_ORCHESTRATION_RE = re.compile(
 )
 LOCAL_TOOL_NARRATION_RE = re.compile(
     r"(?ix)(?:"
-    r"\b(?:Read|Write|Edit|Bash|Grep|Glob|Skill)\s+(?:tool|call)\b|"
-    r"\b(?:use|using|invoke|run|call)(?:\s+the)?\s+`?(?:Read|Write|Edit|Bash|Grep|Glob|Skill)`?\b|"
+    r"\b(?:Read|Write|Edit|Bash|Grep|Glob)\s+(?:tool|call)\b|"
+    r"\b(?:use|using|invoke|run|call)(?:\s+the)?\s+`?(?:Read|Write|Edit|Bash|Grep|Glob)`?\b|"
     r"\b(?:read|load|inspect|consult)(?:ing)?\b[^\n.]{0,100}\bskills?\b|"
     r"\b(?:read|load|inspect|consult)(?:ing)?\b[^\n.]{0,80}"
     r"\b(?:L1|tool[- ]level)\b[^\n.]{0,40}\bskills?\b|"

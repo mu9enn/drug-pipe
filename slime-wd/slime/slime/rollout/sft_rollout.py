@@ -52,6 +52,24 @@ def generate_rollout(args, rollout_id, data_buffer, evaluation=False):
                 f"SFT rollout produced mismatched token_ids/loss_mask lengths: {len(token_ids)=}, {len(loss_mask)=}"
             )
 
+        max_sequence_len = getattr(args, "sft_max_sequence_len", None)
+        if max_sequence_len is not None and len(token_ids) > max_sequence_len:
+            if max_sequence_len < 2:
+                raise ValueError(f"sft_max_sequence_len must be at least 2, got {max_sequence_len}")
+            requested_head = getattr(args, "sft_truncation_head_tokens", 4096)
+            head_len = min(max(1, requested_head), max_sequence_len - 1)
+            tail_len = max_sequence_len - head_len
+            original_len = len(token_ids)
+            token_ids = token_ids[:head_len] + token_ids[-tail_len:]
+            loss_mask = loss_mask[:head_len] + loss_mask[-tail_len:]
+            logger.warning(
+                "Truncated oversized SFT sample from %d to %d tokens (head=%d, tail=%d)",
+                original_len,
+                max_sequence_len,
+                head_len,
+                tail_len,
+            )
+
         response_length = MASK_GENERATOR.get_response_lengths([loss_mask])[0]
 
         sample.tokens = token_ids

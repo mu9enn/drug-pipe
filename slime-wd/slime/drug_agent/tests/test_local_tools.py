@@ -72,8 +72,10 @@ class LocalToolExecutorTest(unittest.TestCase):
         glob = self.executor.execute("Glob", {"pattern": "*.md"})
         self.assertEqual(glob["result"]["matches"], ["run_log.md"])
 
-    def test_l1_skill_is_read_only_and_l2_is_unavailable(self) -> None:
-        result = self.executor.execute("Skill", {"skill": "molclaw-test"})
+    def test_l1_skill_document_is_read_only_and_l2_is_unavailable(self) -> None:
+        result = self.executor.execute(
+            "Read", {"file_path": "skills/L1_tools/molclaw-test/SKILL.md"}
+        )
         self.assertTrue(result["ok"])
         self.assertIn("scientific tool", result["result"]["content"])
         denied_write = self.executor.execute(
@@ -88,6 +90,9 @@ class LocalToolExecutorTest(unittest.TestCase):
             "Read", {"file_path": "skills/L2_workflows/anything.md"}
         )
         self.assertFalse(denied_l2["ok"])
+
+        removed_skill = self.executor.execute("Skill", {"skill": "molclaw-test"})
+        self.assertFalse(removed_skill["ok"])
 
     def test_path_traversal_and_symlink_escape_are_rejected(self) -> None:
         outside = Path(self.tmp.name) / "outside.txt"

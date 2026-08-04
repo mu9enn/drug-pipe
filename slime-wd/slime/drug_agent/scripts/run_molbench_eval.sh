@@ -10,7 +10,9 @@ cd "$SLIME"
 
 : "${MODEL_CHECKPOINT:?Set MODEL_CHECKPOINT to a Slime torch-distributed checkpoint directory}"
 EVAL_MODE=${EVAL_MODE:-molbench}
-MOLBENCH_ROOT=${MOLBENCH_ROOT:-$GROUP_SPACE/drug_wd/MolClaw/molbench}
+MOLBENCH_ROOT=${MOLBENCH_ROOT:-$WD/molbench}
+MOLBENCH_SUITES=${MOLBENCH_SUITES:-}
+MOLBENCH_LIMIT_PER_SUITE=${MOLBENCH_LIMIT_PER_SUITE:-0}
 PROMPT_FILE=${PROMPT_FILE:-}
 PROMPT_SUITE_FILE=${PROMPT_SUITE_FILE:-}
 TASK_TYPE=${TASK_TYPE:-e2e}
@@ -18,8 +20,8 @@ TASK_ID=${TASK_ID:-manual_prompt_001}
 MAX_WORKERS=${MAX_WORKERS:-2}
 MAX_STEPS=${MAX_STEPS:-0}
 TEMPERATURE=${TEMPERATURE:-0.0}
-MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-4096}
-MAX_CONTEXT_LEN=${MAX_CONTEXT_LEN:-32768}
+MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-16384}
+MAX_CONTEXT_LEN=${MAX_CONTEXT_LEN:-65536}
 TASK_TIMEOUT_SEC=${TASK_TIMEOUT_SEC:-10800}
 RUN_NAME=${RUN_NAME:-molbench_$(basename "$MODEL_CHECKPOINT")_$(date +%Y%m%d_%H%M%S)}
 DRUG_AGENT_EVAL_ROOT=${DRUG_AGENT_EVAL_ROOT:-${OUTPUTS_ROOT:-$WD/outputs}/slime_drug_agent_evals}
@@ -120,6 +122,11 @@ export DRUG_AGENT_EVAL_RUN_DIR MOLBENCH_ROOT DRUG_AGENT_L1_SKILLS_ROOT DRUG_AGEN
 PREFLIGHT_INPUT_ARGS=()
 if [[ "$EVAL_MODE" == "molbench" ]]; then
   PREFLIGHT_INPUT_ARGS+=(--molbench-root "$MOLBENCH_ROOT")
+  IFS=',' read -r -a MOLBENCH_SUITE_LIST <<< "$MOLBENCH_SUITES"
+  for suite in "${MOLBENCH_SUITE_LIST[@]}"; do
+    [[ -n "$suite" ]] && PREFLIGHT_INPUT_ARGS+=(--molbench-suite "$suite")
+  done
+  PREFLIGHT_INPUT_ARGS+=(--molbench-limit-per-suite "$MOLBENCH_LIMIT_PER_SUITE")
 elif [[ "$EVAL_MODE" == "prompt_suite" ]]; then
   PREFLIGHT_INPUT_ARGS+=(--prompt-suite-file "$PROMPT_SUITE_FILE")
 else
@@ -148,7 +155,7 @@ EVAL_CONFIG="$DRUG_AGENT_EVAL_RUN_DIR/eval_config.yaml"
 if [[ "$EVAL_MODE" == "molbench" ]]; then
   EVAL_DATASET="$DRUG_AGENT_EVAL_RUN_DIR/molbench_eval.jsonl"
   EVAL_LOGGER=drug_agent.evaluation.logger.log_eval_rollout_data
-  EVAL_TASK_COUNT=186
+  EVAL_TASK_COUNT=$(grep -cve '^[[:space:]]*$' "$EVAL_DATASET")
 else
   EVAL_DATASET="$DRUG_AGENT_EVAL_RUN_DIR/prompt_eval.jsonl"
   EVAL_LOGGER=drug_agent.evaluation.prompt_logger.log_eval_rollout_data

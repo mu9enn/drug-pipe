@@ -1,0 +1,14 @@
+--- a/python/sglang/srt/models/qwen3_5.py
++++ b/python/sglang/srt/models/qwen3_5.py
+@@ -1796,9 +1796,8 @@
+ 
+             for param_name, weight_name, shard_id in stacked_params_mapping:
+-                if name.endswith("experts.gate_up_proj") or name.endswith(
+-                    "experts.down_proj"
+-                ):
++                if "experts.gate_up_proj" in name or "experts.down_proj" in name:
++                    # Online Megatron conversion sends fused names with a `.weight` suffix.
+                     is_fused_expert = True
+                     expert_params_mapping = fused_expert_params_mapping
+ 
+                 # Skip non-stacked layers and experts (experts handled below).

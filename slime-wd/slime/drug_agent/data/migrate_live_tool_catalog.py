@@ -46,7 +46,11 @@ def _sequence(arguments: dict[str, Any]) -> dict[str, Any]:
         (arguments.get(key) for key in ("identifier", "gene_name", "uniprot_id", "protein_id", "query") if arguments.get(key)),
         None,
     )
-    return {"identifier": identifier, "organism": arguments.get("organism") or arguments.get("species") or "Homo sapiens"}
+    output = {"identifier": identifier}
+    organism = arguments.get("organism") or arguments.get("species")
+    if organism is not None:
+        output["organism"] = organism
+    return output
 
 
 def _fix_pdb(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -96,15 +100,6 @@ def _normalize_current_arguments(
     elif tool_name == "retrieve_protein_structure_by_gene_name":
         if "gene_name" not in output and output.get("identifier"):
             output["gene_name"] = output.pop("identifier")
-        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
-        if "organism" in properties:
-            output.setdefault("organism", "Homo sapiens")
-        if "sort_by" in properties:
-            output.setdefault("sort_by", "resolution")
-    elif tool_name == "retrieve_protein_structure_by_uniprot_id":
-        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
-        if "sort_by" in properties:
-            output.setdefault("sort_by", "resolution")
     elif tool_name == "retrieve_protein_structure_by_pdb_id":
         output.pop("sort_by", None)
     elif tool_name == "server_file_to_base64":
@@ -223,9 +218,23 @@ def _adapt_call(
         tool_migrated = True
     schema = catalog[bare].get("input_schema") or catalog[bare].get("inputSchema") or {}
     normalized = _normalize_current_arguments(bare, arguments, schema)
+    discarded_compatibility_fields = set(arguments) - set(normalized)
     migrated = migrated or normalized != arguments
     arguments = normalized
-    errors = sorted(Draft7Validator(schema).iter_errors(arguments), key=lambda item: list(item.path))
+    # Historical trajectories must retain the arguments the teacher actually
+    # emitted. Defaults belong to the live MCP server/schema, not this data
+    # migration. Old captured catalogs marked several now-defaulted parameters
+    # as required, so absence alone is not a reason to synthesize a value or
+    # reject an otherwise faithful recorded call. Type/additional-property and
+    # other schema violations remain hard failures.
+    errors = sorted(
+        (
+            error
+            for error in Draft7Validator(schema).iter_errors(arguments)
+            if error.validator != "required" or discarded_compatibility_fields
+        ),
+        key=lambda item: list(item.path),
+    )
     if errors:
         if allow_invalid_failed_call and not tool_migrated:
             # A failed call followed by its recorded error observation is useful
@@ -280,6 +289,10 @@ def _rewrite_message(
 ) -> tuple[str, list[dict[str, Any]]]:
     changes: list[dict[str, Any]] = []
     call_index = 0
+
+    if role == "system" and "supported local file/skill calls" in content:
+        content = content.replace("supported local file/skill calls", "supported local file calls")
+        changes.append({"kind": "system_prompt", "removed_capability": "Skill"})
 
     def call_replace(match: re.Match[str]) -> str:
         nonlocal call_index
@@ -408,7 +421,7 @@ def migrate_records(input_path: Path, catalog_path: Path, output_root: Path) -> 
     write_jsonl(rejected_path, rejected)
     write_jsonl(audit_path, audit)
     report = {
-        "schema_version": "drug_agent_live_tool_migration_v1",
+        "schema_version": "drug_agent_live_tool_migration_v2",
         "input": str(input_path), "tool_catalog": str(catalog_path), "output": str(output),
         "input_count": len(accepted) + len(rejected), "accepted_count": len(accepted),
         "rejected_count": len(rejected), "counts": dict(counts),

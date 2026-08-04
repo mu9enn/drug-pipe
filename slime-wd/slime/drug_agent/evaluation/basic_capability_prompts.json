@@ -12,6 +12,6 @@
   {
     "id": "smoke_l1_local_files",
     "task_type": "e2e",
-    "prompt": "Test the supported local tool environment. Use Skill to read the L1 skill molclaw-smiles-valid-check. Then use Write to create run_log.md in the task workspace with a one-line note that the named skill was loaded, and use Read to read run_log.md back. Return an e2e final_answer reporting the verified local log artifact and evidence from the Skill, Write, and Read observations."
+    "prompt": "Test the supported local tool environment. Use Read to inspect skills/L1_tools/molclaw-smiles-valid-check/SKILL.md. Then use Write to create run_log.md in the task workspace with a one-line note that the L1 document was loaded, and use Read to read run_log.md back. Return an e2e final_answer reporting the verified local log artifact and evidence from the Read, Write, and Read observations."
   }
 ]

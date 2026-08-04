@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Drug-Pipe Trajectories"
+  short_description: "Run, resume, monitor, and audit Drug-Pipe trajectories"
+  default_prompt: "Use $manage-drug-pipe-trajectories to inspect the current pipeline, resume safe work, monitor it, and strictly audit raw and cleaned trajectories."

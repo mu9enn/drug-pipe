@@ -134,6 +134,14 @@ class ServerGroup:
                     "SLIME_ENABLE_PROFILING": "true",
                 }.items()
             }
+            # SGLang enters a TorchMemorySaver region while loading weights
+            # even when runtime rollout offload is disabled.  That adapter is
+            # incompatible with PyTorch expandable allocator segments.  Keep
+            # the global allocator setting for the Megatron actors (where it
+            # prevents long-GDN fragmentation OOMs), but explicitly isolate
+            # every local SGLang Ray actor from it.
+            env_vars["PYTORCH_CUDA_ALLOC_CONF"] = ""
+            env_vars["PYTORCH_ALLOC_CONF"] = ""
             rollout_engine = RolloutRayActor.options(
                 num_cpus=num_cpus,
                 num_gpus=num_gpus,

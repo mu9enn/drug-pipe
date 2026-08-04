@@ -1,0 +1,14 @@
+--- a/python/sglang/srt/models/qwen3_5.py
++++ b/python/sglang/srt/models/qwen3_5.py
+@@ -1766,7 +1766,10 @@
+         for name, loaded_weight in weights:
+             # Fail at the exact online-refit tensor rather than allowing an
+             # invalid FP8 value/scale to surface later as NaN sampling logits.
+-            if torch.is_floating_point(loaded_weight):
++            # torch.isfinite has no CUDA kernel for float8.  Avoid converting
++            # full FP8 matrices to FP32 here (that would create a large load
++            # spike); every block scale remains FP32 and is checked below.
++            if torch.is_floating_point(loaded_weight) and loaded_weight.element_size() > 1:
+                 if not torch.isfinite(loaded_weight).all().item():
+                     raise FloatingPointError(
+                         f"non-finite online weight {name!r}, dtype={loaded_weight.dtype}, "

@@ -1,0 +1,24 @@
+diff --git a/python/sglang/srt/models/qwen3_5.py b/python/sglang/srt/models/qwen3_5.py
+--- a/python/sglang/srt/models/qwen3_5.py
++++ b/python/sglang/srt/models/qwen3_5.py
+@@ -14,6 +14,7 @@
+ """Inference-only Qwen3.5 model and Qwen3.5 MoE model compatible with HuggingFace weights."""
+ 
+ import logging
++import os
+ from functools import lru_cache
+ from typing import Iterable, Optional, Set, Tuple, Union
+ 
+@@ -1770,7 +1771,11 @@
+             # torch.isfinite has no CUDA kernel for float8.  Avoid converting
+             # full FP8 matrices to FP32 here (that would create a large load
+             # spike); every block scale remains FP32 and is checked below.
+-            if torch.is_floating_point(loaded_weight) and loaded_weight.element_size() > 1:
++            if (
++                os.environ.get("SGLANG_VALIDATE_QWEN35_LOAD_WEIGHTS") == "1"
++                and torch.is_floating_point(loaded_weight)
++                and loaded_weight.element_size() > 1
++            ):
+                 if not torch.isfinite(loaded_weight).all().item():
+                     raise FloatingPointError(
+                         f"non-finite online weight {name!r}, dtype={loaded_weight.dtype}, "

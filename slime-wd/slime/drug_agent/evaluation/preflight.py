@@ -9,6 +9,7 @@ from pathlib import Path
 
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT
 from drug_agent.evaluation.molbench_adapter import build_molbench_dataset
+from drug_agent.evaluation.official_eval import _require_pytdc, _require_rdkit
 from drug_agent.evaluation.prompt_adapter import build_prompt_suite_dataset, build_single_prompt_dataset
 from drug_agent.tools.runtime_env import (
     load_molclaw_environment,
@@ -97,6 +98,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Prepare a strict live MolClaw evaluation run")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--molbench-root")
+    parser.add_argument("--molbench-suite", action="append", default=[])
+    parser.add_argument("--molbench-limit-per-suite", type=int, default=0)
     parser.add_argument("--prompt-file")
     parser.add_argument("--prompt-suite-file")
     parser.add_argument("--task-type", default="e2e")
@@ -157,7 +160,15 @@ def main() -> int:
         input_counts = {"manual_prompt": input_manifest["sample_count"]}
     else:
         evaluation_mode = "molbench"
-        input_manifest = build_molbench_dataset(args.molbench_root, run_dir)
+        _require_rdkit()
+        if not args.molbench_suite or "molbench_mo" in args.molbench_suite:
+            _require_pytdc()
+        input_manifest = build_molbench_dataset(
+            args.molbench_root,
+            run_dir,
+            selected_suites=args.molbench_suite,
+            limit_per_suite=args.molbench_limit_per_suite,
+        )
         input_manifest_path = run_dir / "benchmark_manifest.json"
         input_counts = input_manifest["counts"]
     if not DRUG_AGENT_L1_SKILLS_ROOT.is_dir():
@@ -207,6 +218,8 @@ def main() -> int:
             "tensor_model_parallel_size": args.tensor_model_parallel_size,
             "pipeline_model_parallel_size": args.pipeline_model_parallel_size,
             "protocol": "canonical_react_xml",
+            "molbench_suites": args.molbench_suite,
+            "molbench_limit_per_suite": args.molbench_limit_per_suite,
         },
         "mcp_environment": redacted_environment_summary(),
     }

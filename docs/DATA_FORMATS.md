@@ -182,7 +182,7 @@ Canonical artifact token 仅允许 `<artifact:[A-Za-z0-9._/-]+>`。Observation c
 Python 结构化时替换为中性 unavailable-path 文本。
 
 默认 canonical ReAct 保留 MolClaw 与受支持的本地工具
-`Read/Write/Edit/Bash/Grep/Glob/Skill`；其中 `Skill` 只允许 L1 tool-level skill，Bash
+`Read/Write/Edit/Bash/Grep/Glob`；其中 `Read/Grep/Glob` 可只读访问 L1 tool-level skill，Bash
 受任务 workspace 限制。Teacher runtime sidecar（如 `question.json`、`run_meta.json`、
 `complete_session.jsonl`、`CLAUDE.md`）和非 L1 skills catalog 访问会成对移除，避免
 benchmark label 与层级脚手架通过 observation 回流。显式 `--only-molclaw-tool` 会成对

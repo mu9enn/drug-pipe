@@ -45,8 +45,8 @@ DEBUG_FORMAT_REMINDER = (
     "Do not mix tool calls and final answer in one generation."
 )
 DEBUG_LOCAL_TOOL_REMINDER = (
-    "\nAvailable local tools: Read, Write, Edit, Bash, Grep, Glob, and Skill. "
-    "They are confined to this debug task workspace; Skill exposes read-only L1 tools only."
+    "\nAvailable local tools: Read, Write, Edit, Bash, Grep, and Glob. "
+    "They are confined to this debug task workspace; Read, Grep, and Glob may inspect read-only L1 skill documents."
 )
 
 

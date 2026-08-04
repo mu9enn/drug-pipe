@@ -158,6 +158,111 @@ def compute_log_probs(logits: torch.Tensor, tokens: torch.Tensor, process_group:
     return -fused_vocab_parallel_cross_entropy(logits, tokens, process_group)
 
 
+class _RecomputedVocabParallelLogProbs(torch.autograd.Function):
+    """Vocab-parallel token log-probs without retaining a logits-sized clone.
+
+    Megatron's fused cross entropy overwrites its input with softmax and saves
+    that tensor for backward.  Callers therefore normally clone every logits
+    chunk first.  All of those clones remain live until backward, so chunking
+    bounds one allocation but not the total retained memory.  This function
+    leaves the model output untouched, saves only its reference plus per-token
+    normalization statistics, and reconstructs softmax during backward.
+    """
+
+    @staticmethod
+    def forward(ctx, logits: torch.Tensor, tokens: torch.Tensor, process_group, chunk_size: int):
+        world_size = dist.get_world_size(process_group) if dist.is_initialized() else 1
+        rank = dist.get_rank(process_group) if dist.is_initialized() else 0
+        partition_vocab_size = logits.size(-1)
+        vocab_start = rank * partition_vocab_size
+        vocab_end = vocab_start + partition_vocab_size
+
+        effective_chunk_size = chunk_size if chunk_size > 0 else logits.size(0)
+        log_probs = []
+        logits_max_parts = []
+        sum_exp_parts = []
+        for start in range(0, logits.size(0), effective_chunk_size):
+            end = min(start + effective_chunk_size, logits.size(0))
+            logits_chunk = logits[start:end]
+            tokens_chunk = tokens[start:end]
+
+            # Float16Module can now leave the full LM-head output in model
+            # precision. Use one independent FP32 workspace per token tile so
+            # max/exp/sum retain the same numerical behavior without a
+            # sequence-by-vocabulary-sized FP32 output allocation.
+            workspace = logits_chunk.to(dtype=torch.float32, copy=True)
+
+            logits_max = workspace.max(dim=-1).values
+            if world_size > 1:
+                dist.all_reduce(logits_max, op=dist.ReduceOp.MAX, group=process_group)
+
+            target_mask = (tokens_chunk < vocab_start) | (tokens_chunk >= vocab_end)
+            local_tokens = (tokens_chunk - vocab_start).masked_fill(target_mask, 0)
+            predicted_logits = workspace.gather(-1, local_tokens.unsqueeze(-1)).squeeze(-1)
+            predicted_logits.masked_fill_(target_mask, 0.0)
+
+            exp_logits = workspace.sub_(logits_max.unsqueeze(-1))
+            exp_logits.exp_()
+            sum_exp_logits = exp_logits.sum(dim=-1)
+            if world_size > 1:
+                # Match the fused implementation's single collective for the
+                # two SUM reductions instead of launching one per tensor.
+                reduced = torch.cat((predicted_logits, sum_exp_logits), dim=0)
+                dist.all_reduce(reduced, op=dist.ReduceOp.SUM, group=process_group)
+                predicted_logits, sum_exp_logits = reduced.chunk(2, dim=0)
+
+            log_probs.append(predicted_logits - logits_max - sum_exp_logits.log())
+            logits_max_parts.append(logits_max)
+            sum_exp_parts.append(sum_exp_logits)
+
+        logits_max = torch.cat(logits_max_parts, dim=0)
+        sum_exp_logits = torch.cat(sum_exp_parts, dim=0)
+
+        ctx.save_for_backward(logits, tokens, logits_max, sum_exp_logits)
+        ctx.vocab_start = vocab_start
+        ctx.vocab_end = vocab_end
+        ctx.chunk_size = effective_chunk_size
+        return torch.cat(log_probs, dim=0)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        logits, tokens, logits_max, sum_exp_logits = ctx.saved_tensors
+
+        # This custom Function is the sole consumer of the model logits. Reuse
+        # that storage for the returned model-precision gradient, while doing
+        # softmax math in one bounded FP32 workspace at a time.
+        grad_input = logits
+        for start in range(0, logits.size(0), ctx.chunk_size):
+            end = min(start + ctx.chunk_size, logits.size(0))
+            workspace = logits[start:end].to(dtype=torch.float32, copy=True)
+            workspace.sub_(logits_max[start:end].unsqueeze(-1))
+            workspace.exp_()
+            workspace.div_(sum_exp_logits[start:end].unsqueeze(-1))
+            workspace.neg_()
+            workspace.mul_(grad_output[start:end].float().unsqueeze(-1))
+
+            tokens_chunk = tokens[start:end]
+            target_mask = (tokens_chunk < ctx.vocab_start) | (tokens_chunk >= ctx.vocab_end)
+            local_tokens = (tokens_chunk - ctx.vocab_start).masked_fill(target_mask, 0)
+            grad_2d = workspace.view(-1, workspace.size(-1))
+            row = torch.arange(grad_2d.size(0), device=workspace.device)
+            update = grad_output[start:end].float().masked_fill(target_mask, 0.0).reshape(-1)
+            grad_2d[row, local_tokens.reshape(-1)] += update
+            grad_input[start:end].copy_(workspace)
+        return grad_input, None, None, None
+
+
+def compute_log_probs_recomputed(
+    logits: torch.Tensor,
+    tokens: torch.Tensor,
+    process_group: dist.ProcessGroup | None,
+    chunk_size: int = -1,
+):
+    logits = logits.unsqueeze(1)
+    tokens = tokens.unsqueeze(1)
+    return _RecomputedVocabParallelLogProbs.apply(logits, tokens, process_group, chunk_size)
+
+
 # from https://github.com/volcengine/verl/blob/0bdf7f469854815177e73dcfe9e420836c952e6e/verl/utils/megatron/tensor_parallel.py#L99
 class _VocabParallelEntropy(torch.autograd.Function):
 
@@ -646,9 +751,23 @@ def chunked_gae(
     return advantages, returns
 
 
-def calculate_log_probs_and_entropy(logits, tokens, tp_group, with_entropy: bool = False, chunk_size: int = -1):
+def calculate_log_probs_and_entropy(
+    logits,
+    tokens,
+    tp_group,
+    with_entropy: bool = False,
+    chunk_size: int = -1,
+    recompute_log_probs: bool = False,
+):
     logits = logits.contiguous()
     entropy = None
+    if recompute_log_probs and logits.size(0) != 0:
+        if with_entropy:
+            raise ValueError("recompute_log_probs does not support entropy retention")
+        # Chunk inside one custom autograd node. Forward releases each
+        # temporary softmax immediately; backward reuses the full logits
+        # storage without allocating a second tensor or creating sibling views.
+        return compute_log_probs_recomputed(logits, tokens, tp_group, chunk_size), None
     if logits.size(0) != 0:
         if chunk_size > 0:
             num_chunks = (logits.size(0) - 1) // chunk_size + 1
