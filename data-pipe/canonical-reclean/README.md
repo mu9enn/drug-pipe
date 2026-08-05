@@ -44,6 +44,12 @@ RESUME=/path/to/run bash data-pipe/canonical-reclean/run.sh
 
 Records that still fail after all attempts are preserved in
 `unresolved.jsonl`; they are not silently copied into the train-ready output.
+Global provider failures such as HTTP 401/403 or exhausted quota stop the whole
+run immediately and write `fatal_error.json`; they are not converted into
+hundreds of per-record unresolved results.
+After restoring quota for the same provider, resume the existing run. If a
+different provider is selected, start a new run so one dataset release never
+mixes providers.
 
 ## Tests
 

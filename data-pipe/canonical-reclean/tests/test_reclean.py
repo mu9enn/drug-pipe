@@ -135,6 +135,19 @@ time.sleep(5)
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def quota_failed_claude(path: Path) -> None:
+    path.write_text(
+        """#!/usr/bin/env python3
+import json, sys
+print(json.dumps({'type':'result','subtype':'success','is_error':True,'api_error_status':403,
+ 'result':'Failed to authenticate. API Error: 403 quota exceeded'}))
+sys.exit(1)
+""",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
 class CoreTests(unittest.TestCase):
     def test_repeat_quality_gate_and_safe_rewrite(self):
         source = record_with_thought(("repeat block " * 40 + "\n\n") * 4)
@@ -349,6 +362,26 @@ class FakeClaudeTests(unittest.TestCase):
             raw = root / "work/attempts/attempt_0001/complete_session.jsonl"
             self.assertTrue(raw.is_file())
             self.assertNotIn(b"runner", raw.read_bytes())
+
+    def test_quota_failure_is_global_fatal_after_raw_capture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake = root / "quota-claude"
+            quota_failed_claude(fake)
+            with self.assertRaises(reclean.FatalProviderError) as raised:
+                reclean.invoke_claude(
+                    workdir=root / "work",
+                    request={"schema_version": "x"},
+                    output_name="review.json",
+                    prompt_name="review.md",
+                    claude_bin=str(fake),
+                    timeout_sec=1.0,
+                    provider=reclean.provider_snapshot(),
+                )
+            self.assertEqual(
+                raised.exception.metadata["fatal_provider_error"]["api_error_status"], 403
+            )
+            self.assertTrue((root / "work/attempts/attempt_0001/complete_session.jsonl").is_file())
 
 
 if __name__ == "__main__":

@@ -57,6 +57,12 @@ class Tokenizer(Protocol):
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]: ...
 
 
+class FatalProviderError(RuntimeError):
+    def __init__(self, message: str, metadata: dict[str, Any]):
+        super().__init__(message)
+        self.metadata = metadata
+
+
 @dataclass(frozen=True)
 class Coordinate:
     message_index: int
@@ -419,6 +425,39 @@ def command_for(prompt_path: Path, claude_bin: str) -> list[str]:
     ]
 
 
+def inspect_provider_terminal_failure(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    fatal_statuses = {401, 403}
+    fatal_markers = (
+        "failed to authenticate",
+        "authentication_failed",
+        "insufficient quota",
+        "quota exceeded",
+        "额度不足",
+    )
+    detected: dict[str, Any] | None = None
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        status = event.get("api_error_status")
+        serialized = stable_json(event).casefold()
+        if status in fatal_statuses or any(marker in serialized for marker in fatal_markers):
+            detected = {
+                "reason": "fatal_provider_auth_or_quota_error",
+                "api_error_status": status,
+                "event_type": event.get("type"),
+                "event_subtype": event.get("subtype"),
+            }
+            if status in fatal_statuses:
+                return detected
+    return detected
+
+
 def invoke_claude(
     *,
     workdir: Path,
@@ -449,6 +488,11 @@ def invoke_claude(
         "provider_fingerprint": provider.get("fingerprint"),
         "output_file": str(output_path),
     }
+    fatal = inspect_provider_terminal_failure(Path(str(attempt["session_file"])))
+    if fatal:
+        metadata["failure"] = fatal["reason"]
+        metadata["fatal_provider_error"] = fatal
+        raise FatalProviderError(fatal["reason"], metadata)
     if attempt.get("timed_out"):
         metadata["failure"] = "claude_timeout"
         return None, metadata
@@ -947,9 +991,14 @@ class RecleanRunner:
                 executor.submit(self.process_record, record, position): position
                 for position, record in enumerate(records)
             }
-            for future in as_completed(futures):
-                position = futures[future]
-                ordered[position] = future.result()
+            try:
+                for future in as_completed(futures):
+                    position = futures[future]
+                    ordered[position] = future.result()
+            except FatalProviderError:
+                for future in futures:
+                    future.cancel()
+                raise
         return [item for item in ordered if item is not None]
 
 
@@ -1099,7 +1148,23 @@ def main() -> int:
     tokenizer = load_tokenizer(args.tokenizer)
     runner = RecleanRunner(args, tokenizer, provider)
     before = aggregate_stats(selected, tokenizer)
-    results = runner.run(selected)
+    try:
+        results = runner.run(selected)
+    except FatalProviderError as exc:
+        failure = {
+            "schema_version": "canonical_reclean_fatal_error_v1",
+            "failed_at": utc_now(),
+            "reason": str(exc),
+            "provider": provider,
+            "invocation": exc.metadata,
+            "action": (
+                "Restore quota for the recorded provider and resume this run. "
+                "If selecting another cc-switch provider, start a new run so providers are not mixed."
+            ),
+        }
+        write_json(args.run_root / "fatal_error.json", failure)
+        print(json.dumps(failure, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 3
     ready_results = sorted((item for item in results if item["status"] == "ready"), key=lambda item: item["position"])
     unresolved_results = sorted((item for item in results if item["status"] != "ready"), key=lambda item: item["position"])
     ready_records = [item["record"] for item in ready_results]
