@@ -29,15 +29,24 @@ class MCPToolExecutor:
         self.list_tools_timeout = self._resolve_timeout(list_tools_timeout, "MOLCLAW_LIST_TOOLS_TIMEOUT_SEC")
         self.execute_timeout = self._resolve_timeout(execute_timeout, "MOLCLAW_TOOL_TIMEOUT_SEC")
         self.heartbeat_sec = self._resolve_timeout(None, "MOLCLAW_TOOL_HEARTBEAT_SEC")
+        self.timeout_cleanup_grace_sec = self._resolve_timeout(
+            None,
+            "MOLCLAW_TIMEOUT_CLEANUP_GRACE_SEC",
+        ) or 10.0
 
         self._client = MCPClient(initialize_timeout=initialize_timeout)
         self._closed = False
         self._loop = asyncio.new_event_loop()
         self._ready = threading.Event()
+        self._stopped = threading.Event()
         self._command_queue: asyncio.Queue | None = None
         self._thread = threading.Thread(target=self._run_loop, name="drug-agent-mcp-loop", daemon=True)
         self._thread.start()
         if not self._ready.wait(timeout=2.0):
+            try:
+                self.close()
+            except BaseException:
+                pass
             raise RuntimeError("MCP owner loop did not start")
         self.unknown_semantic_as_failure = self._resolve_bool_env(
             "DRUG_AGENT_UNKNOWN_SEMANTIC_AS_FAILURE",
@@ -45,14 +54,42 @@ class MCPToolExecutor:
         )
 
         if connect_on_init:
-            self._request("connect", timeout=self._timeout_for("connect"), label="connect")
+            try:
+                self._request("connect", timeout=self._timeout_for("connect"), label="connect")
+            except BaseException:
+                # A constructor that raises would otherwise leave its owner
+                # thread and selector descriptors unreachable by the caller.
+                try:
+                    self.close()
+                except BaseException:
+                    pass
+                raise
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
         self._command_queue = asyncio.Queue()
         self._loop.create_task(self._client_owner())
         self._ready.set()
-        self._loop.run_forever()
+        try:
+            self._loop.run_forever()
+        finally:
+            # This loop belongs exclusively to one MCPToolExecutor.  Stopping
+            # run_forever is not enough: uvloop/asyncio keeps selector pipes
+            # and transport descriptors until close() is called.  A full
+            # benchmark creates one executor per task, so leaking even a few
+            # descriptors per loop eventually reaches the worker's soft
+            # RLIMIT_NOFILE.
+            try:
+                pending = [task for task in asyncio.all_tasks(self._loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+                self._loop.run_until_complete(self._loop.shutdown_default_executor())
+            finally:
+                self._loop.close()
+                self._stopped.set()
 
     async def _client_owner(self) -> None:
         """Own the MCP SDK contexts for their entire lifetime in one task.
@@ -64,75 +101,148 @@ class MCPToolExecutor:
         """
         assert self._command_queue is not None
         while True:
-            operation, arguments, response = await self._command_queue.get()
+            operation, arguments, response, operation_timeout, label = await self._command_queue.get()
             try:
-                if operation == "connect":
-                    result = await self._client.connect()
-                elif operation == "list_tools":
-                    result = await self._client.list_tools()
-                elif operation == "call_tool":
-                    result = await self._client.call_tool(arguments[0], arguments[1])
-                elif operation == "reconnect":
-                    if self._client.connected:
-                        await self._client.disconnect()
-                    result = await self._client.connect()
-                elif operation == "disconnect":
-                    result = await self._client.disconnect() if self._client.connected else None
-                elif operation == "close":
-                    result = await self._client.disconnect() if self._client.connected else None
-                    if not response.done():
-                        response.set_result(result)
-                    return
-                else:
-                    raise RuntimeError(f"Unknown MCP owner operation: {operation}")
+                result = await self._run_owner_operation(
+                    operation,
+                    arguments,
+                    timeout=operation_timeout,
+                    label=label,
+                )
             except BaseException as exc:
                 if not response.done():
                     response.set_exception(exc)
             else:
                 if not response.done():
                     response.set_result(result)
+            if operation == "close":
+                return
 
-    async def _enqueue_command(self, operation: str, arguments: tuple[Any, ...]) -> Any:
+    async def _run_owner_operation(
+        self,
+        operation: str,
+        arguments: tuple[Any, ...],
+        *,
+        timeout: float | None,
+        label: str,
+    ) -> Any:
+        """Run and, when needed, cancel one MCP operation in its owner task.
+
+        The MCP SDK's AnyIO cancel scopes are task-affine.  Cancelling only the
+        caller-side Future leaves the real HTTP operation alive and later
+        forces its context to close from a different task.  A timer therefore
+        cancels this owner task while it is inside the operation; the owner
+        catches that cancellation and continues serving the queue.
+        """
+
+        owner_task = asyncio.current_task()
+        timed_out = False
+
+        def cancel_owner_operation() -> None:
+            nonlocal timed_out
+            timed_out = True
+            if owner_task is not None:
+                owner_task.cancel()
+
+        timer = self._loop.call_later(timeout, cancel_owner_operation) if timeout is not None else None
+        try:
+            if operation == "connect":
+                return await self._client.connect()
+            if operation == "list_tools":
+                return await self._client.list_tools()
+            if operation == "call_tool":
+                return await self._client.call_tool(arguments[0], arguments[1])
+            if operation == "reconnect":
+                if self._client.connected:
+                    await self._client.disconnect()
+                return await self._client.connect()
+            if operation in {"disconnect", "close"}:
+                return await self._client.disconnect() if self._client.connected else None
+            raise RuntimeError(f"Unknown MCP owner operation: {operation}")
+        except asyncio.CancelledError as exc:
+            if timed_out:
+                raise TimeoutError(f"MCP {label} timeout after {timeout}s") from exc
+            raise
+        finally:
+            if timer is not None:
+                timer.cancel()
+
+    async def _enqueue_command(
+        self,
+        operation: str,
+        arguments: tuple[Any, ...],
+        operation_timeout: float | None,
+        label: str,
+    ) -> Any:
         if self._command_queue is None:
             raise RuntimeError("MCP owner queue is unavailable")
         response = self._loop.create_future()
-        await self._command_queue.put((operation, arguments, response))
+        await self._command_queue.put((operation, arguments, response, operation_timeout, label))
         return await response
 
     def _request(self, operation: str, *, timeout: float | None, label: str, arguments: tuple[Any, ...] = ()) -> Any:
         if self._closed:
             raise RuntimeError("MCPToolExecutor is closed")
 
-        future = asyncio.run_coroutine_threadsafe(self._enqueue_command(operation, arguments), self._loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._enqueue_command(operation, arguments, timeout, label),
+            self._loop,
+        )
         start = time.monotonic()
+        watchdog_timeout = timeout + self.timeout_cleanup_grace_sec if timeout is not None else None
 
         while True:
-            wait_timeout = timeout
+            wait_timeout = watchdog_timeout
             if wait_timeout is None and self.heartbeat_sec is not None:
                 wait_timeout = self.heartbeat_sec
-            if timeout is not None and self.heartbeat_sec is not None:
+            if watchdog_timeout is not None:
                 elapsed = time.monotonic() - start
-                remaining = timeout - elapsed
+                remaining = watchdog_timeout - elapsed
                 if remaining <= 0:
                     future.cancel()
-                    raise TimeoutError(f"MCP {label} timeout after {timeout}s")
-                wait_timeout = min(self.heartbeat_sec, remaining)
+                    raise TimeoutError(
+                        f"MCP {label} timeout after {timeout}s "
+                        f"(cleanup grace {self.timeout_cleanup_grace_sec}s exhausted)"
+                    )
+                wait_timeout = min(self.heartbeat_sec, remaining) if self.heartbeat_sec is not None else remaining
 
             try:
                 if wait_timeout is None:
                     return future.result()
                 return future.result(timeout=wait_timeout)
             except concurrent.futures.TimeoutError as exc:
+                # A completed future may itself carry the operation's
+                # TimeoutError.  Do not confuse it with Future.result's wait
+                # timeout and spin until the watchdog expires.
+                if future.done():
+                    raise
                 elapsed = time.monotonic() - start
-                if timeout is not None and elapsed >= timeout:
+                if watchdog_timeout is not None and elapsed >= watchdog_timeout:
                     future.cancel()
-                    raise TimeoutError(f"MCP {label} timeout after {timeout}s") from exc
+                    raise TimeoutError(
+                        f"MCP {label} timeout after {timeout}s "
+                        f"(cleanup grace {self.timeout_cleanup_grace_sec}s exhausted)"
+                    ) from exc
                 if self.heartbeat_sec is not None:
                     print(f"[MCPToolExecutor] waiting {label} elapsed={elapsed:.1f}s", flush=True)
                 continue
 
     def _ensure_connected(self) -> None:
-        self._request("connect", timeout=self._timeout_for("connect"), label="connect")
+        attempts = self._resolve_positive_int_env("MOLCLAW_CONNECT_MAX_ATTEMPTS", default=3)
+        backoff_sec = self._resolve_timeout(None, "MOLCLAW_CONNECT_RETRY_BACKOFF_SEC") or 2.0
+        for attempt in range(1, attempts + 1):
+            try:
+                self._request("connect", timeout=self._timeout_for("connect"), label="connect")
+                return
+            except Exception:
+                if attempt >= attempts:
+                    raise
+                print(
+                    f"[MCPToolExecutor] connect attempt {attempt}/{attempts} failed; "
+                    f"retrying in {backoff_sec:.1f}s",
+                    flush=True,
+                )
+                time.sleep(backoff_sec)
 
     def list_tools(self) -> list[dict[str, Any]]:
         self._ensure_connected()
@@ -163,8 +273,8 @@ class MCPToolExecutor:
                 "metadata": {"tool_success": tool_success},
             }
 
-        self._ensure_connected()
         try:
+            self._ensure_connected()
             raw = self._request(
                 "call_tool",
                 timeout=self._timeout_for("execute"),
@@ -237,13 +347,37 @@ class MCPToolExecutor:
     def close(self) -> None:
         if self._closed:
             return
+        if threading.current_thread() is self._thread:
+            raise RuntimeError("MCPToolExecutor.close() cannot run on its owner thread")
+        close_error: BaseException | None = None
         try:
             self._request("close", timeout=5.0, label="close")
-        except Exception:
-            pass
-        self._closed = True
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=2.0)
+        except BaseException as exc:
+            # Still stop and close the dedicated loop.  Preserve the cleanup
+            # failure so callers do not silently continue with leaked state.
+            close_error = exc
+        finally:
+            self._closed = True
+            if self._loop.is_running():
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=5.0)
+
+        if self._thread.is_alive():
+            raise RuntimeError("MCP owner thread did not stop within 5 seconds") from close_error
+        if not self._stopped.is_set() or not self._loop.is_closed():
+            raise RuntimeError("MCP owner event loop did not close cleanly") from close_error
+        if close_error is not None:
+            # The dedicated loop is closed, so no process resource is leaked.
+            # A transport-level disconnect failure belongs in diagnostics but
+            # must not turn an otherwise complete scientific task into a
+            # task-level failure.
+            print(f"[MCPToolExecutor] close warning: {close_error}", flush=True)
+
+    def __enter__(self) -> "MCPToolExecutor":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
 
     @staticmethod
     def _resolve_timeout(value: float | None, env_key: str) -> float | None:
@@ -277,6 +411,17 @@ class MCPToolExecutor:
         if raw is None:
             return default
         return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _resolve_positive_int_env(env_key: str, default: int) -> int:
+        raw = os.environ.get(env_key)
+        if raw is None:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            return default
+        return value if value > 0 else default
 
     @staticmethod
     def _normalize_tool_list(raw_tools: Any) -> list[dict[str, Any]]:

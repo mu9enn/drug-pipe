@@ -1,0 +1,6 @@
+interface:
+  display_name: "Execute MolClaw Trajectory"
+  short_description: "Run grounded MolClaw scientific workflows"
+  default_prompt: "Use $execute-molclaw-trajectory to complete this drug-discovery task with recorded evidence."
+policy:
+  allow_implicit_invocation: true

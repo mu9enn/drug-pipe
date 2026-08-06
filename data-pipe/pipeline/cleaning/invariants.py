@@ -66,7 +66,7 @@ def _serialize(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _assistant_prose_findings(
+def assistant_prose_findings(
     sample: dict[str, Any],
     *,
     only_molclaw_tool: bool = False,
@@ -271,7 +271,7 @@ def validate_final_record(sample: dict[str, Any]) -> dict[str, Any]:
         "status_conflicts": [],
         "sequence_mismatches": [],
         "out_of_order_observations": [],
-        "prose_findings": _assistant_prose_findings(sample),
+        "prose_findings": assistant_prose_findings(sample),
     }
     parts = protocol_parts(sample)
     report["errors"].extend(parts["malformed"])

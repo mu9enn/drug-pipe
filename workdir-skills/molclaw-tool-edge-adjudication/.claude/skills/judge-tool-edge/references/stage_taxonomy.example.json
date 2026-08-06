@@ -1,0 +1,894 @@
+{
+  "version": "stage_taxonomy_v2",
+  "description": "Scheduling-only taxonomy for directed candidate proposal.",
+  "stages": {
+    "target_identifier_acquisition": {
+      "definition": "Retrieve target identifiers, metadata, or raw sequence records."
+    },
+    "target_structure_acquisition": {
+      "definition": "Retrieve experimentally resolved or database structures."
+    },
+    "protein_sequence_qc_descriptor": {
+      "definition": "Validate or characterize protein sequences before structure prediction/design."
+    },
+    "target_structure_prediction": {
+      "definition": "Predict protein or complex structures from sequence."
+    },
+    "structure_format_conversion": {
+      "definition": "Convert predicted or complex structures into downstream structural file formats."
+    },
+    "structure_chain_extraction": {
+      "definition": "Extract structural chains or chain sequences from structure files."
+    },
+    "structure_rebuild_repair": {
+      "definition": "Repair, rebuild, protonate, or complete protein structures."
+    },
+    "structure_sidechain_completion": {
+      "definition": "Complete or repack side chains from backbone structures."
+    },
+    "receptor_docking_format_preparation": {
+      "definition": "Convert prepared receptor structures into docking-specific receptor formats."
+    },
+    "protein_structure_qc_descriptor": {
+      "definition": "Compute PDB-level geometry, quality, composition, or structural descriptors."
+    },
+    "ligand_identity_acquisition": {
+      "definition": "Retrieve SMILES or compound identity from external chemistry databases."
+    },
+    "ligand_smiles_validation": {
+      "definition": "Validate SMILES strings before generation, property calculation, preparation, or docking."
+    },
+    "ligand_file_preparation_conversion": {
+      "definition": "Convert valid SMILES or molecule lists into downstream molecular file formats."
+    },
+    "ligand_descriptor_property_scoring": {
+      "definition": "Compute molecular descriptors, ADMET, drug-likeness, similarity, fragment, or phenotypic scores."
+    },
+    "ligand_generation_template_acquisition": {
+      "definition": "Retrieve or prepare predefined peptide/template information for generators."
+    },
+    "ligand_de_novo_or_template_generation": {
+      "definition": "Generate new molecules, linkers, R-groups, scaffolds, or peptides from templates/warheads/scaffolds."
+    },
+    "ligand_analog_optimization": {
+      "definition": "Optimize or expand molecules from existing seed molecules."
+    },
+    "binding_site_detection": {
+      "definition": "Detect, rank, or define candidate binding pockets from protein structures."
+    },
+    "pose_generation_docking": {
+      "definition": "Generate protein-ligand, protein-protein, peptide-protein, or complex docking poses."
+    },
+    "docking_pose_pocket_extraction_for_rescoring": {
+      "definition": "Extract pockets or prepare pocket-level inputs from docking results for rescoring."
+    },
+    "affinity_prediction_rescoring_screening": {
+      "definition": "Predict affinity, rescore poses, rank candidates, or perform virtual screening."
+    },
+    "end_to_end_docking_scoring_pipeline": {
+      "definition": "One-click or wrapper pipelines that internally combine several docking/scoring steps."
+    },
+    "static_interaction_analysis_validation": {
+      "definition": "Analyze static protein-ligand, peptide-protein, or protein-protein complexes or docking poses."
+    },
+    "trajectory_interaction_analysis": {
+      "definition": "Analyze interactions from MD trajectories or dynamic complex ensembles."
+    },
+    "simulation_system_preparation": {
+      "definition": "Prepare protein-only or protein-ligand/protein-protein systems for MD or free-energy calculation."
+    },
+    "simulation_or_sampling_execution": {
+      "definition": "Run MD, coarse-grained simulation, conformational sampling, or relaxation workflows."
+    },
+    "simulation_ensemble_extraction": {
+      "definition": "Extract representative structures or frames from simulation/sampling outputs."
+    },
+    "free_energy_calculation": {
+      "definition": "Compute binding free energy using MM/PBSA, MM/GBSA, or related methods."
+    },
+    "free_energy_result_analysis": {
+      "definition": "Analyze and summarize free-energy calculation outputs."
+    },
+    "residue_numbering_mapping": {
+      "definition": "Map residue numbering between UniProt, PDB, predicted structures, and tool-internal schemes."
+    },
+    "protein_backbone_or_complex_generation": {
+      "definition": "Generate protein backbones, complexes, symmetric assemblies, or binder candidates."
+    },
+    "protein_sequence_design": {
+      "definition": "Design or score sequences conditioned on protein structures/backbones."
+    },
+    "protein_design_repair_mutation_evaluation": {
+      "definition": "Repair, mutate, score, or evaluate designed proteins/interfaces."
+    },
+    "file_import_decoding": {
+      "definition": "Decode external/base64 content into server-side files."
+    },
+    "visualization_rendering": {
+      "definition": "Generate protein, molecule, or interaction visualization artifacts."
+    },
+    "file_export_encoding": {
+      "definition": "Encode server-side artifacts for transfer or reporting."
+    }
+  },
+  "display_order": [
+    "target_identifier_acquisition",
+    "target_structure_acquisition",
+    "protein_sequence_qc_descriptor",
+    "target_structure_prediction",
+    "structure_format_conversion",
+    "structure_chain_extraction",
+    "structure_rebuild_repair",
+    "structure_sidechain_completion",
+    "receptor_docking_format_preparation",
+    "protein_structure_qc_descriptor",
+    "ligand_identity_acquisition",
+    "ligand_smiles_validation",
+    "ligand_file_preparation_conversion",
+    "ligand_descriptor_property_scoring",
+    "ligand_generation_template_acquisition",
+    "ligand_de_novo_or_template_generation",
+    "ligand_analog_optimization",
+    "binding_site_detection",
+    "pose_generation_docking",
+    "docking_pose_pocket_extraction_for_rescoring",
+    "affinity_prediction_rescoring_screening",
+    "end_to_end_docking_scoring_pipeline",
+    "static_interaction_analysis_validation",
+    "trajectory_interaction_analysis",
+    "simulation_system_preparation",
+    "simulation_or_sampling_execution",
+    "simulation_ensemble_extraction",
+    "free_energy_calculation",
+    "free_energy_result_analysis",
+    "residue_numbering_mapping",
+    "protein_backbone_or_complex_generation",
+    "protein_sequence_design",
+    "protein_design_repair_mutation_evaluation",
+    "file_import_decoding",
+    "visualization_rendering",
+    "file_export_encoding"
+  ],
+  "tool_stage_map": {
+    "retrieve_protein_sequence": {
+      "primary_stage": "target_identifier_acquisition",
+      "scheduling_stages": [
+        "target_identifier_acquisition"
+      ]
+    },
+    "retrieve_protein_structure_by_pdb_id": {
+      "primary_stage": "target_structure_acquisition",
+      "scheduling_stages": [
+        "target_structure_acquisition"
+      ]
+    },
+    "retrieve_protein_structure_by_uniprot_id": {
+      "primary_stage": "target_structure_acquisition",
+      "scheduling_stages": [
+        "target_structure_acquisition"
+      ]
+    },
+    "retrieve_protein_structure_by_gene_name": {
+      "primary_stage": "target_structure_acquisition",
+      "scheduling_stages": [
+        "target_structure_acquisition"
+      ]
+    },
+    "is_valid_protein_sequence": {
+      "primary_stage": "protein_sequence_qc_descriptor",
+      "scheduling_stages": [
+        "protein_sequence_qc_descriptor"
+      ]
+    },
+    "calculate_protein_sequence_properties": {
+      "primary_stage": "protein_sequence_qc_descriptor",
+      "scheduling_stages": [
+        "protein_sequence_qc_descriptor"
+      ]
+    },
+    "pred_protein_structure_esmfold": {
+      "primary_stage": "target_structure_prediction",
+      "scheduling_stages": [
+        "target_structure_prediction"
+      ]
+    },
+    "chai1_predict": {
+      "primary_stage": "target_structure_prediction",
+      "scheduling_stages": [
+        "target_structure_prediction"
+      ]
+    },
+    "convert_complex_cif_to_pdb": {
+      "primary_stage": "structure_format_conversion",
+      "scheduling_stages": [
+        "structure_format_conversion"
+      ]
+    },
+    "extract_and_save_chains": {
+      "primary_stage": "structure_chain_extraction",
+      "scheduling_stages": [
+        "structure_chain_extraction"
+      ]
+    },
+    "extract_pdb_chains": {
+      "primary_stage": "structure_chain_extraction",
+      "scheduling_stages": [
+        "structure_chain_extraction"
+      ]
+    },
+    "fix_pdb": {
+      "primary_stage": "structure_rebuild_repair",
+      "scheduling_stages": [
+        "structure_rebuild_repair"
+      ]
+    },
+    "pulchura_rebuild": {
+      "primary_stage": "structure_rebuild_repair",
+      "scheduling_stages": [
+        "structure_rebuild_repair"
+      ]
+    },
+    "pack_sidechains": {
+      "primary_stage": "structure_sidechain_completion",
+      "scheduling_stages": [
+        "structure_sidechain_completion"
+      ]
+    },
+    "convert_pdb_to_pdbqt_dock": {
+      "primary_stage": "receptor_docking_format_preparation",
+      "scheduling_stages": [
+        "receptor_docking_format_preparation"
+      ]
+    },
+    "calculate_pdb_basic_info": {
+      "primary_stage": "protein_structure_qc_descriptor",
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
+    },
+    "calculate_pdb_structural_geometry": {
+      "primary_stage": "protein_structure_qc_descriptor",
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
+    },
+    "calculate_pdb_quality_metrics": {
+      "primary_stage": "protein_structure_qc_descriptor",
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
+    },
+    "calculate_pdb_composition_info": {
+      "primary_stage": "protein_structure_qc_descriptor",
+      "scheduling_stages": [
+        "protein_structure_qc_descriptor"
+      ]
+    },
+    "retrieve_smiles_by_compoundname": {
+      "primary_stage": "ligand_identity_acquisition",
+      "scheduling_stages": [
+        "ligand_identity_acquisition"
+      ]
+    },
+    "is_valid_smiles": {
+      "primary_stage": "ligand_smiles_validation",
+      "scheduling_stages": [
+        "ligand_smiles_validation"
+      ]
+    },
+    "convert_smiles_to_format": {
+      "primary_stage": "ligand_file_preparation_conversion",
+      "scheduling_stages": [
+        "ligand_file_preparation_conversion"
+      ]
+    },
+    "pred_mol_admet": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_dleps_score": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_basic_info": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_hydrophobicity": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_hbond": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_structure_complexity": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_topology": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_drug_chemistry": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_charge": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_mol_complexity": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_morgan_fingerprint_similarity": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "calculate_common_fragments": {
+      "primary_stage": "ligand_descriptor_property_scoring",
+      "scheduling_stages": [
+        "ligand_descriptor_property_scoring"
+      ]
+    },
+    "get_pepinvent_info": {
+      "primary_stage": "ligand_generation_template_acquisition",
+      "scheduling_stages": [
+        "ligand_generation_template_acquisition"
+      ]
+    },
+    "reinvent_denovo_sampling": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "linkinvent_linker_sampling_by_warheads": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "linkinvent_linker_sampling_by_warhead_pair_name": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "libinvent_rgroup_sampling_by_scaffold": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "libinvent_rgroup_sampling_by_scaffold_name": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "pepinvent_peptide_sampling_by_template": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "pepinvent_peptide_sampling_by_peptide": {
+      "primary_stage": "ligand_de_novo_or_template_generation",
+      "scheduling_stages": [
+        "ligand_de_novo_or_template_generation"
+      ]
+    },
+    "reinvent_mol2mol_sampling": {
+      "primary_stage": "ligand_analog_optimization",
+      "scheduling_stages": [
+        "ligand_analog_optimization"
+      ]
+    },
+    "pred_pocket_prank": {
+      "primary_stage": "binding_site_detection",
+      "scheduling_stages": [
+        "binding_site_detection"
+      ]
+    },
+    "fpocket_toolkit": {
+      "primary_stage": "binding_site_detection",
+      "scheduling_stages": [
+        "binding_site_detection"
+      ]
+    },
+    "molecule_docking_quickvina_fullprocess": {
+      "primary_stage": "pose_generation_docking",
+      "scheduling_stages": [
+        "pose_generation_docking"
+      ]
+    },
+    "hdock_tool": {
+      "primary_stage": "pose_generation_docking",
+      "scheduling_stages": [
+        "pose_generation_docking"
+      ]
+    },
+    "equiscore_pocket": {
+      "primary_stage": "docking_pose_pocket_extraction_for_rescoring",
+      "scheduling_stages": [
+        "docking_pose_pocket_extraction_for_rescoring"
+      ]
+    },
+    "pred_binding_affinity_boltz2": {
+      "primary_stage": "affinity_prediction_rescoring_screening",
+      "scheduling_stages": [
+        "affinity_prediction_rescoring_screening"
+      ]
+    },
+    "equiscore_screen": {
+      "primary_stage": "affinity_prediction_rescoring_screening",
+      "scheduling_stages": [
+        "affinity_prediction_rescoring_screening"
+      ]
+    },
+    "karmadock_tool": {
+      "primary_stage": "affinity_prediction_rescoring_screening",
+      "scheduling_stages": [
+        "affinity_prediction_rescoring_screening"
+      ]
+    },
+    "equiscore_pipeline": {
+      "primary_stage": "end_to_end_docking_scoring_pipeline",
+      "scheduling_stages": [
+        "end_to_end_docking_scoring_pipeline"
+      ]
+    },
+    "prolif_docking": {
+      "primary_stage": "static_interaction_analysis_validation",
+      "scheduling_stages": [
+        "static_interaction_analysis_validation"
+      ]
+    },
+    "prolif_pdb": {
+      "primary_stage": "static_interaction_analysis_validation",
+      "scheduling_stages": [
+        "static_interaction_analysis_validation"
+      ]
+    },
+    "analyze_protein_ligand_interactions": {
+      "primary_stage": "static_interaction_analysis_validation",
+      "scheduling_stages": [
+        "static_interaction_analysis_validation"
+      ]
+    },
+    "prolif_md": {
+      "primary_stage": "trajectory_interaction_analysis",
+      "scheduling_stages": [
+        "trajectory_interaction_analysis"
+      ]
+    },
+    "prolif_protein_protein": {
+      "primary_stage": "trajectory_interaction_analysis",
+      "scheduling_stages": [
+        "trajectory_interaction_analysis"
+      ]
+    },
+    "prepare_complex": {
+      "primary_stage": "simulation_system_preparation",
+      "scheduling_stages": [
+        "simulation_system_preparation"
+      ]
+    },
+    "prepare_protein_md": {
+      "primary_stage": "simulation_system_preparation",
+      "scheduling_stages": [
+        "simulation_system_preparation"
+      ]
+    },
+    "protein_openmm_md": {
+      "primary_stage": "simulation_or_sampling_execution",
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
+    },
+    "run_bioemu": {
+      "primary_stage": "simulation_or_sampling_execution",
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
+    },
+    "openawsem_sim": {
+      "primary_stage": "simulation_or_sampling_execution",
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
+    },
+    "goca_pipeline": {
+      "primary_stage": "simulation_or_sampling_execution",
+      "scheduling_stages": [
+        "simulation_or_sampling_execution"
+      ]
+    },
+    "openmm_extract_frames": {
+      "primary_stage": "simulation_ensemble_extraction",
+      "scheduling_stages": [
+        "simulation_ensemble_extraction"
+      ]
+    },
+    "extract_bioemu_structures": {
+      "primary_stage": "simulation_ensemble_extraction",
+      "scheduling_stages": [
+        "simulation_ensemble_extraction"
+      ]
+    },
+    "openawsem_traj_extract": {
+      "primary_stage": "simulation_ensemble_extraction",
+      "scheduling_stages": [
+        "simulation_ensemble_extraction"
+      ]
+    },
+    "run_mmpbsa": {
+      "primary_stage": "free_energy_calculation",
+      "scheduling_stages": [
+        "free_energy_calculation"
+      ]
+    },
+    "gmx_mmpbsa_propro": {
+      "primary_stage": "free_energy_calculation",
+      "scheduling_stages": [
+        "free_energy_calculation"
+      ]
+    },
+    "analyze_mmpbsa": {
+      "primary_stage": "free_energy_result_analysis",
+      "scheduling_stages": [
+        "free_energy_result_analysis"
+      ]
+    },
+    "residue_mapper": {
+      "primary_stage": "residue_numbering_mapping",
+      "scheduling_stages": [
+        "residue_numbering_mapping"
+      ]
+    },
+    "chroma_monomer": {
+      "primary_stage": "protein_backbone_or_complex_generation",
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
+    },
+    "chroma_complex": {
+      "primary_stage": "protein_backbone_or_complex_generation",
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
+    },
+    "chroma_symmetry": {
+      "primary_stage": "protein_backbone_or_complex_generation",
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
+    },
+    "evobind_tool": {
+      "primary_stage": "protein_backbone_or_complex_generation",
+      "scheduling_stages": [
+        "protein_backbone_or_complex_generation"
+      ]
+    },
+    "proteinmpnn_tool": {
+      "primary_stage": "protein_sequence_design",
+      "scheduling_stages": [
+        "protein_sequence_design"
+      ]
+    },
+    "foldx_tool": {
+      "primary_stage": "protein_design_repair_mutation_evaluation",
+      "scheduling_stages": [
+        "protein_design_repair_mutation_evaluation"
+      ]
+    },
+    "base64_to_server_file": {
+      "primary_stage": "file_import_decoding",
+      "scheduling_stages": [
+        "file_import_decoding"
+      ]
+    },
+    "visualize_protein": {
+      "primary_stage": "visualization_rendering",
+      "scheduling_stages": [
+        "visualization_rendering"
+      ]
+    },
+    "visualize_molecule": {
+      "primary_stage": "visualization_rendering",
+      "scheduling_stages": [
+        "visualization_rendering"
+      ]
+    },
+    "interaction_visualizer": {
+      "primary_stage": "visualization_rendering",
+      "scheduling_stages": [
+        "visualization_rendering"
+      ]
+    },
+    "server_file_to_base64": {
+      "primary_stage": "file_export_encoding",
+      "scheduling_stages": [
+        "file_export_encoding"
+      ]
+    }
+  },
+  "allowed_transitions": {
+    "target_identifier_acquisition": [
+      "protein_sequence_qc_descriptor",
+      "target_structure_prediction",
+      "protein_backbone_or_complex_generation"
+    ],
+    "target_structure_acquisition": [
+      "structure_format_conversion",
+      "structure_chain_extraction",
+      "structure_rebuild_repair",
+      "protein_structure_qc_descriptor",
+      "binding_site_detection",
+      "static_interaction_analysis_validation",
+      "visualization_rendering"
+    ],
+    "protein_sequence_qc_descriptor": [
+      "target_structure_prediction",
+      "protein_backbone_or_complex_generation"
+    ],
+    "target_structure_prediction": [
+      "structure_format_conversion",
+      "structure_chain_extraction",
+      "structure_rebuild_repair",
+      "protein_structure_qc_descriptor",
+      "binding_site_detection",
+      "pose_generation_docking",
+      "static_interaction_analysis_validation",
+      "protein_sequence_design",
+      "visualization_rendering"
+    ],
+    "structure_format_conversion": [
+      "structure_chain_extraction",
+      "structure_rebuild_repair",
+      "protein_structure_qc_descriptor",
+      "static_interaction_analysis_validation",
+      "visualization_rendering"
+    ],
+    "structure_chain_extraction": [
+      "structure_rebuild_repair",
+      "structure_sidechain_completion",
+      "protein_sequence_qc_descriptor",
+      "protein_sequence_design",
+      "protein_structure_qc_descriptor",
+      "binding_site_detection",
+      "visualization_rendering"
+    ],
+    "structure_rebuild_repair": [
+      "structure_sidechain_completion",
+      "receptor_docking_format_preparation",
+      "protein_structure_qc_descriptor",
+      "binding_site_detection",
+      "pose_generation_docking",
+      "simulation_system_preparation",
+      "protein_sequence_design",
+      "protein_design_repair_mutation_evaluation",
+      "visualization_rendering"
+    ],
+    "structure_sidechain_completion": [
+      "structure_rebuild_repair",
+      "receptor_docking_format_preparation",
+      "protein_structure_qc_descriptor",
+      "binding_site_detection",
+      "pose_generation_docking",
+      "simulation_system_preparation",
+      "visualization_rendering"
+    ],
+    "receptor_docking_format_preparation": [
+      "pose_generation_docking"
+    ],
+    "protein_structure_qc_descriptor": [
+      "binding_site_detection",
+      "pose_generation_docking",
+      "simulation_system_preparation",
+      "protein_design_repair_mutation_evaluation"
+    ],
+    "ligand_identity_acquisition": [
+      "ligand_smiles_validation",
+      "ligand_descriptor_property_scoring",
+      "ligand_file_preparation_conversion",
+      "ligand_analog_optimization"
+    ],
+    "ligand_smiles_validation": [
+      "ligand_file_preparation_conversion",
+      "ligand_descriptor_property_scoring",
+      "ligand_de_novo_or_template_generation",
+      "ligand_analog_optimization",
+      "pose_generation_docking",
+      "affinity_prediction_rescoring_screening"
+    ],
+    "ligand_file_preparation_conversion": [
+      "pose_generation_docking",
+      "affinity_prediction_rescoring_screening",
+      "visualization_rendering"
+    ],
+    "ligand_descriptor_property_scoring": [
+      "ligand_analog_optimization",
+      "affinity_prediction_rescoring_screening",
+      "visualization_rendering"
+    ],
+    "ligand_generation_template_acquisition": [
+      "ligand_de_novo_or_template_generation"
+    ],
+    "ligand_de_novo_or_template_generation": [
+      "ligand_smiles_validation",
+      "ligand_descriptor_property_scoring",
+      "ligand_file_preparation_conversion",
+      "ligand_analog_optimization",
+      "pose_generation_docking",
+      "affinity_prediction_rescoring_screening",
+      "visualization_rendering"
+    ],
+    "ligand_analog_optimization": [
+      "ligand_smiles_validation",
+      "ligand_descriptor_property_scoring",
+      "ligand_file_preparation_conversion",
+      "pose_generation_docking",
+      "affinity_prediction_rescoring_screening",
+      "visualization_rendering"
+    ],
+    "binding_site_detection": [
+      "pose_generation_docking",
+      "affinity_prediction_rescoring_screening",
+      "visualization_rendering"
+    ],
+    "pose_generation_docking": [
+      "docking_pose_pocket_extraction_for_rescoring",
+      "affinity_prediction_rescoring_screening",
+      "static_interaction_analysis_validation",
+      "simulation_system_preparation",
+      "visualization_rendering"
+    ],
+    "docking_pose_pocket_extraction_for_rescoring": [
+      "affinity_prediction_rescoring_screening"
+    ],
+    "affinity_prediction_rescoring_screening": [
+      "static_interaction_analysis_validation",
+      "ligand_analog_optimization",
+      "visualization_rendering",
+      "file_export_encoding"
+    ],
+    "end_to_end_docking_scoring_pipeline": [
+      "static_interaction_analysis_validation",
+      "visualization_rendering",
+      "file_export_encoding"
+    ],
+    "static_interaction_analysis_validation": [
+      "visualization_rendering",
+      "ligand_analog_optimization",
+      "protein_design_repair_mutation_evaluation",
+      "file_export_encoding"
+    ],
+    "simulation_system_preparation": [
+      "simulation_or_sampling_execution",
+      "free_energy_calculation"
+    ],
+    "simulation_or_sampling_execution": [
+      "simulation_ensemble_extraction",
+      "trajectory_interaction_analysis",
+      "free_energy_calculation",
+      "visualization_rendering"
+    ],
+    "simulation_ensemble_extraction": [
+      "protein_structure_qc_descriptor",
+      "static_interaction_analysis_validation",
+      "visualization_rendering",
+      "residue_numbering_mapping"
+    ],
+    "trajectory_interaction_analysis": [
+      "visualization_rendering",
+      "file_export_encoding"
+    ],
+    "free_energy_calculation": [
+      "free_energy_result_analysis",
+      "visualization_rendering",
+      "file_export_encoding"
+    ],
+    "free_energy_result_analysis": [
+      "visualization_rendering",
+      "file_export_encoding"
+    ],
+    "residue_numbering_mapping": [
+      "static_interaction_analysis_validation",
+      "visualization_rendering"
+    ],
+    "protein_backbone_or_complex_generation": [
+      "protein_sequence_design",
+      "target_structure_prediction",
+      "structure_rebuild_repair",
+      "protein_design_repair_mutation_evaluation",
+      "pose_generation_docking",
+      "static_interaction_analysis_validation",
+      "visualization_rendering"
+    ],
+    "protein_sequence_design": [
+      "target_structure_prediction",
+      "structure_sidechain_completion",
+      "protein_design_repair_mutation_evaluation",
+      "protein_structure_qc_descriptor"
+    ],
+    "protein_design_repair_mutation_evaluation": [
+      "target_structure_prediction",
+      "static_interaction_analysis_validation",
+      "visualization_rendering",
+      "file_export_encoding"
+    ],
+    "file_import_decoding": [
+      "target_structure_acquisition",
+      "ligand_smiles_validation",
+      "ligand_file_preparation_conversion",
+      "protein_structure_qc_descriptor",
+      "visualization_rendering"
+    ],
+    "visualization_rendering": [
+      "file_export_encoding"
+    ]
+  },
+  "alternative_clusters": {
+    "structure_prediction": {
+      "tools": [
+        "pred_protein_structure_esmfold",
+        "chai1_predict"
+      ]
+    },
+    "pocket_detection": {
+      "tools": [
+        "pred_pocket_prank",
+        "fpocket_toolkit"
+      ]
+    },
+    "molecular_generation": {
+      "tools": [
+        "reinvent_denovo_sampling",
+        "linkinvent_linker_sampling_by_warheads",
+        "libinvent_rgroup_sampling_by_scaffold",
+        "pepinvent_peptide_sampling_by_template"
+      ]
+    },
+    "interaction_analysis_static": {
+      "tools": [
+        "prolif_docking",
+        "prolif_pdb",
+        "analyze_protein_ligand_interactions"
+      ]
+    },
+    "simulation_sampling": {
+      "tools": [
+        "protein_openmm_md",
+        "run_bioemu",
+        "openawsem_sim",
+        "goca_pipeline"
+      ]
+    }
+  }
+}
+

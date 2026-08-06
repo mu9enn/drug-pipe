@@ -221,6 +221,11 @@ def _build_task_spec(
             "question_payload": payload,
             "source_created_at_utc": rec.get("created_at_utc"),
             "trajectory_schema_version": (expected.get("schema_version") if isinstance(expected, dict) else None),
+            **(
+                {"target_fanout_runtime_minutes": rec["target_fanout_runtime_minutes"]}
+                if rec.get("target_fanout_runtime_minutes") is not None
+                else {}
+            ),
         }
     if include_raw_sample:
         metadata["raw_kg_sample"] = rec

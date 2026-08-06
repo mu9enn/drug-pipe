@@ -1,0 +1,4 @@
+interface:
+  display_name: "Annotate Tool Card"
+  short_description: "Annotate one MolClaw MCP tool from local evidence"
+  default_prompt: "Use $annotate-tool-card to annotate the tool card in this workdir."

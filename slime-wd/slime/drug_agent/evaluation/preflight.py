@@ -18,7 +18,8 @@ from drug_agent.tools.runtime_env import (
 )
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry, catalog_sha256
-from drug_agent.utils import utc_now_iso, write_json
+from drug_agent.evaluation.task_store import load_records
+from drug_agent.utils import read_jsonl, utc_now_iso, write_json
 
 
 def _hash_tree(root: Path) -> str:
@@ -29,6 +30,19 @@ def _hash_tree(root: Path) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _fingerprint(payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _l1_snapshot_info(root: Path) -> dict[str, object]:
@@ -117,6 +131,7 @@ def main() -> int:
     parser.add_argument("--num-gpus", type=int, required=True)
     parser.add_argument("--tensor-model-parallel-size", type=int, required=True)
     parser.add_argument("--pipeline-model-parallel-size", type=int, required=True)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if args.max_workers < 1 or args.max_steps < 0 or args.task_timeout_sec <= 0:
         raise ValueError(
@@ -133,6 +148,22 @@ def main() -> int:
         raise RuntimeError(f"Missing MolClaw environment variable(s): {missing}")
     run_dir = Path(args.run_dir).expanduser().resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_paths = sorted((run_dir / "task_results").glob("*.json"))
+    existing_manifest_path = run_dir / "run_manifest.json"
+    existing_manifest = (
+        json.loads(existing_manifest_path.read_text(encoding="utf-8"))
+        if existing_manifest_path.is_file()
+        else None
+    )
+    if isinstance(existing_manifest, dict) and not args.resume:
+        raise RuntimeError("run directory already has run_manifest.json; use --resume or choose a new RUN_NAME")
+    if checkpoint_paths and not args.resume:
+        raise RuntimeError(
+            f"run directory already contains {len(checkpoint_paths)} task checkpoint(s); "
+            "use --resume or choose a new RUN_NAME"
+        )
+    if args.resume and checkpoint_paths and not isinstance(existing_manifest, dict):
+        raise RuntimeError("evaluation resume requires the original run_manifest.json")
     checkpoint = _checkpoint_info(Path(args.checkpoint).expanduser().resolve())
     model_assets = _validate_model_assets(
         Path(args.hf_checkpoint).expanduser().resolve(),
@@ -146,6 +177,7 @@ def main() -> int:
             max_steps=args.max_steps,
         )
         input_manifest_path = run_dir / "prompt_manifest.json"
+        input_dataset_path = run_dir / "prompt_eval.jsonl"
         input_counts = {"manual_prompt": input_manifest["sample_count"]}
     elif args.prompt_file:
         evaluation_mode = "single_prompt"
@@ -157,6 +189,7 @@ def main() -> int:
             max_steps=args.max_steps,
         )
         input_manifest_path = run_dir / "prompt_manifest.json"
+        input_dataset_path = run_dir / "prompt_eval.jsonl"
         input_counts = {"manual_prompt": input_manifest["sample_count"]}
     else:
         evaluation_mode = "molbench"
@@ -170,7 +203,16 @@ def main() -> int:
             limit_per_suite=args.molbench_limit_per_suite,
         )
         input_manifest_path = run_dir / "benchmark_manifest.json"
+        input_dataset_path = run_dir / "molbench_eval.jsonl"
         input_counts = input_manifest["counts"]
+    input_rows = read_jsonl(input_dataset_path)
+    input_ids = [row.get("id") for row in input_rows]
+    if any(not isinstance(task_id, str) or not task_id.strip() for task_id in input_ids):
+        raise ValueError("every evaluation row must have a non-empty string id")
+    duplicates = sorted({task_id for task_id in input_ids if input_ids.count(task_id) > 1})
+    if duplicates:
+        raise ValueError(f"evaluation task ids must be unique: {duplicates}")
+    input_sha256 = _hash_file(input_dataset_path)
     if not DRUG_AGENT_L1_SKILLS_ROOT.is_dir():
         raise FileNotFoundError(f"L1 skills root not found: {DRUG_AGENT_L1_SKILLS_ROOT}")
     l1_snapshot = _l1_snapshot_info(DRUG_AGENT_L1_SKILLS_ROOT)
@@ -188,14 +230,61 @@ def main() -> int:
     write_json(run_dir / "tool_catalog.json", {"tools": catalog, "sha256": catalog_hash})
 
     repo_root = Path(__file__).resolve().parents[4]
+    settings = {
+        "max_workers": args.max_workers,
+        "max_steps": args.max_steps,
+        "temperature": args.temperature,
+        "task_timeout_sec": args.task_timeout_sec,
+        "mcp_connect_timeout_sec": os.environ.get("MOLCLAW_CONNECT_TIMEOUT_SEC"),
+        "mcp_list_tools_timeout_sec": os.environ.get("MOLCLAW_LIST_TOOLS_TIMEOUT_SEC"),
+        "mcp_tool_timeout_sec": os.environ.get("MOLCLAW_TOOL_TIMEOUT_SEC"),
+        "max_new_tokens": args.max_new_tokens,
+        "max_context_len": args.max_context_len,
+        "num_gpus": args.num_gpus,
+        "tensor_model_parallel_size": args.tensor_model_parallel_size,
+        "pipeline_model_parallel_size": args.pipeline_model_parallel_size,
+        "protocol": "canonical_react_xml",
+        "molbench_suites": args.molbench_suite,
+        "molbench_limit_per_suite": args.molbench_limit_per_suite,
+    }
+    resume_identity = {
+        "schema_version": "drug_agent_eval_resume_identity_v1",
+        "evaluation_mode": evaluation_mode,
+        "checkpoint": checkpoint,
+        "model_assets": model_assets,
+        "input_sha256": input_sha256,
+        "input_count": len(input_rows),
+        "tool_catalog_sha256": catalog_hash,
+        "l1_skills_sha256": l1_snapshot["sha256"],
+        "settings": settings,
+    }
+    resume_fingerprint = _fingerprint(resume_identity)
+    if args.resume and isinstance(existing_manifest, dict):
+        previous = existing_manifest.get("resume_fingerprint")
+        if previous != resume_fingerprint:
+            raise RuntimeError(
+                "evaluation resume fingerprint mismatch; checkpoint, inputs, tools, skills, model topology, "
+                "or generation settings changed"
+            )
+        # Also parse every checkpoint now so a corrupt or cross-run record
+        # fails before allocating GPUs.
+        load_records(run_dir, run_fingerprint=resume_fingerprint)
+
     manifest = {
         "schema_version": "drug_agent_online_eval_run_v1",
-        "created_at": utc_now_iso(),
+        "created_at": (
+            existing_manifest.get("created_at")
+            if args.resume and isinstance(existing_manifest, dict) and existing_manifest.get("created_at")
+            else utc_now_iso()
+        ),
+        "resumed_at": utc_now_iso() if args.resume else None,
         "code_commit": _git_commit(repo_root),
         "evaluation_mode": evaluation_mode,
         "checkpoint": checkpoint,
         "model_assets": model_assets,
         "input_manifest": str(input_manifest_path),
+        "input_dataset": str(input_dataset_path),
+        "input_sha256": input_sha256,
         "input_counts": input_counts,
         "tool_catalog_path": str(run_dir / "tool_catalog.json"),
         "tool_catalog_sha256": catalog_hash,
@@ -204,22 +293,16 @@ def main() -> int:
         "l1_skills_root": str(DRUG_AGENT_L1_SKILLS_ROOT),
         "l1_skills_sha256": l1_snapshot["sha256"],
         "l1_skills_snapshot": l1_snapshot,
-        "settings": {
-            "max_workers": args.max_workers,
-            "max_steps": args.max_steps,
-            "temperature": args.temperature,
-            "task_timeout_sec": args.task_timeout_sec,
-            "mcp_connect_timeout_sec": os.environ.get("MOLCLAW_CONNECT_TIMEOUT_SEC"),
-            "mcp_list_tools_timeout_sec": os.environ.get("MOLCLAW_LIST_TOOLS_TIMEOUT_SEC"),
-            "mcp_tool_timeout_sec": os.environ.get("MOLCLAW_TOOL_TIMEOUT_SEC"),
-            "max_new_tokens": args.max_new_tokens,
-            "max_context_len": args.max_context_len,
-            "num_gpus": args.num_gpus,
-            "tensor_model_parallel_size": args.tensor_model_parallel_size,
-            "pipeline_model_parallel_size": args.pipeline_model_parallel_size,
-            "protocol": "canonical_react_xml",
-            "molbench_suites": args.molbench_suite,
-            "molbench_limit_per_suite": args.molbench_limit_per_suite,
+        "settings": settings,
+        "resume_fingerprint": resume_fingerprint,
+        "resume_identity": resume_identity,
+        "resume": {
+            "enabled": bool(args.resume),
+            "checkpointed_task_count": len(checkpoint_paths),
+            "retry_non_final": os.environ.get("DRUG_AGENT_EVAL_RETRY_NON_FINAL", "1")
+            .strip()
+            .lower()
+            not in {"0", "false", "no", "off"},
         },
         "mcp_environment": redacted_environment_summary(),
     }

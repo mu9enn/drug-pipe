@@ -1,0 +1,9 @@
+{
+  "task": "kg",
+  "row_number": 1,
+  "dataset_index": "example-task",
+  "rollout_index": 1,
+  "num_rollouts": 1,
+  "question_text": "Complete the supplied evidence-grounded drug-discovery task.",
+  "kg_task_spec": {}
+}

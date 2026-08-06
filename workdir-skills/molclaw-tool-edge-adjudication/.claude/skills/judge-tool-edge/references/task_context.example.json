@@ -1,0 +1,11 @@
+{
+  "task_type": "pairwise_edge_adjudication_directional",
+  "pair_id": "source_tool__to__target_tool",
+  "pair_spec_file": "pair_spec.json",
+  "taxonomy_file": "stage_taxonomy.json",
+  "edge_contract_file": "edge_contract.json",
+  "source_manifest_file": "source_manifest.json",
+  "output_schema_file": "output_schema.json",
+  "canonical_skill_root": "/absolute/path/to/molclaw-trajectory-execution/.claude/skills",
+  "tool_card_files": ["source_tool_card.json", "target_tool_card.json"]
+}

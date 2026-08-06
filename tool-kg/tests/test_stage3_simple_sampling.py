@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 import shutil
 import tempfile
@@ -18,12 +19,22 @@ from molclaw_kg.question_sampling.simple_sampler import (
     _tool_leaks,
     contains_placeholder_or_fake_input,
     contains_user_followup_request,
+    derive_normal_exponent_parameters,
+    render_fanout_runtime_prompt,
+    sample_fanout_runtime_minutes,
     sample_hidden_toolchain,
     sample_simple_questions,
     select_grounding_seed,
     validate_simple_output,
 )
 from molclaw_kg.science_kb import ScienceKB, initialize_database
+
+
+FANOUT_RUNTIME_TARGET = {
+    "distribution": "normal_exponent",
+    "arithmetic_mean_minutes": 15,
+    "plus_3sigma_minutes": 60,
+}
 
 
 def edge(source: str, target: str, status: str = "valid") -> dict:
@@ -38,6 +49,43 @@ def edge(source: str, target: str, status: str = "valid") -> dict:
 
 
 class SimpleSamplingTests(unittest.TestCase):
+    def test_normal_exponent_runtime_target_and_sampling_are_reproducible(self) -> None:
+        parameters = derive_normal_exponent_parameters(FANOUT_RUNTIME_TARGET)
+        arithmetic_mean = math.exp(
+            parameters["log_mean"] + 0.5 * parameters["log_sigma"] ** 2
+        )
+        plus_3sigma = math.exp(
+            parameters["log_mean"] + 3.0 * parameters["log_sigma"]
+        )
+        minus_3sigma = math.exp(
+            parameters["log_mean"] - 3.0 * parameters["log_sigma"]
+        )
+        self.assertAlmostEqual(arithmetic_mean, 15.0)
+        self.assertAlmostEqual(plus_3sigma, 60.0)
+        self.assertAlmostEqual(minus_3sigma, 2.9072672748)
+        first_rng = random.Random(17)
+        second_rng = random.Random(17)
+        first = [
+            sample_fanout_runtime_minutes(first_rng, FANOUT_RUNTIME_TARGET)
+            for _ in range(5)
+        ]
+        second = [
+            sample_fanout_runtime_minutes(second_rng, FANOUT_RUNTIME_TARGET)
+            for _ in range(5)
+        ]
+        self.assertEqual(first, second)
+
+    def test_runtime_prompt_rendering_replaces_optional_placeholder(self) -> None:
+        rendered = render_fanout_runtime_prompt(
+            "Target {{TARGET_FANOUT_RUNTIME_MINUTES}} minutes.",
+            12.34,
+        )
+        self.assertEqual(rendered, "Target 12.3 minutes.")
+        self.assertEqual(
+            render_fanout_runtime_prompt("No placeholder.", 12.3),
+            "No placeholder.",
+        )
+
     def test_hidden_toolchain_only_uses_valid_simple_path(self) -> None:
         cards = {name: {"tool_id": name} for name in ["a", "b", "c", "d"]}
         result = sample_hidden_toolchain(
@@ -178,22 +226,37 @@ class SimpleSamplingTests(unittest.TestCase):
             self.assertEqual(facts[0]["type"], "protein")
             self.assertEqual(facts[0]["value"]["sequence"], "ACDEFG")
 
-    def test_prompt_keeps_hidden_toolchain_as_soft_constraint(self) -> None:
-        prompt_path = Path(__file__).parents[1] / "configs/prompts/toolchain_question_simple_v1.md"
-        prompt = prompt_path.read_text(encoding="utf-8")
-        self.assertIn("hidden toolchain", prompt.lower())
-        self.assertIn("never expose", prompt.lower())
-        self.assertIn("no human available for follow-up", prompt.lower())
-        self.assertIn("add that prerequisite", prompt.lower())
-        self.assertIn("complete protein sequence", prompt.lower())
+    def test_skill_keeps_hidden_toolchain_as_soft_constraint(self) -> None:
+        skill_path = (
+            Path(__file__).parents[2]
+            / "workdir-skills/grounded-molclaw-task-generation/.claude/skills"
+            / "generate-toolchain-question/SKILL.md"
+        )
+        skill = skill_path.read_text(encoding="utf-8")
+        self.assertIn("hidden toolchain", skill.lower())
+        self.assertIn("do not expose internal tool ids", skill.lower())
+        self.assertIn("never ask a future user", skill.lower())
+        self.assertIn("add a standard enabling prerequisite", skill.lower())
+        self.assertIn("complete sequence", skill.lower())
+        self.assertIn("target_fanout_runtime_minutes", skill)
+        self.assertIn("ignore it when the task has no repeated expensive step", skill.lower())
 
     def test_simple_output_writer_and_no_hidden_chain_in_question(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root, run_dir = Path(td), Path(td) / "runs/run_test"
             (root / "configs/prompts").mkdir(parents=True)
-            (root / "configs/prompts/toolchain_question_simple_v1.md").write_text("Generate JSON.", encoding="utf-8")
-            (root / "configs/prompts/toolchain_question_json_repair_v1.md").write_text("Repair JSON.", encoding="utf-8")
-            (root / "configs/prompts/toolchain_question_semantic_repair_v1.md").write_text("Repair semantics.", encoding="utf-8")
+            (root / "configs/prompts/toolchain_question_simple_v1.md").write_text(
+                "Invoke /generate-toolchain-question. Target {{TARGET_FANOUT_RUNTIME_MINUTES}} minutes.",
+                encoding="utf-8",
+            )
+            (root / "configs/prompts/toolchain_question_json_repair_v1.md").write_text(
+                "Invoke /generate-toolchain-question to repair JSON.",
+                encoding="utf-8",
+            )
+            (root / "configs/prompts/toolchain_question_semantic_repair_v1.md").write_text(
+                "Invoke /generate-toolchain-question. Target {{TARGET_FANOUT_RUNTIME_MINUTES}} minutes.",
+                encoding="utf-8",
+            )
             (root / "science_kb/processed").mkdir(parents=True)
             (root / "science_kb/manifests").mkdir(parents=True)
             db = root / "science_kb/processed/science_kb.sqlite"
@@ -260,10 +323,24 @@ class SimpleSamplingTests(unittest.TestCase):
                 "molclaw_kg.question_sampling.simple_sampler._call_agent",
                 side_effect=[(followup, json.dumps(followup)), (output, json.dumps(output))],
             ) as call_agent:
-                meta = sample_simple_questions(config, target_successes=1, max_attempts=2, min_hops=1, max_hops=1, seed=1)
+                meta = sample_simple_questions(
+                    config,
+                    target_successes=1,
+                    max_attempts=2,
+                    min_hops=1,
+                    max_hops=1,
+                    fanout_runtime_target=FANOUT_RUNTIME_TARGET,
+                    seed=1,
+                )
             self.assertEqual(meta["success_count"], 1)
             self.assertFalse(call_agent.call_args_list[0].kwargs["allow_kb_queries"])
             self.assertTrue(call_agent.call_args_list[1].kwargs["allow_kb_queries"])
+            generation_prompt = call_agent.call_args_list[0].args[3]
+            semantic_prompt = call_agent.call_args_list[1].args[3]
+            self.assertNotIn("{{TARGET_FANOUT_RUNTIME_MINUTES}}", generation_prompt)
+            self.assertNotIn("{{TARGET_FANOUT_RUNTIME_MINUTES}}", semantic_prompt)
+            self.assertIn("/generate-toolchain-question", generation_prompt)
+            self.assertIn("/generate-toolchain-question", semantic_prompt)
             success_rows = read_jsonl(results_dir / "tasks.jsonl")
             self.assertEqual(len(success_rows), 1)
             self.assertIn("FoldX", success_rows[0]["public_question_text"])
@@ -276,6 +353,10 @@ class SimpleSamplingTests(unittest.TestCase):
             self.assertTrue(attempts[0]["semantic_recovered"])
             self.assertEqual(attempts[0]["initial_semantic_failure"], "non_rolloutable_user_followup")
             self.assertEqual(success_rows[0]["toolchain_nodes"], ["foldx_tool", "tool_b"])
+            self.assertEqual(
+                success_rows[0]["target_fanout_runtime_minutes"],
+                attempts[0]["target_fanout_runtime_minutes"],
+            )
             self.assertTrue(attempts_path.is_file())
             self.assertFalse((results_dir / "questions_simple.csv").exists())
             manifest = json.loads((results_dir / "run_manifest.json").read_text(encoding="utf-8"))
@@ -301,6 +382,7 @@ class SimpleSamplingTests(unittest.TestCase):
                     min_hops=1,
                     max_hops=1,
                     semantic_repair_rounds=0,
+                    fanout_runtime_target=FANOUT_RUNTIME_TARGET,
                     seed=1,
                 )
             self.assertEqual(zero_meta["success_count"], 0)
@@ -331,6 +413,7 @@ class SimpleSamplingTests(unittest.TestCase):
                     min_hops=1,
                     max_hops=1,
                     semantic_repair_rounds=1,
+                    fanout_runtime_target=FANOUT_RUNTIME_TARGET,
                     seed=1,
                 )
             self.assertEqual(exhausted_meta["success_count"], 0)

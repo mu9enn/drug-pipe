@@ -55,6 +55,15 @@ class MCPClient:
             self._session_ctx = ClientSession(read_stream, write_stream)
             self._session = await self._session_ctx.__aenter__()
             await asyncio.wait_for(self._session.initialize(), timeout=self.initialize_timeout)
+        except asyncio.CancelledError:
+            # Operation timeouts are injected by the single owner task.  The
+            # MCP/AnyIO contexts must be unwound by that same task before the
+            # cancellation is propagated back to the owner loop.
+            try:
+                await self.disconnect()
+            except BaseException:
+                pass
+            raise
         except Exception as exc:
             await self.disconnect()
             raise RuntimeError(f"Failed to connect/initialize MCP session: {exc}") from exc
@@ -63,11 +72,11 @@ class MCPClient:
         return True
 
     async def disconnect(self) -> None:
-        first_error: Exception | None = None
+        first_error: BaseException | None = None
         try:
             if self._session_ctx is not None:
                 await self._session_ctx.__aexit__(None, None, None)
-        except Exception as exc:
+        except BaseException as exc:
             first_error = exc
         finally:
             self._session_ctx = None
@@ -77,7 +86,7 @@ class MCPClient:
         try:
             if self._transport_ctx is not None:
                 await self._transport_ctx.__aexit__(None, None, None)
-        except Exception as exc:
+        except BaseException as exc:
             first_error = first_error or exc
         finally:
             self._transport_ctx = None

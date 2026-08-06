@@ -1,0 +1,4 @@
+interface:
+  display_name: "Judge Tool Edge"
+  short_description: "Judge one directed MolClaw tool edge from evidence"
+  default_prompt: "Use $judge-tool-edge to judge the directed tool edge in this workdir."

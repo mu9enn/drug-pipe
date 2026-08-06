@@ -1,0 +1,15 @@
+{
+  "hidden_toolchain": {
+    "hidden_toolchain_nodes": ["source_tool", "target_tool"],
+    "hidden_toolchain_edges": [["source_tool", "target_tool"]]
+  },
+  "tool_cards": [],
+  "edge_evidence": [],
+  "grounding_seed": {
+    "seed_type": "target_ligand_pair",
+    "target_uniprot": "P00000",
+    "compound_id": "CHEMBL000000"
+  },
+  "grounding_facts": [],
+  "target_fanout_runtime_minutes": 15.0
+}

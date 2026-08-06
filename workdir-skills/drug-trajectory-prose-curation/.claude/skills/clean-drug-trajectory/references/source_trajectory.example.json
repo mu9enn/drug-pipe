@@ -1,0 +1,7 @@
+{
+  "id": "trajectory_example_001",
+  "messages": [
+    {"role": "user", "content": "Analyze the supplied molecule."},
+    {"role": "assistant", "content": "<thought>Inspect the grounded evidence.</thought>"}
+  ]
+}

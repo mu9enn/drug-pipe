@@ -1,0 +1,263 @@
+{
+  "$defs": {
+    "SkillDerivedRequirementSet": {
+      "additionalProperties": false,
+      "properties": {
+        "set_id": {
+          "pattern": "^skill::[A-Za-z0-9_.-]+$",
+          "title": "Set Id",
+          "type": "string"
+        },
+        "condition": {
+          "title": "Condition",
+          "type": "string"
+        },
+        "required_slots": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Slots",
+          "type": "array"
+        },
+        "optional_slots": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Slots",
+          "type": "array"
+        },
+        "defaulted_slots": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Defaulted Slots",
+          "type": "array"
+        },
+        "execution_meaning": {
+          "title": "Execution Meaning",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "set_id",
+        "condition",
+        "execution_meaning",
+        "evidence_refs"
+      ],
+      "title": "SkillDerivedRequirementSet",
+      "type": "object"
+    },
+    "SkillDerivedSlot": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_path": {
+          "title": "Slot Path",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "output",
+            "precondition",
+            "side_effect"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "raw_type": {
+          "default": "unknown",
+          "title": "Raw Type",
+          "type": "string"
+        },
+        "semantic_type": {
+          "default": "unknown",
+          "title": "Semantic Type",
+          "type": "string"
+        },
+        "format": {
+          "default": "unknown",
+          "title": "Format",
+          "type": "string"
+        },
+        "cardinality": {
+          "default": "unknown",
+          "enum": [
+            "single",
+            "list",
+            "map",
+            "unknown"
+          ],
+          "title": "Cardinality",
+          "type": "string"
+        },
+        "parameter_kind": {
+          "default": "unknown",
+          "enum": [
+            "data",
+            "config",
+            "control",
+            "unknown"
+          ],
+          "title": "Parameter Kind",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "connectable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connectable"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "slot_path",
+        "name",
+        "direction",
+        "evidence_refs"
+      ],
+      "title": "SkillDerivedSlot",
+      "type": "object"
+    },
+    "SlotAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "semantic_type": {
+          "default": "unknown",
+          "title": "Semantic Type",
+          "type": "string"
+        },
+        "format": {
+          "default": "unknown",
+          "title": "Format",
+          "type": "string"
+        },
+        "parameter_kind": {
+          "default": "unknown",
+          "enum": [
+            "data",
+            "config",
+            "control",
+            "unknown"
+          ],
+          "title": "Parameter Kind",
+          "type": "string"
+        },
+        "connectable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connectable"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "title": "SlotAnnotation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tool_id": {
+      "title": "Tool Id",
+      "type": "string"
+    },
+    "description_summary": {
+      "default": "",
+      "title": "Description Summary",
+      "type": "string"
+    },
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "slot_annotations": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SlotAnnotation"
+      },
+      "title": "Slot Annotations",
+      "type": "object"
+    },
+    "skill_derived_slots": {
+      "items": {
+        "$ref": "#/$defs/SkillDerivedSlot"
+      },
+      "title": "Skill Derived Slots",
+      "type": "array"
+    },
+    "skill_derived_requirement_sets": {
+      "items": {
+        "$ref": "#/$defs/SkillDerivedRequirementSet"
+      },
+      "title": "Skill Derived Requirement Sets",
+      "type": "array"
+    },
+    "needs_review": {
+      "default": false,
+      "title": "Needs Review",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "tool_id"
+  ],
+  "title": "ToolAnnotationPatch",
+  "type": "object"
+}
+

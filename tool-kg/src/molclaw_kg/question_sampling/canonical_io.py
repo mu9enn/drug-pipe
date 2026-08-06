@@ -96,6 +96,11 @@ def canonical_task(row: dict[str, Any], run_id: str) -> dict[str, Any]:
         "toolchain_nodes": row.get("toolchain_nodes") or row.get("hidden_toolchain_nodes") or [],
         "toolchain_edges": row.get("toolchain_edges") or row.get("hidden_toolchain_edges") or [],
         "walk_hops": row.get("walk_hops"),
+        **(
+            {"target_fanout_runtime_minutes": row["target_fanout_runtime_minutes"]}
+            if row.get("target_fanout_runtime_minutes") is not None
+            else {}
+        ),
         "start_tool": row.get("start_tool")
         or ((row.get("hidden_toolchain_nodes") or [None])[0]),
         "end_tool": row.get("end_tool")

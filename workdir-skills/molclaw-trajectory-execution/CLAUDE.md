@@ -129,17 +129,18 @@ Individual tool specs in `L1_tools/` (60 directories, each containing a `SKILL.m
 ## Root-Level Files
 
 - **`CLAUDE.md`** — this file; project guidance for Claude Code
-- **`system_prompt_FULL.md`** — full agent system prompt (approximately 28 KB); defines the 5-phase execution framework, data integrity rules, file naming conventions, and experiential learning configuration ("Full-EL" mode)
+- **`system_prompt.md`** — short runtime instruction that invokes `/execute-molclaw-trajectory`
+- **`.claude/skills/execute-molclaw-trajectory/`** — progressively loaded execution protocol, logging contract, and result contract
 
 ## Execution Framework
 
-The agent execution framework is defined in `system_prompt_FULL.md`. It specifies:
+The agent execution framework is defined by `/execute-molclaw-trajectory` and its `references/execution_protocol.md`. It specifies:
 
 1. **5-phase execution:** read skills → plan → self-check → execute → synthesize
 2. **File naming conventions:** sequential (`step01_`, `step02_`), iterative (`round01_`, `round02_`), retry (`_retry1`)
 3. **Required outputs:** `result.md` (final summary) and `run_log.md` (step-by-step log, written incrementally)
 
-### Key enforcement rules from `system_prompt_FULL.md`
+### Key enforcement rules from the trajectory-execution skill
 
 - **Data integrity:** Every number in `result.md` must be programmatically verified from source files before writing. Three mandatory checkpoints: after each tool call (A), before each round summary (B), and before final report (C).
 - **Docking constraints:** Vina/QuickVina scores MUST be negative. Minimum box size is 25 Å per dimension. For the current QuickVina2-GPU deployment, progressive enlargement on failure is 25 → 30 → 40 → 47.625 Å before switching to the currently enabled KarmaDock service. DiffDock must not be selected unless it is re-enabled in the MCP deployment.

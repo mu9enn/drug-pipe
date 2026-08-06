@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Toolchain Question"
+  short_description: "Generate or repair one grounded MolClaw task question"
+  default_prompt: "Use $generate-toolchain-question to complete the question task in this workdir."

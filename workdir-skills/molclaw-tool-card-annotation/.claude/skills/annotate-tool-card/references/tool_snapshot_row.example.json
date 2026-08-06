@@ -1,0 +1,14 @@
+{
+  "name": "calculate_example_metric",
+  "description": "Calculate a representative molecular metric.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "smiles_list": {
+        "type": "array",
+        "items": {"type": "string"}
+      }
+    },
+    "required": ["smiles_list"]
+  }
+}

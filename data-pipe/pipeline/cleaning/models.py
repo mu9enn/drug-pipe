@@ -12,6 +12,14 @@ CLEANING_DIR = Path(__file__).resolve().parent
 SCHEMA_DIR = CLEANING_DIR / "schemas"
 EXAMPLE_DIR = CLEANING_DIR / "examples"
 PROMPT_DIR = CLEANING_DIR / "prompts"
+DRUG_PIPE_ROOT = CLEANING_DIR.parents[2]
+WORKDIR_SKILLS_DIR = DRUG_PIPE_ROOT / "workdir-skills"
+LLM_CLEAN_SCENE_DIR = WORKDIR_SKILLS_DIR / "drug-trajectory-prose-curation"
+LLM_CLEAN_SKILL_DIR = (
+    LLM_CLEAN_SCENE_DIR / ".claude/skills/clean-drug-trajectory"
+)
+LLM_CLEAN_SYSTEM_PROMPT = LLM_CLEAN_SCENE_DIR / "system_prompt.md"
+LLM_CLEAN_USER_PROMPT = LLM_CLEAN_SCENE_DIR / "user_prompt.md"
 REACT_SCHEMA_VERSION = "drug_agent_sft_react_json_v1"
 PATCH_SCHEMA_VERSION = "llm_clean_patch_v1"
 

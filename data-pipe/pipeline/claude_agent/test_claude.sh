@@ -8,8 +8,8 @@ cd "$REPO_DIR"
 
 PROVIDER="${CC_SWITCH_PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
-SKILLS_ROOT="$PROJECT_ROOT/molclaw-skills"
-SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_FULL.md"
+SKILLS_ROOT="$PROJECT_ROOT/workdir-skills/molclaw-trajectory-execution"
+SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt.md"
 LAUNCH_SCRIPT="$REPO_DIR/claude_agent/launch_claude.sh"
 WORKDIR="$REPO_DIR/results/test_workdir"
 

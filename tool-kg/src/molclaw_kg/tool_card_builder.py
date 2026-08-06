@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import threading
 from collections import Counter
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ from .models import Slot, ToolAnnotationPatch, ToolCard
 from .settings import ProjectConfig
 from .runtime_state import next_attempt_dir
 from .stage_taxonomy import load_stage_taxonomy, resolve_stage_taxonomy_path
+from .workdir_skills import install_scene, load_scene_prompt
 
 
 def _slot_from_schema(
@@ -294,27 +294,13 @@ def _base_tool_card(row: dict[str, Any], primary_stage: str, scheduling_stages: 
 
 
 def _load_prompt_template(config: ProjectConfig) -> str:
-    prompt_path = config.paths.configs / "prompts" / "tool_card_agent_v1.md"
-    if prompt_path.exists():
-        return prompt_path.read_text(encoding="utf-8")
-    return (
-        "You are constructing a semantically enriched tool-card for a computational drug discovery "
-        "and biomolecular modeling MCP tool. Output strict JSON only."
-    )
+    return load_scene_prompt(config, "molclaw-tool-card-annotation")
 
 
-def _build_tool_card_prompt(template: str) -> str:
+def _build_tool_card_prompt(tool_id: str) -> str:
     return (
-        f"{template.strip()}\n\n"
-        "You are running inside one isolated workdir for exactly one tool-card task.\n"
-        "Read local files in this directory first, then produce final strict JSON.\n\n"
-        "Required local files:\n"
-        "- task_context.json\n"
-        "- tool_snapshot_row.json\n"
-        "- deterministic_base_tool_card.json\n"
-        "- source_manifest.json\n"
-        "- output_schema.json\n\n"
-        "Return an annotation patch only. Taxonomy stages and MCP schema facts are not output fields.\n"
+        f"Annotate the MolClaw tool card for {tool_id}. "
+        "Use the runtime JSON files in this workdir and return the required JSON object."
     )
 
 
@@ -328,27 +314,27 @@ def _prepare_toolcard_workdir(
 ) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
 
-    for item in config.runtime.skills_root.iterdir():
-        dst = workdir / item.name
-        if item.is_dir():
-            shutil.copytree(item, dst, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, dst)
+    install_scene(
+        config,
+        workdir,
+        "molclaw-tool-card-annotation",
+    )
 
     write_json(workdir / "tool_snapshot_row.json", row)
     write_json(workdir / "deterministic_base_tool_card.json", base_card.model_dump())
+    canonical_skill_root = (Path(config.runtime.skills_root) / ".claude/skills").resolve()
     source_manifest = {
         "candidate_sources": [
             {
-                "path_glob": f".claude/skills/L1_tools/**/*{base_card.tool_id}*",
+                "path_glob": str(canonical_skill_root / f"L1_tools/**/*{base_card.tool_id}*"),
                 "reason": "canonical tool skill",
             },
             {
-                "path_glob": ".claude/skills/L2_workflows/**/*",
+                "path_glob": str(canonical_skill_root / "L2_workflows/**/*"),
                 "reason": "workflow context",
             },
             {
-                "path_glob": ".claude/skills/L3_methodology/**/*",
+                "path_glob": str(canonical_skill_root / "L3_methodology/**/*"),
                 "reason": "methodology constraints",
             },
         ]
@@ -363,6 +349,7 @@ def _prepare_toolcard_workdir(
             "base_card_file": "deterministic_base_tool_card.json",
             "source_manifest_file": "source_manifest.json",
             "output_schema_file": "output_schema.json",
+            "canonical_skill_root": str(canonical_skill_root),
             "schema_fact_policy": "immutable",
             "taxonomy_stage_policy": "not_agent_output",
         },
@@ -395,7 +382,7 @@ def _run_toolcard_attempt(
     try:
         unit_dir = _toolcard_unit_dir(config, tool_id)
         attempt_dir = next_attempt_dir(unit_dir)
-        prompt = _build_tool_card_prompt(template)
+        prompt = _build_tool_card_prompt(tool_id)
         _prepare_toolcard_workdir(
             config=config,
             workdir=attempt_dir,
@@ -407,6 +394,7 @@ def _run_toolcard_attempt(
             "template_version": "tool_card_agent_v1",
             "tool_id": tool_id,
             "prompt_sha256": sha256_text(prompt),
+            "system_prompt_sha256": sha256_text(template),
             "base_card": base.model_dump(),
             "rerun_round": int(rerun_round or 0),
         }
@@ -416,8 +404,9 @@ def _run_toolcard_attempt(
         run = runtime.run_prompt(
             prompt,
             run_label=f"toolcard_{tool_id}",
-            add_dirs=[attempt_dir],
-            allowed_tools=f"Read,Glob,mcp__{runtime.mcp_server_name}",
+            system_prompt=template,
+            add_dirs=[attempt_dir, Path(config.runtime.skills_root)],
+            allowed_tools=f"Read,Glob,Skill,mcp__{runtime.mcp_server_name}",
             workdir=attempt_dir,
         )
 
@@ -428,8 +417,9 @@ def _run_toolcard_attempt(
             repair_run = runtime.run_prompt(
                 repair_prompt,
                 run_label=f"toolcard_repair_{tool_id}",
-                add_dirs=[attempt_dir],
-                allowed_tools="Read,Glob",
+                system_prompt=template,
+                add_dirs=[attempt_dir, Path(config.runtime.skills_root)],
+                allowed_tools="Read,Glob,Skill",
                 workdir=attempt_dir,
             )
             parsed = (

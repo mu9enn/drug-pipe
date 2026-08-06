@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
 import shutil
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -26,6 +27,28 @@ try:
     )
 except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
     from session_capture import next_attempt_index, run_stream_json, select_attempt
+
+try:
+    from pipeline.kg.tool_admission import (
+        POLICY_PATH as TOOL_CONCURRENCY_POLICY_PATH,
+        expected_tools_from_task_spec,
+        first_admissible_index,
+        load_tool_limits,
+        serial_tool_claims,
+        task_spec_from_raw_question_json,
+    )
+except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from pipeline.kg.tool_admission import (
+        POLICY_PATH as TOOL_CONCURRENCY_POLICY_PATH,
+        expected_tools_from_task_spec,
+        first_admissible_index,
+        load_tool_limits,
+        serial_tool_claims,
+        task_spec_from_raw_question_json,
+    )
 
 
 ANSWER_RE = re.compile(r"<answer>([\s\S]*?)</answer>", re.IGNORECASE)
@@ -59,6 +82,34 @@ class RolloutResult:
     parse_source: str
     parse_attempts: list[dict[str, Any]]
     raw_answer_len: int
+
+
+def _environment_capacity(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+    if value < 1:
+        raise ValueError(f"{name} must be >= 1, got {value}")
+    return value
+
+
+def _validate_kg_worker_capacity(max_workers: int) -> None:
+    if max_workers > 4:
+        raise ValueError("KG --max-workers must be <= 4")
+    if max_workers <= 2:
+        return
+    global_capacity = _environment_capacity("CLAUDE_GATE_MAX_CONCURRENCY", 4)
+    data_pipe_capacity = _environment_capacity(
+        "CLAUDE_GATE_DATA_PIPE_MAX_CONCURRENCY",
+        2,
+    )
+    if max_workers > global_capacity or max_workers > data_pipe_capacity:
+        raise ValueError(
+            "KG --max-workers exceeds Claude gate capacity: "
+            f"requested={max_workers} global={global_capacity} data_pipe={data_pipe_capacity}"
+        )
 
 
 def _load_expected_mcp_servers(mcp_config_file: Path | None) -> list[str]:
@@ -707,7 +758,7 @@ def _load_samples(dataset_csv: Path, task: str) -> list[Sample]:
     return samples
 
 
-def _build_prompt(system_prompt: str, question_text: str, task: str) -> str:
+def _build_user_prompt(question_text: str, task: str) -> str:
     label_map = {
         "vs": "Question payload (MolBench-VS):",
         "ac": "Question payload (MolBench-AC):",
@@ -716,9 +767,7 @@ def _build_prompt(system_prompt: str, question_text: str, task: str) -> str:
         "kg": "Question payload (KG-Sampled Task):",
     }
     return (
-        system_prompt.strip()
-        + "\n\n"
-        + label_map[task]
+        label_map[task]
         + "\n"
         + question_text.strip()
         + "\n"
@@ -728,6 +777,7 @@ def _build_prompt(system_prompt: str, question_text: str, task: str) -> str:
 def _run_one(
     claude_bin: str,
     prompt: str,
+    system_prompt: str,
     workdir: Path,
     archive_root: Path | None = None,
     attempt_index: int | None = None,
@@ -747,6 +797,8 @@ def _run_one(
             cmd.append("--strict-mcp-config")
     cmd.extend(
         [
+        "--system-prompt",
+        system_prompt,
         "-p",
         prompt,
         ]
@@ -766,13 +818,11 @@ def _prepare_claude_workdir(
     target: Path,
     *,
     source_claude_dir: Path,
-    source_claude_md: Path,
     question_payload: dict[str, Any],
     prompt: str,
 ) -> None:
     target.mkdir(parents=True, exist_ok=True)
     _copy_tree(source_claude_dir, target / ".claude")
-    shutil.copy2(source_claude_md, target / "CLAUDE.md")
     (target / "question.json").write_text(
         json.dumps(question_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -801,7 +851,7 @@ def _promote_attempt_workdir(
         elif target.exists() or target.is_symlink():
             target.unlink()
 
-    immutable_inputs = {".claude", "CLAUDE.md", "question.json", "prompt.txt"}
+    immutable_inputs = {".claude", "question.json", "prompt.txt"}
     promoted_entries: list[str] = []
     for item in source.iterdir():
         if item.name in immutable_inputs:
@@ -834,8 +884,8 @@ def _run_single_rollout(
     rollout_index: int,
     num_rollouts: int,
     prompt: str,
+    system_prompt: str,
     source_claude_dir: Path,
-    source_claude_md: Path,
     provider: str,
     claude_bin: str,
     mcp_config_file: Path | None,
@@ -870,7 +920,6 @@ def _run_single_rollout(
     _prepare_claude_workdir(
         workdir,
         source_claude_dir=source_claude_dir,
-        source_claude_md=source_claude_md,
         question_payload=question_payload,
         prompt=prompt,
     )
@@ -899,13 +948,13 @@ def _run_single_rollout(
         _prepare_claude_workdir(
             attempt_workdir,
             source_claude_dir=source_claude_dir,
-            source_claude_md=source_claude_md,
             question_payload=question_payload,
             prompt=prompt,
         )
         cli_meta = _run_one(
             claude_bin=claude_bin,
             prompt=prompt,
+            system_prompt=system_prompt,
             workdir=attempt_workdir,
             archive_root=workdir,
             attempt_index=archive_attempt_index,
@@ -1154,7 +1203,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run MolBench tasks with Claude CLI and stream-json logs.")
     parser.add_argument("--task", choices=["vs", "ac", "pf", "e2e", "kg"], default="vs")
     parser.add_argument("--dataset-csv", default="molbench/molbench-vs-900.csv")
-    parser.add_argument("--skills-root", default="../molclaw-skills")
+    parser.add_argument("--skills-root", default="../workdir-skills/molclaw-trajectory-execution")
     parser.add_argument("--results-root", default="results")
     parser.add_argument("--system-prompt-file", default="", help="Optional prompt filename under skills root")
     parser.add_argument("--provider", default=os.environ.get("CC_SWITCH_PROVIDER", "manual"))
@@ -1190,6 +1239,8 @@ def main() -> None:
     if args.max_workers < 0:
         raise ValueError("--max-workers must be >= 0")
     max_workers = args.max_workers or args.parallel_rollouts
+    if args.task == "kg":
+        _validate_kg_worker_capacity(max_workers)
 
     repo_root = Path(__file__).resolve().parents[2]
     dataset_csv = Path(args.dataset_csv)
@@ -1207,7 +1258,7 @@ def main() -> None:
         if not mcp_config_file.is_absolute():
             mcp_config_file = (repo_root / mcp_config_file).resolve()
 
-    default_prompt_name = "system_prompt_FULL.md"
+    default_prompt_name = "system_prompt.md"
     prompt_name = args.system_prompt_file.strip() or default_prompt_name
     prompt_path = Path(prompt_name)
     if prompt_path.is_absolute():
@@ -1216,14 +1267,13 @@ def main() -> None:
         system_prompt_file = skills_root / prompt_name
 
     source_claude_dir = skills_root / ".claude"
-    source_claude_md = skills_root / "CLAUDE.md"
 
     if not dataset_csv.is_file():
         raise FileNotFoundError(f"dataset csv not found: {dataset_csv}")
     if not system_prompt_file.is_file():
         raise FileNotFoundError(f"system prompt file not found: {system_prompt_file}")
-    if not source_claude_md.is_file():
-        raise FileNotFoundError(f"skills CLAUDE.md not found: {source_claude_md}")
+    if not source_claude_dir.is_dir():
+        raise FileNotFoundError(f"scene skill payload not found: {source_claude_dir}")
     if mcp_config_file is not None and not mcp_config_file.is_file():
         raise FileNotFoundError(f"mcp config file not found: {mcp_config_file}")
     mcp_tool_timeout_ms = _load_mcp_tool_timeout_ms(mcp_config_file)
@@ -1240,6 +1290,8 @@ def main() -> None:
     if not selected:
         print("No samples selected.")
         return
+
+    tool_limits = load_tool_limits() if args.task == "kg" else {}
 
     if not args.skip_provider_switch:
         # _switch_provider(args.provider)
@@ -1258,6 +1310,7 @@ def main() -> None:
         "dataset_csv": str(dataset_csv),
         "skills_root": str(skills_root),
         "system_prompt_file": str(system_prompt_file),
+        "system_prompt_sha256": hashlib.sha256(system_prompt.encode("utf-8")).hexdigest(),
         "num_rollouts": args.num_rollouts,
         "parallel_rollouts": args.parallel_rollouts,
         "max_workers": max_workers,
@@ -1266,6 +1319,15 @@ def main() -> None:
         "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
         "strict_mcp_config": bool(args.strict_mcp_config),
         "selected_rows": len(selected),
+        "tool_admission_policy": (
+            {
+                "mode": "strict_same_limit4_tool_serial",
+                "policy_file": str(TOOL_CONCURRENCY_POLICY_PATH),
+                "registered_tool_count": len(tool_limits),
+            }
+            if args.task == "kg"
+            else None
+        ),
         "timestamp": ts,
     }
     (run_dir / "run_config.json").write_text(json.dumps(run_config, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1302,44 +1364,111 @@ def main() -> None:
                 encoding="utf-8",
             )
 
-            prompt = _build_prompt(system_prompt, s.question_text, args.task)
+            prompt = _build_user_prompt(s.question_text, args.task)
             prepared.append((s, sample_root, prompt))
 
         results_by_row: dict[int, list[RolloutResult]] = {s.row_number: [] for s in selected}
-        jobs = [
-            (s, sample_root, prompt, rollout_index)
-            for s, sample_root, prompt in prepared
-            for rollout_index in range(1, args.num_rollouts + 1)
-        ]
+        admission_by_pair: dict[tuple[int, int], dict[str, Any]] = {}
+        jobs: list[dict[str, Any]] = []
+        for s, sample_root, prompt in prepared:
+            task_spec = task_spec_from_raw_question_json(s.raw_question_json)
+            expected_tools = (
+                expected_tools_from_task_spec(task_spec) if args.task == "kg" else ()
+            )
+            if args.task == "kg" and not expected_tools:
+                raise ValueError(
+                    f"KG task {s.dataset_index!r} is missing an expected toolchain"
+                )
+            claims = (
+                serial_tool_claims(expected_tools, tool_limits)
+                if args.task == "kg"
+                else frozenset()
+            )
+            for rollout_index in range(1, args.num_rollouts + 1):
+                jobs.append(
+                    {
+                        "sample": s,
+                        "sample_root": sample_root,
+                        "prompt": prompt,
+                        "rollout_index": rollout_index,
+                        "expected_tools": expected_tools,
+                        "serial_tools": claims,
+                        "queued_monotonic": time.monotonic(),
+                        "blocked_tools": set(),
+                    }
+                )
         print(
             f"[run] selected_tasks={len(selected)} total_claude_invocations={len(jobs)} "
             f"max_workers={max_workers}",
             flush=True,
         )
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    _run_single_rollout,
-                    task=args.task,
-                    sample=s,
-                    sample_root=sample_root,
-                    rollout_index=rollout_index,
-                    num_rollouts=args.num_rollouts,
-                    prompt=prompt,
-                    source_claude_dir=source_claude_dir,
-                    source_claude_md=source_claude_md,
-                    provider=args.provider,
-                    claude_bin=args.claude_bin,
-                    mcp_config_file=mcp_config_file,
-                    strict_mcp_config=bool(args.strict_mcp_config),
-                ): s.row_number
-                for s, sample_root, prompt, rollout_index in jobs
-            }
+            pending = list(jobs)
+            active: dict[Any, dict[str, Any]] = {}
             progress = tqdm(total=len(jobs), desc=f"MolBench-{args.task.upper()}", unit="rollout")
-            for future in as_completed(futures):
-                row_number = futures[future]
-                results_by_row[row_number].append(future.result())
-                progress.update(1)
+            while pending or active:
+                while pending and len(active) < max_workers:
+                    occupied = (
+                        set().union(*(job["serial_tools"] for job in active.values()))
+                        if active
+                        else set()
+                    )
+                    for job in pending:
+                        job["blocked_tools"].update(job["serial_tools"].intersection(occupied))
+                    pending_index = first_admissible_index(
+                        [job["serial_tools"] for job in pending],
+                        [job["serial_tools"] for job in active.values()],
+                    )
+                    if pending_index is None:
+                        break
+                    job = pending.pop(pending_index)
+                    sample = job["sample"]
+                    rollout_index = int(job["rollout_index"])
+                    admission = {
+                        "expected_tools": list(job["expected_tools"]),
+                        "serial_tools": sorted(job["serial_tools"]),
+                        "blocked_by_tools": sorted(job["blocked_tools"]),
+                        "wait_sec": round(
+                            time.monotonic() - float(job["queued_monotonic"]),
+                            4,
+                        ),
+                        "admitted_at": datetime.now().astimezone().isoformat(),
+                    }
+                    admission_by_pair[(sample.row_number, rollout_index)] = admission
+                    print(
+                        f"[admit] row={sample.row_number} idx={sample.dataset_index} "
+                        f"rollout={rollout_index} serial_tools={admission['serial_tools']} "
+                        f"blocked_by={admission['blocked_by_tools']} "
+                        f"wait_sec={admission['wait_sec']}",
+                        flush=True,
+                    )
+                    future = executor.submit(
+                        _run_single_rollout,
+                        task=args.task,
+                        sample=sample,
+                        sample_root=job["sample_root"],
+                        rollout_index=rollout_index,
+                        num_rollouts=args.num_rollouts,
+                        prompt=job["prompt"],
+                        system_prompt=system_prompt,
+                        source_claude_dir=source_claude_dir,
+                        provider=args.provider,
+                        claude_bin=args.claude_bin,
+                        mcp_config_file=mcp_config_file,
+                        strict_mcp_config=bool(args.strict_mcp_config),
+                    )
+                    active[future] = job
+                if not active:
+                    raise RuntimeError("tool admission deadlock with no active rollout")
+                completed, _unfinished = wait(
+                    tuple(active),
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in completed:
+                    job = active.pop(future)
+                    sample = job["sample"]
+                    results_by_row[sample.row_number].append(future.result())
+                    progress.update(1)
             progress.close()
 
         for s in selected:
@@ -1361,6 +1490,10 @@ def main() -> None:
                     "parse_source": rr.parse_source,
                     "parse_attempts": rr.parse_attempts,
                     "raw_answer_len": rr.raw_answer_len,
+                    "tool_admission": admission_by_pair.get(
+                        (s.row_number, rr.rollout_index),
+                        {},
+                    ),
                 }
                 summary_f.write(json.dumps(summary_entry, ensure_ascii=False) + "\n")
                 summary_f.flush()

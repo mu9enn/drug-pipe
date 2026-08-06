@@ -79,6 +79,9 @@ torch-distributed checkpoint，并在 actor 加载完成后同步权重到 SGLan
 fresh system + user question；teacher assistant/observation 不会进入 prompt。每题拥有独立
 MCP session、workspace 和 artifact registry，默认 `MAX_WORKERS=2`。MCP 业务失败作为普通
 observation 允许模型 replanning；连接、进程和协议终止才属于任务级失败。
+每题完成后会原子写入独立 task checkpoint；中断后只有显式 `RESUME_EVAL=1` 且 run fingerprint
+完全匹配时才复用。event loop、MCP transport 和 owner thread 必须在题目结束时完整关闭，不能依靠
+提高 worker 的 file-descriptor limit 掩盖资源泄漏。
 
 ToolRL 默认使用 official reward baseline，MolClaw-adapted reward 是显式实验模式；两者共享
 converter、decision parser 和 trainer。GAD 默认 pure discriminator reward，Stage 3 必须同时

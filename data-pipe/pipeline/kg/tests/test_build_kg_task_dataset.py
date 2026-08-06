@@ -42,6 +42,7 @@ class BuildKgTaskDatasetTest(unittest.TestCase):
                     }
                 ],
                 "walk_hops": 1,
+                "target_fanout_runtime_minutes": 13.2,
                 "expected_trajectory": {
                     "schema_version": "trajectory_v2_graph",
                     "workflow_graph": {
@@ -102,6 +103,7 @@ class BuildKgTaskDatasetTest(unittest.TestCase):
             self.assertEqual(task["toolchain"]["start_tool"], "retrieve_protein_structure_by_gene_name")
             self.assertEqual(task["toolchain"]["end_tool"], "fix_pdb")
             self.assertEqual(task["expected_trajectory"]["schema_version"], "trajectory_v2_graph")
+            self.assertEqual(task["metadata"]["target_fanout_runtime_minutes"], 13.2)
             self.assertEqual(
                 task["expected_trajectory"]["execution_plan"]["tool_order"],
                 sample["toolchain_nodes"],

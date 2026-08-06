@@ -206,6 +206,21 @@ class LargeModelProfileTest(unittest.TestCase):
         self.assertIn('toolrl) require_path "$TOOLRL_DIR/latest_checkpointed_iteration.txt"', serial)
         self.assertIn('"MAX_TOKENS_PER_GPU=6144"', serial)
 
+    def test_formal_serial_run_supports_gad_only_v2_with_complete_negative_cache_gate(self) -> None:
+        serial = (
+            ROOT / "drug_agent/scripts/run_qwen3_large_training_serial.sh"
+        ).read_text()
+        self.assertIn("RUN_GAD_ONLY=${RUN_GAD_ONLY:-0}", serial)
+        self.assertIn("SFT_DIR=${SFT_CHECKPOINT_DIR:-$RUN_ROOT/sft}", serial)
+        self.assertIn("EXPECTED_SFT_RECORDS=${EXPECTED_SFT_RECORDS:-364}", serial)
+        self.assertIn("EXPECTED_TOOLRL_RECORDS=${EXPECTED_TOOLRL_RECORDS:-3182}", serial)
+        self.assertIn("EXPECTED_GAD_RECORDS=${EXPECTED_GAD_RECORDS:-3147}", serial)
+        self.assertIn("NEGATIVE_ROWS == GAD_COUNT", serial)
+        self.assertIn("validate_negative_cache", serial)
+        self.assertIn("collections.Counter(actual) != collections.Counter(expected)", serial)
+        self.assertIn("FORMAL_GAD_MAX_PROMPT_LEN=${FORMAL_GAD_MAX_PROMPT_LEN:-98304}", serial)
+        self.assertIn("FORMAL_GAD_MAX_CONTEXT_LEN=${FORMAL_GAD_MAX_CONTEXT_LEN:-102400}", serial)
+
     def test_122b_external_rollout_disables_unsafe_overlap_schedule(self) -> None:
         profile = (ROOT / "drug_agent/scripts/qwen3_large_profile.sh").read_text()
         server = (
@@ -247,8 +262,10 @@ class LargeModelProfileTest(unittest.TestCase):
         self.assertIn("FORMAL_USE_KL_LOSS=${FORMAL_USE_KL_LOSS:-0}", serial)
         self.assertIn("LR_WARMUP_FRACTION=0.05", serial)
         self.assertIn("ROLLOUT_TEMPERATURE=0.7", serial)
-        self.assertEqual(serial.count("ROLLOUT_MAX_PROMPT_LEN=65536"), 3)
-        self.assertEqual(serial.count("ROLLOUT_MAX_CONTEXT_LEN=69632"), 3)
+        self.assertEqual(serial.count("ROLLOUT_MAX_PROMPT_LEN=65536"), 1)
+        self.assertEqual(serial.count("ROLLOUT_MAX_CONTEXT_LEN=69632"), 1)
+        self.assertEqual(serial.count('ROLLOUT_MAX_PROMPT_LEN="$FORMAL_GAD_MAX_PROMPT_LEN"'), 2)
+        self.assertEqual(serial.count('ROLLOUT_MAX_CONTEXT_LEN="$FORMAL_GAD_MAX_CONTEXT_LEN"'), 2)
 
     def test_resident_colocated_rl_preserves_expandable_allocator(self) -> None:
         for relative in (

@@ -1,0 +1,7 @@
+{
+  "tool_id": "target_tool",
+  "primary_stage": "analysis",
+  "connectable_inputs": [
+    {"slot_path": "input.structure_file", "semantic_type": "protein_structure"}
+  ]
+}

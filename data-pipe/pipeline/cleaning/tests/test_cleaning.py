@@ -20,7 +20,13 @@ from cleaning.llm_clean import (  # noqa: E402
     clean_draft,
     llm_clean,
 )
-from cleaning.models import EXAMPLE_DIR, patch_schema_findings, react_schema_findings  # noqa: E402
+from cleaning.models import (  # noqa: E402
+    EXAMPLE_DIR,
+    LLM_CLEAN_SKILL_DIR,
+    LLM_CLEAN_SYSTEM_PROMPT,
+    patch_schema_findings,
+    react_schema_findings,
+)
 
 
 def sample_record() -> dict:
@@ -66,6 +72,13 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(react_schema_findings(trajectory), [])
         self.assertEqual(patch_schema_findings(patch), [])
         self.assertEqual(validate_final_record(trajectory)["errors"], [])
+
+    def test_skill_requires_machine_generated_targets(self) -> None:
+        skill = (LLM_CLEAN_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Copy every target coordinate exactly from `editable_segments.json`.", skill)
+        self.assertIn("Cover every coordinate listed by `prose_findings.json`", skill)
+        prompt = LLM_CLEAN_SYSTEM_PROMPT.read_text(encoding="utf-8")
+        self.assertIn("/clean-drug-trajectory", prompt)
 
 
 class RestrictedPatchTest(unittest.TestCase):
@@ -183,7 +196,7 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 debug_root=root / "debug",
                 timeout_sec=5,
             )
-            patch, metadata = provider(sample_record(), {"only_molclaw_tool": False})
+            patch, metadata = provider(sample_record(), {"only_molclaw_tool": True})
             self.assertIsNotNone(patch)
             self.assertEqual(metadata["status"], "patch_received")
             self.assertTrue(metadata["raw_session_valid"])
@@ -193,6 +206,40 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             self.assertFalse((canonical.parent / "claude_stdout.txt").exists())
             self.assertFalse((canonical.parent / "claude_stderr.txt").exists())
             self.assertTrue((canonical.parent / "cleaning_context.json").is_file())
+            self.assertTrue(
+                (
+                    canonical.parent
+                    / ".claude/skills/clean-drug-trajectory/SKILL.md"
+                ).is_file()
+            )
+            self.assertIn("Read,Write,Skill", metadata["command"])
+            self.assertNotIn("--disable-slash-commands", metadata["command"])
+            self.assertNotIn("--safe-mode", metadata["command"])
+            self.assertIn("--system-prompt", metadata["command"])
+            self.assertEqual(
+                metadata["command"][metadata["command"].index("--system-prompt") + 1],
+                LLM_CLEAN_SYSTEM_PROMPT.read_text(encoding="utf-8").strip(),
+            )
+            editable = json.loads(
+                (canonical.parent / "editable_segments.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                editable,
+                [
+                    {"message_index": 2, "segment_type": "thought", "segment_index": 0},
+                    {"message_index": 4, "segment_type": "final_summary", "segment_index": 0},
+                ],
+            )
+            findings = json.loads(
+                (canonical.parent / "prose_findings.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [
+                    {key: finding[key] for key in ("message_index", "segment_type", "segment_index")}
+                    for finding in findings
+                ],
+                [editable[0]],
+            )
             self.assertFalse((canonical.parent / "repair_hints.json").exists())
 
     def test_invalid_raw_stream_falls_back_even_if_patch_exists(self) -> None:

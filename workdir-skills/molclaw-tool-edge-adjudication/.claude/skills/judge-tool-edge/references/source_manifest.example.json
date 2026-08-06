@@ -1,0 +1,12 @@
+{
+  "candidate_sources": [
+    {
+      "path_glob": "/absolute/path/to/.claude/skills/L1_tools/**/*source_tool*",
+      "reason": "source_tool_candidate_skill"
+    },
+    {
+      "path_glob": "/absolute/path/to/.claude/skills/L1_tools/**/*target_tool*",
+      "reason": "target_tool_candidate_skill"
+    }
+  ]
+}

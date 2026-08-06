@@ -21,6 +21,7 @@ class LaunchClaudeSmokeTest(unittest.TestCase):
                 "from pathlib import Path\n"
                 "cfg = Path(sys.argv[sys.argv.index('--mcp-config') + 1])\n"
                 "Path('observed_mcp_config.json').write_text(json.dumps(json.loads(cfg.read_text())))\n"
+                "Path('observed_cli_args.json').write_text(json.dumps(sys.argv[1:]))\n"
                 "os.write(1, b'{\"type\":\"system\",\"subtype\":\"init\"}\\n')\n"
                 "os.write(2, b'{\"type\":\"result\",\"result\":\"ok\"}\\n')\n",
                 encoding="utf-8",
@@ -51,16 +52,24 @@ class LaunchClaudeSmokeTest(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
-            canonical_skills = Path(__file__).resolve().parents[4] / "molclaw-skills"
+            canonical_skills = (
+                Path(__file__).resolve().parents[4]
+                / "workdir-skills/molclaw-trajectory-execution"
+            )
             self.assertIn(f"skills_root={canonical_skills}", process.stdout)
             observed_config = json.loads((workdir / "observed_mcp_config.json").read_text())
             timeout = observed_config["mcpServers"]["molclaw-scp"]["timeout"]
             self.assertEqual(timeout, 14_400_000)
             self.assertIs(type(timeout), int)
+            self.assertTrue((workdir / ".claude/skills/execute-molclaw-trajectory/SKILL.md").is_file())
+            self.assertFalse((workdir / "CLAUDE.md").exists())
+            self.assertFalse((workdir / "system_prompt.md").exists())
+            observed_args = json.loads((workdir / "observed_cli_args.json").read_text())
             self.assertEqual(
-                (workdir / "system_prompt_FULL.md").read_bytes(),
-                (canonical_skills / "system_prompt_FULL.md").read_bytes(),
+                observed_args[observed_args.index("--system-prompt") + 1],
+                (canonical_skills / "system_prompt.md").read_text().strip(),
             )
+            self.assertEqual(observed_args[observed_args.index("-p") + 1], "test")
             attempt = workdir / "attempts" / "attempt_0001" / "complete_session.jsonl"
             canonical = workdir / "complete_session.jsonl"
             self.assertEqual(attempt.read_bytes(), canonical.read_bytes())

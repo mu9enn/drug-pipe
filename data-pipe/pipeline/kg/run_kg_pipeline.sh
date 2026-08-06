@@ -13,7 +13,7 @@ PROVIDER="${PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 NUM_ROLLOUTS="${NUM_ROLLOUTS:-1}"
 PARALLEL_ROLLOUTS="${PARALLEL_ROLLOUTS:-1}"
-MAX_WORKERS="${MAX_WORKERS:-1}"
+MAX_WORKERS="${MAX_WORKERS:-2}"
 RESULTS_ROOT="${RESULTS_ROOT:-$ROOT_DIR/results/kg_sampled}"
 SKIP_PROVIDER_SWITCH="${SKIP_PROVIDER_SWITCH:-1}"
 
@@ -29,7 +29,7 @@ Options:
   --claude-bin BIN             Default: claude
   --num-rollouts N             Default: 1
   --parallel-rollouts N        Default: 1
-  --max-workers N              Maximum concurrent Claude invocations. Default: 1
+  --max-workers N              Concurrent KG invocations (1-4). Default: 2
   --results-root PATH          Default: results/kg_sampled
   --skip-provider-switch 0|1   Default: 1
 USAGE
@@ -68,6 +68,23 @@ fi
 if (( MAX_WORKERS <= 0 )); then
   echo "[error] --max-workers must be > 0" >&2
   exit 1
+fi
+if (( MAX_WORKERS > 4 )); then
+  echo "[error] --max-workers must be <= 4 for KG tasks" >&2
+  exit 1
+fi
+if (( MAX_WORKERS > 2 )); then
+  GLOBAL_GATE_CAPACITY="${CLAUDE_GATE_MAX_CONCURRENCY:-4}"
+  DATA_PIPE_GATE_CAPACITY="${CLAUDE_GATE_DATA_PIPE_MAX_CONCURRENCY:-2}"
+  if ! [[ "$GLOBAL_GATE_CAPACITY" =~ ^[1-9][0-9]*$ && "$DATA_PIPE_GATE_CAPACITY" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[error] Claude gate capacities must be positive integers" >&2
+    exit 1
+  fi
+  if (( MAX_WORKERS > GLOBAL_GATE_CAPACITY || MAX_WORKERS > DATA_PIPE_GATE_CAPACITY )); then
+    echo "[error] --max-workers=$MAX_WORKERS exceeds Claude gate capacity "\
+      "(global=$GLOBAL_GATE_CAPACITY data_pipe=$DATA_PIPE_GATE_CAPACITY)" >&2
+    exit 1
+  fi
 fi
 if [[ "$SKIP_PROVIDER_SWITCH" != "0" && "$SKIP_PROVIDER_SWITCH" != "1" ]]; then
   echo "[error] --skip-provider-switch must be 0 or 1" >&2

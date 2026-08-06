@@ -1,0 +1,25 @@
+{
+  "pair_id": "source_tool__to__target_tool",
+  "source": {
+    "tool_id": "source_tool",
+    "primary_stage": "preparation",
+    "aliases": [],
+    "tool_card_file": "source_tool_card.json",
+    "candidate_skill_globs": ["/absolute/path/to/.claude/skills/L1_tools/**/*source_tool*"]
+  },
+  "target": {
+    "tool_id": "target_tool",
+    "primary_stage": "analysis",
+    "aliases": [],
+    "tool_card_file": "target_tool_card.json",
+    "candidate_skill_globs": ["/absolute/path/to/.claude/skills/L1_tools/**/*target_tool*"]
+  },
+  "pair_meta": {
+    "pair_id": "source_tool__to__target_tool",
+    "source_tool": "source_tool",
+    "target_tool": "target_tool",
+    "proposal_reasons": []
+  },
+  "adjudication_goal": "Judge a direct typed edge for this direction.",
+  "must_not_do": ["Do not decide only from generated summaries."]
+}

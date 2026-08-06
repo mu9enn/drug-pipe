@@ -135,8 +135,8 @@ fi
 
 # Every task uses the same canonical MolClaw skills bundle. Dataset defaults
 # remain task-aware.
-: "${SKILLS_ROOT:=$PROJECT_ROOT/molclaw-skills}"
-: "${SYSTEM_PROMPT_FILE:=system_prompt_FULL.md}"
+: "${SKILLS_ROOT:=$PROJECT_ROOT/workdir-skills/molclaw-trajectory-execution}"
+: "${SYSTEM_PROMPT_FILE:=system_prompt.md}"
 if [[ "$TASK" == "vs" ]]; then
   : "${DATASET_CSV:=$REPO_DIR/molbench/molbench-vs-900.csv}"
 elif [[ "$TASK" == "e2e" ]]; then
@@ -225,6 +225,16 @@ if [[ ! -d "$SKILLS_ROOT" ]]; then
   echo "[error] skills root not found: $SKILLS_ROOT" >&2
   exit 1
 fi
+if [[ "$SYSTEM_PROMPT_FILE" = /* ]]; then
+  SYSTEM_PROMPT_PATH="$SYSTEM_PROMPT_FILE"
+else
+  SYSTEM_PROMPT_PATH="$SKILLS_ROOT/$SYSTEM_PROMPT_FILE"
+fi
+if [[ ! -f "$SYSTEM_PROMPT_PATH" ]]; then
+  echo "[error] system prompt not found: $SYSTEM_PROMPT_PATH" >&2
+  exit 1
+fi
+SYSTEM_PROMPT_TEXT="$(cat "$SYSTEM_PROMPT_PATH")"
 echo "[route] task=${TASK} skills_root=${SKILLS_ROOT} system_prompt=${SYSTEM_PROMPT_FILE} mcp_server=${MCP_SERVER_NAME} mcp_scope=${MCP_SERVER_SCOPE}"
 
 if [[ "$RUN_DATASET" -eq 1 ]]; then
@@ -272,7 +282,8 @@ if [[ -n "$PROMPT_FILE" && -n "$PROMPT_TEXT" ]]; then
 fi
 
 mkdir -p "$WORKDIR"
-cp -a "$SKILLS_ROOT"/. "$WORKDIR"/
+mkdir -p "$WORKDIR/.claude"
+cp -a "$SKILLS_ROOT/.claude"/. "$WORKDIR/.claude"/
 
 if [[ -n "$PROMPT_FILE" ]]; then
   if [[ ! -f "$PROMPT_FILE" ]]; then
@@ -302,6 +313,7 @@ set +e
     --output-format stream-json \
     --mcp-config "$MCP_CONFIG_FILE" \
     --strict-mcp-config \
+    --system-prompt "$SYSTEM_PROMPT_TEXT" \
     -p "$PROMPT_TEXT"
 ) > "$ATTEMPT_SESSION" 2>&1
 RC=$?

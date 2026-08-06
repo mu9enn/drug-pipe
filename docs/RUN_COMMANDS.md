@@ -52,7 +52,7 @@ bash pipeline/claude_agent/run_execute.sh \
 ```
 
 执行 canonical KG tasks 时，Launcher 从 `data-pipe/.env` 读取 endpoint/auth，复制仓库根目录的
-`molclaw-skills` 到每个 task workspace，并通过 `--strict-mcp-config` 只注册 `molclaw-scp`：
+`workdir-skills/molclaw-trajectory-execution/.claude` 到每个 task workspace，并通过 `--strict-mcp-config` 只注册 `molclaw-scp`。短 system prompt 与用户任务分别传给 Claude CLI：
 
 ```bash
 cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/data-pipe
@@ -259,6 +259,22 @@ bash drug_agent/scripts/run_molbench_eval.sh
 
 这也是脚本默认值：`MAX_STEPS=0` 表示不限制 assistant decision steps；
 `TASK_TIMEOUT_SEC=10800` 以每题 3 小时总超时作为死循环和异常长任务的终止保护。
+
+若进程中断，使用原来的 `RUN_NAME` 和完全相同的 checkpoint、数据、工具、skills、模型拓扑及生成
+参数显式续跑：
+
+```bash
+RUN_NAME=<原运行名> \
+RESUME_EVAL=1 \
+MODEL_CHECKPOINT=/path/to/slime/checkpoint_root \
+MOLBENCH_ROOT=/path/to/molbench \
+MAX_WORKERS=2 \
+bash drug_agent/scripts/run_molbench_eval.sh
+```
+
+每题完成后会立即写入 `task_results/`，同时原子刷新 `partial_results.jsonl` 和 `progress.json`。
+resume fingerprint 不一致会在占用 GPU 前失败；默认不带 `RESUME_EVAL=1` 时也不会覆盖已有 task
+checkpoint。只有全量题目完成后才生成正式 `predictions.jsonl`、`traces.jsonl` 和官方 metrics。
 
 若 GPU worker 无外网，先在可访问集群 HTTP proxy 的 no-GPU 开发机启动已有纯字节 relay：
 

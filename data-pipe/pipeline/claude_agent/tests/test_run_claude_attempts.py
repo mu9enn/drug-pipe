@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -43,6 +44,11 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
             skills = root / "skills"
             skills.mkdir()
             (skills / "CLAUDE.md").write_text("test", encoding="utf-8")
+            (skills / ".claude/skills/execute-molclaw-trajectory").mkdir(parents=True)
+            (skills / ".claude/skills/execute-molclaw-trajectory/SKILL.md").write_text(
+                "---\nname: execute-molclaw-trajectory\ndescription: Test skill.\n---\n",
+                encoding="utf-8",
+            )
             prompt = root / "prompt.md"
             prompt.write_text("test prompt", encoding="utf-8")
             mcp_config = root / "mcp.json"
@@ -61,10 +67,23 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                 encoding="utf-8",
             )
             dataset = root / "tasks.csv"
-            dataset.write_text(
-                "question_id,question,answer\n1,question one,\n2,question two,\n3,question three,\n",
-                encoding="utf-8",
-            )
+            with dataset.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(
+                    stream,
+                    fieldnames=["question_id", "question", "answer", "raw_question_json"],
+                )
+                writer.writeheader()
+                for index in range(1, 4):
+                    writer.writerow(
+                        {
+                            "question_id": index,
+                            "question": f"question {index}",
+                            "answer": "",
+                            "raw_question_json": json.dumps(
+                                {"toolchain": {"tools": ["is_valid_smiles"]}}
+                            ),
+                        }
+                    )
             state = root / "state.json"
             state.write_text('{"active":0,"peak":0}', encoding="utf-8")
             fake = root / "fake-claude"
@@ -180,8 +199,8 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     rollout_index=0,
                     num_rollouts=1,
                     prompt="prompt",
+                    system_prompt="Invoke /execute-molclaw-trajectory.",
                     source_claude_dir=skills,
-                    source_claude_md=claude_md,
                     provider="test",
                     claude_bin=str(fake),
                     mcp_config_file=mcp_config,
@@ -271,8 +290,8 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     rollout_index=0,
                     num_rollouts=1,
                     prompt="prompt",
+                    system_prompt="Invoke /execute-molclaw-trajectory.",
                     source_claude_dir=skills,
-                    source_claude_md=claude_md,
                     provider="test",
                     claude_bin=str(fake),
                     mcp_config_file=mcp_config,
@@ -365,8 +384,8 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     rollout_index=0,
                     num_rollouts=1,
                     prompt="prompt",
+                    system_prompt="Invoke /execute-molclaw-trajectory.",
                     source_claude_dir=skills,
-                    source_claude_md=claude_md,
                     provider="test",
                     claude_bin=str(fake),
                     mcp_config_file=None,

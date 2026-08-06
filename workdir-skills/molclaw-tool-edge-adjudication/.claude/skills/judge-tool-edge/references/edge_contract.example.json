@@ -1,0 +1,89 @@
+{
+  "version": "edge_ontology_v2",
+  "relation_statuses": [
+    "valid",
+    "negative",
+    "uncertain",
+    "alternative"
+  ],
+  "edge_types": {
+    "generates_full_input_for": {
+      "definition": "The source provides all non-user-supplied required data inputs needed for direct execution of the target.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "generates_partial_input_for": {
+      "definition": "The source provides at least one meaningful required target input while other required inputs remain unsatisfied.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "preprocesses_for": {
+      "definition": "The source prepares or repairs scientific data specifically for direct use by the target.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "converts_format_for": {
+      "definition": "The source converts an artifact into a format directly consumed by the target.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "parameterizes_for": {
+      "definition": "The source produces parameters or configuration data directly consumed by the target.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "filters_candidates_for": {
+      "definition": "The source filters a candidate collection that is subsequently consumed by the target.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "ranks_or_scores_for": {
+      "definition": "The source ranks or scores candidates for subsequent target processing.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "validates_output_of": {
+      "definition": "The target validates a scientific output produced by the source.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "refines_output_of": {
+      "definition": "The target refines or improves a scientific output produced by the source.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "reports_or_summarizes": {
+      "definition": "The target reports, visualizes, or summarizes a scientific output produced by the source.",
+      "allowed_statuses": [
+        "valid"
+      ],
+      "requires_slot_mapping": true
+    },
+    "alternative_to": {
+      "definition": "The tools provide substitutable capabilities for the same scientific role under comparable inputs and outputs.",
+      "allowed_statuses": [
+        "alternative"
+      ],
+      "requires_slot_mapping": false
+    }
+  }
+}
+

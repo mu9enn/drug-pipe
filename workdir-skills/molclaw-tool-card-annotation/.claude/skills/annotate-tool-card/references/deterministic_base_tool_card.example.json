@@ -1,0 +1,19 @@
+{
+  "tool_id": "calculate_example_metric",
+  "title": "calculate_example_metric",
+  "description_summary": "Calculate a representative molecular metric.",
+  "primary_stage": "property_analysis",
+  "scheduling_stages": ["property_analysis"],
+  "aliases": [],
+  "schema_slots": [],
+  "slot_annotations": {},
+  "skill_derived_slots": [],
+  "inputs": [],
+  "outputs": [],
+  "connectable_inputs": [],
+  "connectable_outputs": [],
+  "input_requirement_sets": [],
+  "preconditions": [],
+  "side_effects": [],
+  "needs_review": false
+}

@@ -232,6 +232,9 @@ slime-wd/outputs/slime_drug_agent_evals/<run_name>/
 ├── tool_catalog.json
 ├── molbench_eval.jsonl
 ├── overlap_audit.jsonl
+├── task_results/<task-id-hash>.json   # 每题完成后原子写入的 resume authority
+├── partial_results.jsonl              # 已 checkpoint 题目的轻量状态/预测快照
+├── progress.json                      # expected/checkpointed/remaining 计数
 ├── predictions.jsonl
 ├── traces.jsonl
 ├── metrics.json
@@ -239,6 +242,11 @@ slime-wd/outputs/slime_drug_agent_evals/<run_name>/
 ├── artifact_audit.jsonl
 └── workspaces/<task_id>__<sample_index>/
 ```
+
+`task_results/` 在每题返回后立即写入，任务级 trace、prediction、status 和 artifact audit 不依赖
+全量 evaluation logger 才能保存。同一 run 使用 `RESUME_EVAL=1` 时，preflight 必须验证 checkpoint、
+输入文件、实时 tool catalog、L1 skills、模型拓扑及生成设置的联合 fingerprint；匹配的题目直接恢复，
+不重新生成或调用工具。正式 `predictions/traces/metrics` 仍只在全部题目齐全后发布。
 
 当前 held-out adapter 固定选择 MS-1 50、MS-2 33、MS-3 25 和 MO 78，共 186 题。
 MS-2 的4个 exact normalized prompt overlap 单独进入 audit；MO 源数据缺少的41条 target

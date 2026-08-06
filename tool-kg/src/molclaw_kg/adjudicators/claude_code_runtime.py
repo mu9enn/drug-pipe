@@ -188,6 +188,7 @@ class ClaudeCodeRunResult:
     provider_switch_ok: bool
     provider_switch_message: str
     prompt_sha256: str
+    system_prompt_sha256: str | None
     mcp_config_sha256: str | None
     mcp_server_name: str
     mcp_server_url: str
@@ -243,6 +244,7 @@ class ClaudeCodeRuntime:
         prompt: str,
         *,
         run_label: str,
+        system_prompt: str | None = None,
         add_dirs: list[Path] | None = None,
         builtin_tools: str | None = None,
         allowed_tools: str | None = None,
@@ -252,6 +254,7 @@ class ClaudeCodeRuntime:
         expected_mcp_servers: list[str] | None = None,
     ) -> ClaudeCodeRunResult:
         prompt_hash = sha256_text(prompt)
+        system_prompt_hash = sha256_text(system_prompt) if system_prompt else None
         # provider_ok, provider_msg = self.switch_provider()
         # if not provider_ok:
         #     return ClaudeCodeRunResult(
@@ -299,6 +302,8 @@ class ClaudeCodeRuntime:
                 cmd.extend(["--allowedTools", allowed_tools])
             if disallowed_tools:
                 cmd.extend(["--disallowedTools", disallowed_tools])
+            if system_prompt:
+                cmd.extend(["--system-prompt", system_prompt])
             cmd.append("-p")
 
             actual_workdir = (workdir or self.config.paths.root).resolve()
@@ -398,6 +403,7 @@ class ClaudeCodeRuntime:
             provider_switch_ok=True,
             provider_switch_message=provider_msg,
             prompt_sha256=prompt_hash,
+            system_prompt_sha256=system_prompt_hash,
             mcp_config_sha256=mcp_cfg_hash,
             mcp_server_name=self.mcp_server_name,
             mcp_server_url=self.mcp_server_url,

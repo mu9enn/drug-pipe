@@ -244,3 +244,138 @@ class MCPExecutorTaskAffinityTest(unittest.TestCase):
 
         self.assertEqual(len(FakeClient.instances), 1)
         self.assertEqual(len(set(FakeClient.instances[0].task_ids)), 1)
+
+    def test_repeated_executor_close_releases_threads_loops_and_file_descriptors(self):
+        class FakeClient:
+            def __init__(self, **_kwargs):
+                self.connected = False
+
+            async def connect(self):
+                self.connected = True
+
+            async def disconnect(self):
+                self.connected = False
+
+        fd_root = Path("/proc/self/fd")
+        before = len(list(fd_root.iterdir())) if fd_root.is_dir() else None
+        env = {
+            **os.environ,
+            "DRUG_AGENT_ALLOW_TOOL_ENV": "1",
+            "DRUG_AGENT_TRAINING_OFFLINE": "0",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "drug_agent.tools.tool_executor.MCPClient", FakeClient
+        ):
+            for _ in range(80):
+                executor = MCPToolExecutor(connect_on_init=False)
+                owner_thread = executor._thread
+                owner_loop = executor._loop
+                executor.close()
+                executor.close()  # idempotent teardown is required by finally paths
+                self.assertFalse(owner_thread.is_alive())
+                self.assertTrue(owner_loop.is_closed())
+
+        if before is not None:
+            after = len(list(fd_root.iterdir()))
+            self.assertLessEqual(after, before + 3, f"file descriptor growth: before={before}, after={after}")
+
+    def test_constructor_connection_failures_do_not_leak_file_descriptors(self):
+        class FailingClient:
+            def __init__(self, **_kwargs):
+                self.connected = False
+
+            async def connect(self):
+                raise RuntimeError("fake connection failure")
+
+            async def disconnect(self):
+                self.connected = False
+
+        fd_root = Path("/proc/self/fd")
+        before = len(list(fd_root.iterdir())) if fd_root.is_dir() else None
+        env = {
+            **os.environ,
+            "DRUG_AGENT_ALLOW_TOOL_ENV": "1",
+            "DRUG_AGENT_TRAINING_OFFLINE": "0",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "drug_agent.tools.tool_executor.MCPClient", FailingClient
+        ):
+            for _ in range(40):
+                with self.assertRaisesRegex(RuntimeError, "fake connection failure"):
+                    MCPToolExecutor(connect_on_init=True)
+
+        if before is not None:
+            after = len(list(fd_root.iterdir()))
+            self.assertLessEqual(after, before + 3, f"file descriptor growth: before={before}, after={after}")
+
+    def test_connect_timeout_cancels_owner_operation_before_close(self):
+        class SlowClient:
+            def __init__(self, **_kwargs):
+                self.connected = False
+                self.disconnect_task_ids = []
+
+            async def connect(self):
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    self.disconnect_task_ids.append(id(asyncio.current_task()))
+                    raise
+
+            async def disconnect(self):
+                self.connected = False
+
+        env = {
+            **os.environ,
+            "DRUG_AGENT_ALLOW_TOOL_ENV": "1",
+            "DRUG_AGENT_TRAINING_OFFLINE": "0",
+            "MOLCLAW_CONNECT_TIMEOUT_SEC": "0.02",
+            "MOLCLAW_CONNECT_MAX_ATTEMPTS": "1",
+            "MOLCLAW_TIMEOUT_CLEANUP_GRACE_SEC": "0.2",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "drug_agent.tools.tool_executor.MCPClient", SlowClient
+        ):
+            executor = MCPToolExecutor(connect_on_init=False)
+            owner_thread = executor._thread
+            with self.assertRaisesRegex(TimeoutError, "MCP connect timeout"):
+                executor.list_tools()
+            executor.close()
+            self.assertFalse(owner_thread.is_alive())
+            self.assertTrue(executor._loop.is_closed())
+
+    def test_transient_connect_failure_is_retried(self):
+        class FlakyClient:
+            def __init__(self, **_kwargs):
+                self.connected = False
+                self.attempts = 0
+
+            async def connect(self):
+                self.attempts += 1
+                if self.attempts < 3:
+                    raise RuntimeError("temporary proxy failure")
+                self.connected = True
+                return True
+
+            async def list_tools(self):
+                return {"tools": [{"name": "fix_pdb", "inputSchema": {}}]}
+
+            async def disconnect(self):
+                self.connected = False
+
+        env = {
+            **os.environ,
+            "DRUG_AGENT_ALLOW_TOOL_ENV": "1",
+            "DRUG_AGENT_TRAINING_OFFLINE": "0",
+            "MOLCLAW_CONNECT_MAX_ATTEMPTS": "3",
+            "MOLCLAW_CONNECT_RETRY_BACKOFF_SEC": "0.001",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "drug_agent.tools.tool_executor.MCPClient", FlakyClient
+        ):
+            executor = MCPToolExecutor(connect_on_init=False)
+            try:
+                tools = executor.list_tools()
+                self.assertEqual([item["name"] for item in tools], ["fix_pdb"])
+                self.assertEqual(executor._client.attempts, 3)
+            finally:
+                executor.close()

@@ -1,0 +1,12 @@
+{
+  "candidate_sources": [
+    {
+      "path_glob": "/absolute/path/to/.claude/skills/L1_tools/**/*calculate_example_metric*",
+      "reason": "canonical tool skill"
+    },
+    {
+      "path_glob": "/absolute/path/to/.claude/skills/L2_workflows/**/*",
+      "reason": "workflow context"
+    }
+  ]
+}

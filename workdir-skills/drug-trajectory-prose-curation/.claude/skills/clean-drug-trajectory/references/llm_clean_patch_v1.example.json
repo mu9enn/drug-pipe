@@ -1,0 +1,18 @@
+{
+  "schema_version": "llm_clean_patch_v1",
+  "sample_id": "react_kg_example_0001",
+  "edits": [
+    {
+      "message_index": 2,
+      "segment_type": "thought",
+      "segment_index": 0,
+      "replacement": "Retrieve the experimentally resolved structure before attempting repair."
+    },
+    {
+      "message_index": 6,
+      "segment_type": "final_summary",
+      "segment_index": 0,
+      "replacement": "The example structure was retrieved and repaired successfully."
+    }
+  ]
+}

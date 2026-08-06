@@ -20,7 +20,17 @@ class SamplingConfigTest(unittest.TestCase):
         self.assertEqual(default.values["mode"], "simple_toolchain_question")
         self.assertEqual(default.values["target_successes"], 20)
         self.assertEqual(default.values["semantic_repair_rounds"], 1)
-        self.assertTrue(default.prompt_path.name.endswith("toolchain_question_simple_v1.md"))
+        self.assertEqual(
+            default.values["fanout_runtime_target"],
+            {
+                "distribution": "normal_exponent",
+                "arithmetic_mean_minutes": 15,
+                "plus_3sigma_minutes": 60,
+            },
+        )
+        self.assertEqual(default.prompt_path.name, "generate.md")
+        self.assertEqual(default.prompt_path.parent.name, "user_prompts")
+        self.assertEqual(default.prompt_path.parent.parent.name, "grounded-molclaw-task-generation")
 
         overridden = resolve_sampling_profile(
             config,

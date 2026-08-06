@@ -3,9 +3,9 @@ version: question_sampling_profiles_v1
 profiles:
   simple_default:
     mode: simple_toolchain_question
-    prompt: prompts/toolchain_question_simple_v1.md
-    json_repair_prompt: prompts/toolchain_question_json_repair_v1.md
-    semantic_repair_prompt: prompts/toolchain_question_semantic_repair_v1.md
+    prompt: ../../workdir-skills/grounded-molclaw-task-generation/user_prompts/generate.md
+    json_repair_prompt: ../../workdir-skills/grounded-molclaw-task-generation/user_prompts/json_repair.md
+    semantic_repair_prompt: ../../workdir-skills/grounded-molclaw-task-generation/user_prompts/semantic_repair.md
     min_hops: 2
     max_hops: 4
     target_successes: 20
@@ -17,5 +17,9 @@ profiles:
     max_repeat_compound: 2
     json_repair_rounds: 1
     semantic_repair_rounds: 1
+    fanout_runtime_target:
+      distribution: normal_exponent
+      arithmetic_mean_minutes: 15
+      plus_3sigma_minutes: 60
     partial_edge_policy: allow_if_closure_satisfied
     tool_leak_policy: warn

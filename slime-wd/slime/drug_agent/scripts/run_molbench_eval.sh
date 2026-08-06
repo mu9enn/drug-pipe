@@ -13,6 +13,8 @@ EVAL_MODE=${EVAL_MODE:-molbench}
 MOLBENCH_ROOT=${MOLBENCH_ROOT:-$WD/molbench}
 MOLBENCH_SUITES=${MOLBENCH_SUITES:-}
 MOLBENCH_LIMIT_PER_SUITE=${MOLBENCH_LIMIT_PER_SUITE:-0}
+RESUME_EVAL=${RESUME_EVAL:-0}
+RETRY_NON_FINAL=${RETRY_NON_FINAL:-1}
 PROMPT_FILE=${PROMPT_FILE:-}
 PROMPT_SUITE_FILE=${PROMPT_SUITE_FILE:-}
 TASK_TYPE=${TASK_TYPE:-e2e}
@@ -26,7 +28,17 @@ TASK_TIMEOUT_SEC=${TASK_TIMEOUT_SEC:-10800}
 RUN_NAME=${RUN_NAME:-molbench_$(basename "$MODEL_CHECKPOINT")_$(date +%Y%m%d_%H%M%S)}
 DRUG_AGENT_EVAL_ROOT=${DRUG_AGENT_EVAL_ROOT:-${OUTPUTS_ROOT:-$WD/outputs}/slime_drug_agent_evals}
 DRUG_AGENT_EVAL_RUN_DIR=${DRUG_AGENT_EVAL_RUN_DIR:-$DRUG_AGENT_EVAL_ROOT/$RUN_NAME}
-DRUG_AGENT_L1_SKILLS_ROOT=${DRUG_AGENT_L1_SKILLS_ROOT:-$GROUP_SPACE/drug-pipe/molclaw-skills/.claude/skills/L1_tools}
+DRUG_AGENT_L1_SKILLS_ROOT=${DRUG_AGENT_L1_SKILLS_ROOT:-$GROUP_SPACE/drug-pipe/workdir-skills/molclaw-trajectory-execution/.claude/skills/L1_tools}
+case "${RESUME_EVAL,,}" in
+  0|false|no|off) RESUME_EVAL=0 ;;
+  1|true|yes|on) RESUME_EVAL=1 ;;
+  *) echo "RESUME_EVAL must be 0 or 1" >&2; exit 2 ;;
+esac
+case "${RETRY_NON_FINAL,,}" in
+  0|false|no|off) RETRY_NON_FINAL=0 ;;
+  1|true|yes|on) RETRY_NON_FINAL=1 ;;
+  *) echo "RETRY_NON_FINAL must be 0 or 1" >&2; exit 2 ;;
+esac
 
 case "$MODEL_CHECKPOINT" in
   *9B*|*9b*)
@@ -116,6 +128,7 @@ export DRUG_AGENT_TRAINING_OFFLINE=0
 export DRUG_AGENT_MAX_WORKERS="$MAX_WORKERS"
 export DRUG_AGENT_MAX_STEPS="$MAX_STEPS"
 export DRUG_AGENT_TASK_TIMEOUT_SEC="$TASK_TIMEOUT_SEC"
+export DRUG_AGENT_EVAL_RETRY_NON_FINAL="$RETRY_NON_FINAL"
 export DRUG_AGENT_WORKSPACES_ROOT="$DRUG_AGENT_EVAL_RUN_DIR/workspaces"
 export DRUG_AGENT_EVAL_RUN_DIR MOLBENCH_ROOT DRUG_AGENT_L1_SKILLS_ROOT DRUG_AGENT_WORKSPACES_ROOT
 
@@ -132,6 +145,8 @@ elif [[ "$EVAL_MODE" == "prompt_suite" ]]; then
 else
   PREFLIGHT_INPUT_ARGS+=(--prompt-file "$PROMPT_FILE" --task-type "$TASK_TYPE" --task-id "$TASK_ID")
 fi
+PREFLIGHT_RESUME_ARGS=()
+[[ "$RESUME_EVAL" == "1" ]] && PREFLIGHT_RESUME_ARGS+=(--resume)
 python -m drug_agent.evaluation.preflight \
   --checkpoint "$MODEL_CHECKPOINT" \
   --run-dir "$DRUG_AGENT_EVAL_RUN_DIR" \
@@ -146,6 +161,7 @@ python -m drug_agent.evaluation.preflight \
   --num-gpus "$NUM_GPUS" \
   --tensor-model-parallel-size "$TENSOR_MODEL_PARALLEL_SIZE" \
   --pipeline-model-parallel-size "$PIPELINE_MODEL_PARALLEL_SIZE" \
+  "${PREFLIGHT_RESUME_ARGS[@]}" \
   "${PREFLIGHT_INPUT_ARGS[@]}" \
   "${ENV_FILE_ARGS[@]}"
 
@@ -161,6 +177,18 @@ else
   EVAL_LOGGER=drug_agent.evaluation.prompt_logger.log_eval_rollout_data
   EVAL_TASK_COUNT=$(wc -l < "$EVAL_DATASET")
 fi
+DRUG_AGENT_EVAL_RUN_FINGERPRINT=$(python - "$DRUG_AGENT_EVAL_RUN_DIR/run_manifest.json" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("resume_fingerprint")
+if not isinstance(value, str) or not value:
+    raise SystemExit("run manifest is missing resume_fingerprint")
+print(value)
+PY
+)
+export DRUG_AGENT_EVAL_RUN_FINGERPRINT
+export DRUG_AGENT_EVAL_RESUME="$RESUME_EVAL"
+export DRUG_AGENT_EVAL_RETRY_NON_FINAL="$RETRY_NON_FINAL"
+export DRUG_AGENT_EVAL_EXPECTED_TASK_COUNT="$EVAL_TASK_COUNT"
 python - "$EVAL_CONFIG" "$EVAL_DATASET" "$TEMPERATURE" "$MAX_NEW_TOKENS" <<'PY'
 import sys
 from pathlib import Path
@@ -214,6 +242,8 @@ keys = [
     "DRUG_AGENT_EVAL_RUN_DIR", "MOLBENCH_ROOT", "DRUG_AGENT_L1_SKILLS_ROOT",
     "DRUG_AGENT_WORKSPACES_ROOT", "DRUG_AGENT_MAX_WORKERS", "DRUG_AGENT_MAX_STEPS",
     "DRUG_AGENT_TASK_TIMEOUT_SEC", "DRUG_AGENT_EXPECTED_TOOL_CATALOG",
+    "DRUG_AGENT_EVAL_RUN_FINGERPRINT", "DRUG_AGENT_EVAL_RESUME",
+    "DRUG_AGENT_EVAL_RETRY_NON_FINAL", "DRUG_AGENT_EVAL_EXPECTED_TASK_COUNT",
 ]
 env = {key: value for key in keys if (value := os.environ.get(key))}
 env.update({
@@ -248,8 +278,12 @@ if [[ "${SGLANG_DISABLE_CUSTOM_ALL_REDUCE:-1}" == "1" ]]; then
   SGLANG_RUNTIME_ARGS+=(--sglang-disable-custom-all-reduce)
 fi
 
-RAY_SUBMIT_LOG="$DRUG_AGENT_EVAL_RUN_DIR/ray_submit.log"
-echo "[drug-agent eval] mode=$EVAL_MODE checkpoint=$MODEL_CHECKPOINT run_dir=$DRUG_AGENT_EVAL_RUN_DIR tasks=$EVAL_TASK_COUNT workers=$MAX_WORKERS"
+if [[ "$RESUME_EVAL" == "1" ]]; then
+  RAY_SUBMIT_LOG="$DRUG_AGENT_EVAL_RUN_DIR/ray_submit_resume_$(date +%Y%m%d_%H%M%S).log"
+else
+  RAY_SUBMIT_LOG="$DRUG_AGENT_EVAL_RUN_DIR/ray_submit.log"
+fi
+echo "[drug-agent eval] mode=$EVAL_MODE checkpoint=$MODEL_CHECKPOINT run_dir=$DRUG_AGENT_EVAL_RUN_DIR tasks=$EVAL_TASK_COUNT workers=$MAX_WORKERS resume=$RESUME_EVAL retry_non_final=$RETRY_NON_FINAL"
 set +e
 ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV_JSON" -- \
   python3 train.py \

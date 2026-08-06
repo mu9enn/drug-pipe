@@ -55,8 +55,8 @@ if [[ -z "$DATASET_CSV" ]]; then
   fi
 fi
 
-SKILLS_ROOT="$PROJECT_ROOT/molclaw-skills"
-SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt_FULL.md"
+SKILLS_ROOT="$PROJECT_ROOT/workdir-skills/molclaw-trajectory-execution"
+SYSTEM_PROMPT_FILE="$SKILLS_ROOT/system_prompt.md"
 
 RESULTS_ROOT="$REPO_DIR/results"
 LAUNCH_SCRIPT="$PIPELINE_DIR/claude_agent/launch_claude.sh"

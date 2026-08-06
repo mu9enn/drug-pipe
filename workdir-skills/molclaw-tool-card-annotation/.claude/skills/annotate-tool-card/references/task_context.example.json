@@ -1,0 +1,10 @@
+{
+  "tool_id": "calculate_example_metric",
+  "snapshot_file": "tool_snapshot_row.json",
+  "base_card_file": "deterministic_base_tool_card.json",
+  "source_manifest_file": "source_manifest.json",
+  "output_schema_file": "output_schema.json",
+  "canonical_skill_root": "/absolute/path/to/molclaw-trajectory-execution/.claude/skills",
+  "schema_fact_policy": "immutable",
+  "taxonomy_stage_policy": "not_agent_output"
+}

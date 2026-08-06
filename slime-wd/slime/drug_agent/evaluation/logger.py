@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from drug_agent.evaluation.official_eval import run_official_evaluation
+from drug_agent.evaluation.task_store import RUN_FINGERPRINT_ENV, load_records
 from drug_agent.utils import to_jsonable, utc_now_iso, write_json, write_jsonl
 
 
@@ -18,7 +19,9 @@ def _entry(sample: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]
     trace = metadata.get("drug_agent_trace") if isinstance(metadata.get("drug_agent_trace"), dict) else {}
     trace_copy = to_jsonable(trace)
     artifact_audit = trace_copy.pop("artifact_audit", {}) if isinstance(trace_copy, dict) else {}
-    prediction = trace.get("projected_final_answer")
+    # A partial or failed trajectory is not a benchmark answer even if a
+    # stale/intermediate projection happens to be present in metadata.
+    prediction = trace.get("projected_final_answer") if trace.get("done_reason") == "final_answer" else None
     common = {
         "id": env.get("task_id"),
         "task_type": env.get("task_type"),
@@ -90,6 +93,18 @@ def log_eval_rollout_data(rollout_id, args, data, extra_metrics) -> bool:
             grouped[(group, subtask)].append(pred)
             if common.get("done_reason") != "final_answer":
                 failures.append(common)
+
+    run_fingerprint = os.environ.get(RUN_FINGERPRINT_ENV, "").strip()
+    if run_fingerprint:
+        checkpoint_ids = {record.get("id") for record in load_records(run_dir, run_fingerprint=run_fingerprint)}
+        result_ids = {row.get("id") for row in predictions}
+        if checkpoint_ids != result_ids or len(result_ids) != len(predictions):
+            raise RuntimeError(
+                "final evaluation data does not match atomically checkpointed tasks: "
+                f"results={len(predictions)}, checkpoints={len(checkpoint_ids)}, "
+                f"missing_checkpoints={sorted(result_ids - checkpoint_ids)}, "
+                f"missing_results={sorted(checkpoint_ids - result_ids)}"
+            )
 
     write_jsonl(run_dir / "predictions.jsonl", predictions)
     write_jsonl(run_dir / "traces.jsonl", traces)

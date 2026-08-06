@@ -37,9 +37,13 @@ Manage this pipeline as a resumable production system, not as a sequence of ad h
 ## Enforce the production invariants
 
 - Route every Claude call through `runtime/claude`; keep the global limit at 4.
-- Permit at most 2 Data-Pipe rollouts, each with `--max-workers 1`. The two rollouts must use different raw run directories.
+- Run one KG Data-Pipe controller with tool-aware admission. Use `--max-workers 2`
+  by default and never exceed 4. Tasks whose expected toolchains share the same
+  limit-4 MolClaw tool must not overlap; different compute tools may run in
+  parallel.
 - Never run two controllers against the same `--resume-run-dir`. Resume in place and honor `.data_pipe_resume.lock`.
-- Allocate LLM-clean workers as `4 - active_data_pipe_count`: 4, 3, or 2.
+- Allocate LLM-clean workers from Claude slots not currently occupied by active
+  Data-Pipe invocations; never exceed the global limit of 4.
 - Preserve the user's selected provider. Keep `CLAUDE_PROVIDER=` in generic production invocations unless the user explicitly authorizes a switch. Do not restore peak/off-peak scheduling unless requested.
 - Use `API_TIMEOUT_MS=1800000`, `LLM_CLEAN_TIMEOUT_SEC=3600`, `MOLCLAW_MCP_TOOL_TIMEOUT_MS=14400000`, `CLAUDE_CODE_MAX_RETRIES=10`, and `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000` unless current code/user requirements supersede them.
 - Do not pass `--only-molclaw-tool` during cleaning. Retain supported local tool calls alongside MolClaw calls.

@@ -5,14 +5,33 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from molclaw_kg.settings import build_config
 from molclaw_kg.stage_taxonomy import load_stage_taxonomy
+from molclaw_kg.workdir_skills import install_scene
 
 
 class ConfigControlPlaneTest(unittest.TestCase):
+    def test_scene_install_does_not_overlay_other_bundles(self) -> None:
+        tool_kg_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as td:
+            config = SimpleNamespace(
+                runtime=SimpleNamespace(
+                    workdir_skills_root=tool_kg_root.parent / "workdir-skills"
+                )
+            )
+            workdir = Path(td) / "workdir"
+            install_scene(config, workdir, "molclaw-tool-card-annotation")
+
+            self.assertTrue(
+                (workdir / ".claude/skills/annotate-tool-card/SKILL.md").is_file()
+            )
+            self.assertFalse((workdir / ".claude/skills/L1_tools").exists())
+            self.assertFalse((workdir / ".claude/skills/judge-tool-edge").exists())
+
     def test_default_skills_root_is_the_repository_canonical_bundle(self) -> None:
         tool_kg_root = Path(__file__).resolve().parents[1]
         with mock.patch.object(Path, "mkdir"):
@@ -20,11 +39,15 @@ class ConfigControlPlaneTest(unittest.TestCase):
 
         self.assertEqual(
             config.runtime.skills_root,
-            tool_kg_root.parent / "molclaw-skills",
+            tool_kg_root.parent / "workdir-skills/molclaw-trajectory-execution",
+        )
+        self.assertEqual(
+            config.runtime.workdir_skills_root,
+            tool_kg_root.parent / "workdir-skills",
         )
         self.assertTrue((config.runtime.skills_root / "CLAUDE.md").is_file())
         self.assertTrue(
-            (config.runtime.skills_root / "system_prompt_FULL.md").is_file()
+            (config.runtime.skills_root / "system_prompt.md").is_file()
         )
 
     def test_build_config_does_not_load_unrelated_stage_configs(self) -> None:

@@ -27,7 +27,7 @@ export CLAUDE_BIN="$REPO/runtime/claude"
 
 export CLAUDE_GATE_ROOT="$REPO/.runtime/claude_gate"
 export CLAUDE_GATE_MAX_CONCURRENCY=4
-export CLAUDE_GATE_DATA_PIPE_MAX_CONCURRENCY=2
+export CLAUDE_GATE_DATA_PIPE_MAX_CONCURRENCY=2  # set explicitly to 3 or 4 only when requested
 export CLAUDE_GATE_TRACK_ADMISSION=1
 export CLAUDE_GATE_SCHEDULE_ENABLED=0
 
@@ -53,7 +53,8 @@ Confirm live work:
 pgrep -af 'pipeline/claude_agent/run_claude.py|pipeline/kg/run_kg_pipeline.sh|pipeline.cleaning.llm_clean'
 ```
 
-Resolve every Data-Pipe process's `--resume-run-dir` or results root. At most two distinct raw runs may be active.
+Resolve every Data-Pipe process's results root. Use one KG controller for a
+batch; its tool-aware admission owns concurrency within that run.
 
 ## 2. Task preparation
 
@@ -106,7 +107,7 @@ bash pipeline/kg/run_kg_pipeline.sh \
   --claude-bin "$CLAUDE_BIN" \
   --num-rollouts 1 \
   --parallel-rollouts 1 \
-  --max-workers 1 \
+  --max-workers 2 \
   --results-root "$RAW_RESULTS_ROOT" \
   --skip-provider-switch 1
 ```
@@ -120,7 +121,7 @@ bash pipeline/kg/run_kg_pipeline.sh \
   --claude-bin "$CLAUDE_BIN" \
   --num-rollouts 1 \
   --parallel-rollouts 1 \
-  --max-workers 1 \
+  --max-workers 2 \
   --results-root "$RAW_RESULTS_ROOT" \
   --resume-run-dir "$RAW_RUN_DIR" \
   --skip-provider-switch 1
@@ -170,15 +171,20 @@ Do not publish a `debug/` directory or patch file as final output.
 
 ## 5. Concurrency
 
-The wrapper enforces global Claude concurrency 4 and Data-Pipe concurrency 2.
+The wrapper enforces global Claude concurrency 4. KG Data-Pipe defaults to 2
+workers and may be explicitly raised to at most 4 when both gate capacities
+match. The runner serializes tasks whose expected toolchains share the same
+limit-4 MolClaw tool; limit-30 tools do not create task-level exclusions.
 
-| Active Data-Pipe | Maximum LLM-clean workers | Total Claude |
+| Active Data-Pipe invocations | Maximum LLM-clean workers | Total Claude |
 |---:|---:|---:|
 | 0 | 4 | 4 |
 | 1 | 3 | 4 |
 | 2 | 2 | 4 |
 
-Each raw run stays `--max-workers 1`. Two raw processes are useful only for two distinct batches. Never split the same resume run between controllers.
+Use one controller per raw run. Never split the same run between controllers.
+The controller may leave a worker idle while all pending tasks conflict with a
+limit-4 tool claimed by an active task.
 
 Tool-KG stages and LLM clean do not consume scientific MCP capacity but still consume global Claude slots.
 
@@ -223,7 +229,7 @@ Compare the active stream's size and mtime twice, then inspect descendants and r
 Check gate events for:
 
 ```text
-start slot=<1..4> class_slot=<1..2> workload=data_pipe
+start slot=<1..4> class_slot=<1..configured_data_pipe_limit> workload=data_pipe
 ```
 
 ## 7. Runtime expectations

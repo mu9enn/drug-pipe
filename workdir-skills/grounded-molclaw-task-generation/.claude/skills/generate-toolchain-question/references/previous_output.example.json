@@ -1,0 +1,10 @@
+{
+  "status": "success",
+  "public_question_text": "Analyze the supplied grounded target and compound.",
+  "question_payload": {
+    "task": "Analyze a grounded target-compound pair.",
+    "inputs": {},
+    "expected_output": "An evidence-grounded analysis."
+  },
+  "rationale": "Representative prior output for semantic repair."
+}

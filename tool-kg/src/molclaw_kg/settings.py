@@ -16,6 +16,7 @@ class RuntimeConfig:
     server_url: str
     api_key: str
     skills_root: Path
+    workdir_skills_root: Path
     model_name: str = "claude-cc-v1"
 
 
@@ -56,7 +57,12 @@ def build_config(project_root: Path, run_id: str | None = None, server_url: str 
         skills_root=_resolve_project_path(
             project_root,
             skills_root or os.getenv("MOLCLAW_SKILLS_ROOT"),
-            "../molclaw-skills",
+            "../workdir-skills/molclaw-trajectory-execution",
+        ),
+        workdir_skills_root=_resolve_project_path(
+            project_root,
+            os.getenv("MOLCLAW_WORKDIR_SKILLS_ROOT"),
+            "../workdir-skills",
         ),
         model_name=model_name,
     )

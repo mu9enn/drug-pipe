@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -21,13 +20,13 @@ from .edge_ontology import (
     EdgeOntology,
     build_adjudication_schema,
     load_edge_ontology,
-    render_ontology_prompt,
     validate_adjudication_output,
 )
 from .io_utils import append_jsonl, atomic_write_jsonl, read_jsonl, stable_hash_obj, write_json, write_jsonl
 from .settings import ProjectConfig
 from .runtime_state import latest_jsonl_by_key, next_attempt_dir
 from .stage_taxonomy import load_stage_taxonomy, resolve_stage_taxonomy_path
+from .workdir_skills import install_scene, load_scene_prompt
 
 
 def _select_adjudicator(config: ProjectConfig, mode: str):
@@ -49,38 +48,25 @@ def _safe_name(text: str) -> str:
 
 
 def _load_pair_prompt_template(config: ProjectConfig) -> str:
-    p = config.paths.configs / "prompts" / "pairwise_adjudication_v1.md"
-    if p.exists():
-        return p.read_text(encoding="utf-8")
-    return "You are MolClaw tool-graph pairwise adjudicator. Output strict JSON only."
+    return load_scene_prompt(config, "molclaw-tool-edge-adjudication")
 
 
 def _build_pair_prompt(template: str, ontology: EdgeOntology) -> str:
-    rendered = template.replace("{{EDGE_ONTOLOGY}}", render_ontology_prompt(ontology))
-    return (
-        f"{rendered.strip()}\n\n"
-        "You are running inside one isolated workdir for exactly one directed pairwise adjudication task.\n"
-        "Read local files in this directory first, then output strict JSON for this direction only.\n\n"
-        "Required local files:\n"
-        "- task_context.json\n"
-        "- pair_spec.json\n"
-        "- stage_taxonomy.json\n"
-        "- edge_contract.json\n"
-        "- source_manifest.json\n"
-        "- output_schema.json\n"
-    )
+    del template
+    del ontology  # The runtime contract is available to the skill as edge_contract.json.
+    return "Adjudicate the directed MolClaw tool edge defined by the runtime JSON files in this workdir."
 
 
-def _candidate_source_globs(tool_id: str, aliases: list[str]) -> list[str]:
+def _candidate_source_globs(tool_id: str, aliases: list[str], canonical_skill_root: Path) -> list[str]:
     tokens = [tool_id, tool_id.replace("_", "-")] + aliases[:4]
     out = []
     for tok in tokens:
         t = str(tok).strip()
         if not t:
             continue
-        out.append(f".claude/skills/L1_tools/**/*{t}*")
-        out.append(f".claude/skills/L2_workflows/**/*{t}*")
-    out.append(".claude/skills/L3_methodology/**/*")
+        out.append(str(canonical_skill_root / f"L1_tools/**/*{t}*"))
+        out.append(str(canonical_skill_root / f"L2_workflows/**/*{t}*"))
+    out.append(str(canonical_skill_root / "L3_methodology/**/*"))
     dedup = []
     for x in out:
         if x not in dedup:
@@ -88,7 +74,9 @@ def _candidate_source_globs(tool_id: str, aliases: list[str]) -> list[str]:
     return dedup
 
 
-def _build_pair_spec(*, row: dict[str, Any], cards: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _build_pair_spec(
+    *, row: dict[str, Any], cards: dict[str, dict[str, Any]], canonical_skill_root: Path
+) -> dict[str, Any]:
     source = str(row["source_tool"])
     target = str(row["target_tool"])
     source_card = cards.get(source, {})
@@ -103,14 +91,14 @@ def _build_pair_spec(*, row: dict[str, Any], cards: dict[str, dict[str, Any]]) -
             "primary_stage": source_card.get("primary_stage"),
             "aliases": source_aliases,
             "tool_card_file": "source_tool_card.json",
-            "candidate_skill_globs": _candidate_source_globs(source, source_aliases),
+            "candidate_skill_globs": _candidate_source_globs(source, source_aliases, canonical_skill_root),
         },
         "target": {
             "tool_id": target,
             "primary_stage": target_card.get("primary_stage"),
             "aliases": target_aliases,
             "tool_card_file": "target_tool_card.json",
-            "candidate_skill_globs": _candidate_source_globs(target, target_aliases),
+            "candidate_skill_globs": _candidate_source_globs(target, target_aliases, canonical_skill_root),
         },
         "pair_meta": {
             "pair_id": row["pair_id"],
@@ -130,7 +118,9 @@ def _build_pair_spec(*, row: dict[str, Any], cards: dict[str, dict[str, Any]]) -
     }
 
 
-def _build_source_manifest(pair_spec: dict[str, Any]) -> dict[str, Any]:
+def _build_source_manifest(
+    pair_spec: dict[str, Any], canonical_skill_root: Path
+) -> dict[str, Any]:
     entries = []
     for side in ["source", "target"]:
         tool = pair_spec[side]
@@ -143,13 +133,13 @@ def _build_source_manifest(pair_spec: dict[str, Any]) -> dict[str, Any]:
             )
     entries.append(
         {
-            "path_glob": ".claude/skills/L2_workflows/**/*",
+            "path_glob": str(canonical_skill_root / "L2_workflows/**/*"),
             "reason": "workflow-level evidence",
         }
     )
     entries.append(
         {
-            "path_glob": ".claude/skills/L3_methodology/**/*",
+            "path_glob": str(canonical_skill_root / "L3_methodology/**/*"),
             "reason": "methodology constraints",
         }
     )
@@ -171,12 +161,11 @@ def _prepare_pair_workdir(
 ) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
 
-    for item in config.runtime.skills_root.iterdir():
-        dst = workdir / item.name
-        if item.is_dir():
-            shutil.copytree(item, dst, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, dst)
+    install_scene(
+        config,
+        workdir,
+        "molclaw-tool-edge-adjudication",
+    )
 
     write_json(workdir / "pair_spec.json", pair_spec)
     write_json(workdir / "source_manifest.json", source_manifest)
@@ -202,7 +191,7 @@ def _prepare_pair_workdir(
             "edge_contract_file": "edge_contract.json",
             "source_manifest_file": "source_manifest.json",
             "output_schema_file": "output_schema.json",
-            "canonical_skill_root": ".claude/skills",
+            "canonical_skill_root": str((Path(config.runtime.skills_root) / ".claude/skills").resolve()),
             "tool_card_files": ["source_tool_card.json", "target_tool_card.json"],
         },
     )
@@ -298,8 +287,13 @@ def _run_pairwise_attempt(
     created_at = datetime.now(timezone.utc).isoformat()
 
     try:
-        pair_spec = _build_pair_spec(row=pair, cards=cards)
-        source_manifest = _build_source_manifest(pair_spec)
+        canonical_skill_root = (Path(config.runtime.skills_root) / ".claude/skills").resolve()
+        pair_spec = _build_pair_spec(
+            row=pair,
+            cards=cards,
+            canonical_skill_root=canonical_skill_root,
+        )
+        source_manifest = _build_source_manifest(pair_spec, canonical_skill_root)
         prompt = _build_pair_prompt(prompt_template, ontology)
         unit_dir = _pair_unit_dir(config, source_tool, target_tool)
         attempt_dir = next_attempt_dir(unit_dir)
@@ -332,6 +326,7 @@ def _run_pairwise_attempt(
                 "pair_id": pair_id,
                 "pair_meta": pair_spec["pair_meta"],
                 "prompt": prompt,
+                "system_prompt": template,
                 "source_tool_card": cards.get(source_tool, {}),
                 "target_tool_card": cards.get(target_tool, {}),
                 "taxonomy_version": taxonomy_version,
@@ -367,6 +362,7 @@ def _run_pairwise_attempt(
             "timed_out": False,
             "latency_sec": 0.0,
             "prompt_sha256": "",
+            "system_prompt_sha256": "",
             "mcp_config_sha256": "",
             "mcp_server_name": "",
             "mcp_server_url": "",
@@ -387,6 +383,7 @@ def _run_pairwise_attempt(
                     "pair_id": pair_id,
                     "pair_meta": pair.get("pair_meta", {}),
                     "prompt": prompt,
+                    "system_prompt": template,
                     "source_tool_card": cards.get(source_tool, {}),
                     "target_tool_card": cards.get(target_tool, {}),
                     "taxonomy_version": taxonomy_version,
@@ -415,6 +412,7 @@ def _run_pairwise_attempt(
             "timed_out": trace.get("timed_out"),
             "latency_sec": trace.get("latency_sec"),
             "prompt_sha256": trace.get("prompt_sha256"),
+            "system_prompt_sha256": trace.get("system_prompt_sha256"),
             "mcp_config_sha256": trace.get("mcp_config_sha256"),
             "mcp_server_name": trace.get("mcp_server_name"),
             "mcp_server_url": trace.get("mcp_server_url"),
@@ -548,7 +546,11 @@ def run_pairwise_adjudication(
         pair_id = str(p["pair_id"])
         source_tool = str(p["source_tool"])
         target_tool = str(p["target_tool"])
-        pair_spec = _build_pair_spec(row=p, cards=cards)
+        pair_spec = _build_pair_spec(
+            row=p,
+            cards=cards,
+            canonical_skill_root=(Path(config.runtime.skills_root) / ".claude/skills").resolve(),
+        )
         prompt = _build_pair_prompt(prompt_template, ontology)
         cache_key = stable_hash_obj(
             {
@@ -556,6 +558,7 @@ def run_pairwise_adjudication(
                 "pair_id": pair_id,
                 "pair_meta": pair_spec["pair_meta"],
                 "prompt": prompt,
+                "system_prompt": prompt_template,
                 "source_tool_card": cards.get(source_tool, {}),
                 "target_tool_card": cards.get(target_tool, {}),
                 "taxonomy_version": taxonomy.version,

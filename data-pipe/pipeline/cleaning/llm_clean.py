@@ -18,15 +18,16 @@ from pipeline.cleaning.artifacts import ABSOLUTE_PATH_RE, RELATIVE_PATH_RE
 from pipeline.cleaning.invariants import (
     FINAL_RE,
     THOUGHT_RE,
+    assistant_prose_findings,
     compare_immutable_facts,
     validate_final_record,
 )
 from pipeline.cleaning.io import base_manifest, read_jsonl, write_json, write_jsonl
 from pipeline.cleaning.models import (
-    EXAMPLE_DIR,
+    LLM_CLEAN_SCENE_DIR,
+    LLM_CLEAN_SYSTEM_PROMPT,
+    LLM_CLEAN_USER_PROMPT,
     PATCH_SCHEMA_VERSION,
-    PROMPT_DIR,
-    SCHEMA_DIR,
     patch_schema_findings,
     react_schema_findings,
 )
@@ -42,6 +43,37 @@ def _serialize(value: Any) -> str:
 
 def _safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._") or "sample"
+
+
+def _editable_segments(source: dict[str, Any]) -> list[dict[str, Any]]:
+    inventory: list[dict[str, Any]] = []
+    for message_index, message in enumerate(source.get("messages") or []):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = str(message.get("content") or "")
+        for segment_index, _match in enumerate(THOUGHT_RE.finditer(content)):
+            inventory.append(
+                {
+                    "message_index": message_index,
+                    "segment_type": "thought",
+                    "segment_index": segment_index,
+                }
+            )
+        final_matches = list(FINAL_RE.finditer(content))
+        if len(final_matches) == 1:
+            try:
+                payload = json.loads(final_matches[0].group(1))
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and isinstance(payload.get("summary"), str):
+                inventory.append(
+                    {
+                        "message_index": message_index,
+                        "segment_type": "final_summary",
+                        "segment_index": 0,
+                    }
+                )
+    return inventory
 
 
 def apply_restricted_patch(
@@ -166,16 +198,27 @@ def build_claude_patch_provider(
     debug_root: Path,
     timeout_sec: float,
 ) -> PatchProvider:
-    prompt = (PROMPT_DIR / "llm_clean_v1.md").read_text(encoding="utf-8")
+    system_prompt = LLM_CLEAN_SYSTEM_PROMPT.read_text(encoding="utf-8").strip()
+    user_prompt = LLM_CLEAN_USER_PROMPT.read_text(encoding="utf-8").strip()
 
     def provide(source: dict[str, Any], cleaning_context: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         sample_dir = debug_root / _safe_name(str(source.get("id") or "sample"))
         sample_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            LLM_CLEAN_SCENE_DIR / ".claude",
+            sample_dir / ".claude",
+            dirs_exist_ok=True,
+        )
         write_json(sample_dir / "source_trajectory.json", source)
         write_json(sample_dir / "cleaning_context.json", cleaning_context)
-        shutil.copy2(EXAMPLE_DIR / "react_trajectory_v1.example.json", sample_dir)
-        shutil.copy2(EXAMPLE_DIR / "llm_clean_patch_v1.example.json", sample_dir)
-        shutil.copy2(SCHEMA_DIR / "llm_clean_patch_v1.schema.json", sample_dir)
+        write_json(sample_dir / "editable_segments.json", _editable_segments(source))
+        write_json(
+            sample_dir / "prose_findings.json",
+            assistant_prose_findings(
+                source,
+                only_molclaw_tool=bool(cleaning_context.get("only_molclaw_tool")),
+            ),
+        )
         patch_path = sample_dir / "llm_clean_patch.json"
         if patch_path.exists():
             patch_path.unlink()
@@ -185,17 +228,17 @@ def build_claude_patch_provider(
             "--verbose",
             "--output-format",
             "stream-json",
-            "--safe-mode",
             "--no-session-persistence",
             "--permission-mode",
             "bypassPermissions",
             "--tools",
-            "Read,Write",
+            "Read,Write,Skill",
             "--allowedTools",
-            "Read,Write",
-            "--disable-slash-commands",
+            "Read,Write,Skill",
+            "--system-prompt",
+            system_prompt,
             "-p",
-            prompt,
+            user_prompt,
         ]
         metadata: dict[str, Any] = {
             "status": "failed",

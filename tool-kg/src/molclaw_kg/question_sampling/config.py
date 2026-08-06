@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,7 @@ _MODE_FIELDS = {
         "max_repeat_compound",
         "json_repair_rounds",
         "semantic_repair_rounds",
+        "fanout_runtime_target",
         "partial_edge_policy",
         "tool_leak_policy",
     },
@@ -69,6 +71,7 @@ _REQUIRED_FIELDS = {
         "max_repeat_compound",
         "json_repair_rounds",
         "semantic_repair_rounds",
+        "fanout_runtime_target",
     },
 }
 
@@ -108,6 +111,47 @@ def _validate_resolved_profile(profile_name: str, values: dict[str, Any]) -> str
         raise ValueError(f"sampling profile {profile_name}.random_seed must be an integer or null")
     if int(values["max_hops"]) < int(values["min_hops"]):
         raise ValueError(f"sampling profile {profile_name} has max_hops < min_hops")
+    runtime_target = values.get("fanout_runtime_target")
+    if not isinstance(runtime_target, dict):
+        raise ValueError(
+            f"sampling profile {profile_name}.fanout_runtime_target must be an object"
+        )
+    expected_runtime_keys = {
+        "distribution",
+        "arithmetic_mean_minutes",
+        "plus_3sigma_minutes",
+    }
+    if set(runtime_target) != expected_runtime_keys:
+        raise ValueError(
+            f"sampling profile {profile_name}.fanout_runtime_target must contain exactly "
+            f"{sorted(expected_runtime_keys)}"
+        )
+    if runtime_target.get("distribution") != "normal_exponent":
+        raise ValueError(
+            f"sampling profile {profile_name}.fanout_runtime_target.distribution "
+            "must be normal_exponent"
+        )
+    mean_minutes = runtime_target.get("arithmetic_mean_minutes")
+    plus_3sigma_minutes = runtime_target.get("plus_3sigma_minutes")
+    for field, value in [
+        ("arithmetic_mean_minutes", mean_minutes),
+        ("plus_3sigma_minutes", plus_3sigma_minutes),
+    ]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise ValueError(
+                f"sampling profile {profile_name}.fanout_runtime_target.{field} "
+                "must be a positive number"
+            )
+    if float(plus_3sigma_minutes) <= float(mean_minutes):
+        raise ValueError(
+            f"sampling profile {profile_name}.fanout_runtime_target.plus_3sigma_minutes "
+            "must exceed arithmetic_mean_minutes"
+        )
+    if math.log(float(plus_3sigma_minutes) / float(mean_minutes)) >= 4.5:
+        raise ValueError(
+            f"sampling profile {profile_name}.fanout_runtime_target cannot be "
+            "represented by the normal_exponent distribution"
+        )
     return mode
 
 

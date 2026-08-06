@@ -12,6 +12,7 @@ from slime.rollout.sglang_rollout import GenerateState
 from slime.utils.http_utils import post
 from slime.utils.types import Sample
 
+from drug_agent.evaluation.task_store import bind_task_identity, checkpoint_sample, restore_sample
 from drug_agent.protocol.react_protocol import final_answer_matches_task, parse_runtime_decision, project_final_answer
 from drug_agent.protocol.prompts import format_final_contract, format_tool_catalog, fresh_task_messages
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_WORKSPACES_ROOT
@@ -209,6 +210,23 @@ async def _execute_tool(
         arguments,
         local_executor=local_executor,
     )
+
+
+def _close_task_executor(task_executor: MCPToolExecutor, sample: Sample) -> None:
+    """Keep transport cleanup failures inside one task's diagnostics."""
+
+    try:
+        task_executor.close()
+    except BaseException as exc:
+        warning = f"{type(exc).__name__}: {exc}"
+        if not isinstance(sample.metadata, dict):
+            sample.metadata = {}
+        trace = sample.metadata.get("drug_agent_trace")
+        if isinstance(trace, dict):
+            warnings = trace.setdefault("cleanup_warnings", [])
+            if isinstance(warnings, list):
+                warnings.append(warning)
+        print(f"[drug-agent eval] MCP cleanup warning for task: {warning}", flush=True)
 
 
 def _workspace_name(task_id: str, sample_index: Any) -> str:
@@ -598,13 +616,18 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
         runtime["task_semaphore"] = semaphore
         runtime["task_semaphore_loop"] = loop
     async with semaphore:
+        bind_task_identity(sample)
+        restored = restore_sample(sample, evaluation=evaluation)
+        if restored is not None:
+            return restored
+
         # A task owns its MCP transport. This prevents session state and
         # connection recovery from crossing task/workspace boundaries.
         task_executor = MCPToolExecutor(connect_on_init=False)
         try:
             timeout = float(os.environ.get("DRUG_AGENT_TASK_TIMEOUT_SEC", "10800"))
             try:
-                return await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     _generate_impl(
                         args,
                         sample,
@@ -640,6 +663,11 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                         else {}
                     ),
                 }
-                return sample
+                result = sample
+            # Save before teardown so even a cleanup failure cannot erase an
+            # otherwise complete task.  The per-task file is idempotent and
+            # can be restored by a later resume run.
+            checkpoint_sample(result, evaluation=evaluation)
+            return result
         finally:
-            task_executor.close()
+            _close_task_executor(task_executor, sample)

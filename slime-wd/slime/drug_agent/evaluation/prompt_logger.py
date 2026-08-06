@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from drug_agent.evaluation.task_store import RUN_FINGERPRINT_ENV, load_records
 from drug_agent.utils import to_jsonable, utc_now_iso, write_json, write_jsonl
 
 
@@ -49,6 +50,16 @@ def log_eval_rollout_data(rollout_id, args, data, extra_metrics) -> bool:
             artifacts.append({"id": result["id"], **artifact_audit})
             if result.get("done_reason") != "final_answer":
                 failures.append(result)
+
+    run_fingerprint = os.environ.get(RUN_FINGERPRINT_ENV, "").strip()
+    if run_fingerprint:
+        checkpoint_ids = {record.get("id") for record in load_records(run_dir, run_fingerprint=run_fingerprint)}
+        result_ids = {row.get("id") for row in results}
+        if checkpoint_ids != result_ids or len(result_ids) != len(results):
+            raise RuntimeError(
+                "final prompt data does not match atomically checkpointed tasks: "
+                f"results={len(results)}, checkpoints={len(checkpoint_ids)}"
+            )
 
     write_jsonl(run_dir / "prompt_results.jsonl", results)
     write_jsonl(run_dir / "traces.jsonl", traces)

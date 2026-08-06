@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 import shutil
@@ -24,10 +25,54 @@ from ..science_kb import ScienceKB
 from ..settings import ProjectConfig
 from .schemas import SIMPLE_QUESTION_OUTPUT_SCHEMA
 from .canonical_io import canonical_task, load_canonical_sampling_inputs, update_manifest_tasks
+from ..workdir_skills import install_scene, load_scene_prompt
+
+
+FANOUT_RUNTIME_PLACEHOLDER = "{{TARGET_FANOUT_RUNTIME_MINUTES}}"
 
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def derive_normal_exponent_parameters(spec: dict[str, Any]) -> dict[str, float]:
+    mean_minutes = float(spec["arithmetic_mean_minutes"])
+    plus_3sigma_minutes = float(spec["plus_3sigma_minutes"])
+    if (
+        spec.get("distribution") != "normal_exponent"
+        or mean_minutes <= 0
+        or plus_3sigma_minutes <= mean_minutes
+    ):
+        raise ValueError("invalid normal-exponent fan-out runtime target")
+    log_ratio = math.log(plus_3sigma_minutes / mean_minutes)
+    discriminant = 9.0 - 2.0 * log_ratio
+    if discriminant <= 0:
+        raise ValueError("invalid normal-exponent fan-out runtime target")
+    log_sigma = 3.0 - math.sqrt(discriminant)
+    log_mean = math.log(mean_minutes) - 0.5 * log_sigma**2
+    return {
+        "base": math.exp(log_sigma),
+        "exponent_mean": log_mean / log_sigma,
+        "exponent_stddev": 1.0,
+        "log_mean": log_mean,
+        "log_sigma": log_sigma,
+    }
+
+
+def sample_fanout_runtime_minutes(
+    rng: random.Random,
+    spec: dict[str, Any],
+) -> float:
+    parameters = derive_normal_exponent_parameters(spec)
+    exponent = rng.gauss(
+        parameters["exponent_mean"],
+        parameters["exponent_stddev"],
+    )
+    return round(parameters["base"] ** exponent, 1)
+
+
+def render_fanout_runtime_prompt(prompt: str, target_minutes: float) -> str:
+    return prompt.replace(FANOUT_RUNTIME_PLACEHOLDER, f"{target_minutes:.1f}")
 
 
 def validate_simple_output(obj: Any) -> list[str]:
@@ -239,6 +284,7 @@ def _grounding_facts(
 
 def _prepare_workdir(config: ProjectConfig, workdir: Path, context: dict[str, Any], prompt: str) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
+    install_scene(config, workdir, "grounded-molclaw-task-generation")
     write_json(workdir / "simple_context.json", context)
     write_json(workdir / "output_schema.json", SIMPLE_QUESTION_OUTPUT_SCHEMA)
     (workdir / "prompt.txt").write_text(prompt, encoding="utf-8")
@@ -268,13 +314,15 @@ def _call_agent(
     *,
     allow_kb_queries: bool = False,
 ) -> tuple[dict[str, Any] | None, str]:
+    install_scene(config, workdir, "grounded-molclaw-task-generation")
     server_name, server_cfg = _science_kb_mcp(config, workdir / "kb_query_trace.jsonl")
     run = runtime.run_prompt(
         prompt,
         run_label=workdir.name,
+        system_prompt=load_scene_prompt(config, "grounded-molclaw-task-generation"),
         add_dirs=[workdir],
-        builtin_tools="Read",
-        allowed_tools=(f"Read,mcp__{server_name}" if allow_kb_queries else "Read"),
+        builtin_tools="Read,Skill",
+        allowed_tools=(f"Read,Skill,mcp__{server_name}" if allow_kb_queries else "Read,Skill"),
         disallowed_tools="Bash,Write,Edit,WebSearch,WebFetch,Agent",
         workdir=workdir,
         mcp_servers={server_name: server_cfg},
@@ -455,6 +503,7 @@ def sample_simple_questions(
     grounding_selection: str = "random_seeded",
     max_repeat_target: int = 2,
     max_repeat_compound: int = 2,
+    fanout_runtime_target: dict[str, Any] | None = None,
     seed: int | None = None,
     sampling_profile_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -466,6 +515,9 @@ def sample_simple_questions(
         raise ValueError("invalid simple sampling limits")
     if grounding_selection != "random_seeded":
         raise ValueError(f"unsupported grounding selection: {grounding_selection}")
+    if not isinstance(fanout_runtime_target, dict):
+        raise ValueError("fanout_runtime_target must be configured")
+    derive_normal_exponent_parameters(fanout_runtime_target)
     run_dir = config.paths.run_dir
     kb_path, manifest_path = (
         config.paths.root / "science_kb/processed/science_kb.sqlite",
@@ -476,6 +528,11 @@ def sample_simple_questions(
     cards = {str(row["tool_id"]): row for row in card_rows if row.get("tool_id")}
     decisions = _decision_index(decision_rows)
     runtime, rng = ClaudeCodeRuntime(config), random.Random(seed)
+    runtime_rng = (
+        random.Random()
+        if seed is None
+        else random.Random(f"stage3-fanout-runtime:{seed}")
+    )
     grounding_records = kb.list_target_ligand_pair_seeds()
     if not grounding_records:
         raise RuntimeError("Science-KB contains no target-ligand grounding seeds")
@@ -494,9 +551,9 @@ def sample_simple_questions(
         profile_values.get("semantic_repair_prompt")
         or "prompts/toolchain_question_semantic_repair_v1.md"
     )
-    prompt = prompt_path.read_text(encoding="utf-8")
+    prompt_template = prompt_path.read_text(encoding="utf-8")
     repair_prompt = repair_prompt_path.read_text(encoding="utf-8")
-    semantic_repair_prompt = semantic_repair_prompt_path.read_text(encoding="utf-8")
+    semantic_repair_prompt_template = semantic_repair_prompt_path.read_text(encoding="utf-8")
     results = run_dir / "results"
     intermediate = run_dir / "intermediate" / "stage3"
     workdirs = intermediate / "workdir" / "simple_toolchain_question"
@@ -522,6 +579,18 @@ def sample_simple_questions(
                 base["failure_reason"] = "hidden_toolchain_sampling_failed"
                 attempts.append(base)
                 continue
+            target_fanout_runtime_minutes = sample_fanout_runtime_minutes(
+                runtime_rng,
+                fanout_runtime_target,
+            )
+            prompt = render_fanout_runtime_prompt(
+                prompt_template,
+                target_fanout_runtime_minutes,
+            )
+            semantic_repair_prompt = render_fanout_runtime_prompt(
+                semantic_repair_prompt_template,
+                target_fanout_runtime_minutes,
+            )
             nodes, edges = blueprint["hidden_toolchain_nodes"], blueprint["hidden_toolchain_edges"]
             tool_cards = [_tool_context(cards[node]) for node in nodes]
             grounding_seed = select_grounding_seed(
@@ -538,6 +607,7 @@ def sample_simple_questions(
                 "edge_evidence": [_edge_evidence(edge, decisions) for edge in edges],
                 "grounding_seed": _grounding_seed_context(grounding_seed),
                 "grounding_facts": _grounding_facts(kb, science_kb_topk, tool_cards, grounding_seed),
+                "target_fanout_runtime_minutes": target_fanout_runtime_minutes,
             }
             sample_root = workdirs / f"{sample_id}__{safe_name(nodes[0])}__{safe_name(nodes[-1])}"
             attempt_dir = sample_root / "attempt_00"
@@ -603,6 +673,7 @@ def sample_simple_questions(
                 "semantic_recovered": semantic_recovered,
                 "initial_semantic_failure": initial_semantic_failure,
                 "grounding_seed": context["grounding_seed"],
+                "target_fanout_runtime_minutes": target_fanout_runtime_minutes,
             })
             if errors:
                 base.update({"status": "parse_failed" if parsed is None else "schema_failed", "failure_reason": errors[0]})

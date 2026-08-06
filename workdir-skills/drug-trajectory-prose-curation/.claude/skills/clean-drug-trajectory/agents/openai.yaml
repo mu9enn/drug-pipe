@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clean Drug Trajectory"
+  short_description: "Safely clean editable prose in one drug-agent trace"
+  default_prompt: "Use $clean-drug-trajectory to clean the trajectory in this workdir."

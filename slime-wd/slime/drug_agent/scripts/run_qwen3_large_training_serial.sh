@@ -95,7 +95,8 @@ export PYTHONUNBUFFERED=1
 SERIAL_RUN_ID=${SERIAL_RUN_ID:-${PROFILE}_serial_$(date +%Y%m%d_%H%M%S)}
 RUN_ROOT=${RUN_ROOT:-$DRUG_AGENT_RUNS_ROOT/$SERIAL_RUN_ID}
 LOG_ROOT=$RUN_ROOT/logs
-SFT_DIR=$RUN_ROOT/sft
+RUN_GAD_ONLY=${RUN_GAD_ONLY:-0}
+SFT_DIR=${SFT_CHECKPOINT_DIR:-$RUN_ROOT/sft}
 TOOLRL_DIR=$RUN_ROOT/toolrl
 NEGATIVE_CACHE=$RUN_ROOT/gad_stage2_negatives.jsonl
 DISCRIMINATOR_DIR=$RUN_ROOT/gad_discriminator_warmup
@@ -109,6 +110,43 @@ DISCRIMINATOR_KEEP_LAST=${DISCRIMINATOR_KEEP_LAST:-2}
 
 require_path() {
   [[ -e "$1" ]] || { echo "Required path does not exist: $1" >&2; exit 2; }
+}
+
+validate_negative_cache() {
+  local expected_data=$1
+  local actual_cache=$2
+  python - "$expected_data" "$actual_cache" <<'PY'
+import collections
+import json
+import pathlib
+import sys
+
+expected_path = pathlib.Path(sys.argv[1])
+actual_path = pathlib.Path(sys.argv[2])
+
+def read_ids(path, nested):
+    ids = []
+    with path.open() as handle:
+        for line_number, line in enumerate(handle, 1):
+            row = json.loads(line)
+            sample_id = row.get("metadata", {}).get("sample_id") if nested else row.get("sample_id")
+            if not sample_id:
+                raise SystemExit(f"Missing sample_id at {path}:{line_number}")
+            ids.append(sample_id)
+    return ids
+
+expected = read_ids(expected_path, nested=True)
+actual = read_ids(actual_path, nested=False)
+if collections.Counter(actual) != collections.Counter(expected):
+    missing = list((collections.Counter(expected) - collections.Counter(actual)).elements())
+    extra = list((collections.Counter(actual) - collections.Counter(expected)).elements())
+    raise SystemExit(
+        f"GAD negative cache sample_id mismatch: expected={len(expected)} actual={len(actual)} "
+        f"missing={len(missing)} extra_or_duplicate={len(extra)} "
+        f"missing_examples={missing[:5]} extra_examples={extra[:5]}"
+    )
+print(f"GAD negative cache contract PASS: rows={len(actual)} unique_sample_ids={len(set(actual))}")
+PY
 }
 
 run_stage() {
@@ -128,6 +166,12 @@ run_stage() {
     toolrl) require_path "$TOOLRL_DIR/latest_checkpointed_iteration.txt" ;;
     gad_negative_generation)
       [[ -s "$NEGATIVE_CACHE" ]] || { echo "Empty GAD negative cache: $NEGATIVE_CACHE" >&2; return 2; }
+      NEGATIVE_ROWS=$(wc -l < "$NEGATIVE_CACHE")
+      (( NEGATIVE_ROWS == GAD_COUNT )) || {
+        echo "Incomplete GAD negative cache: rows=$NEGATIVE_ROWS expected=$GAD_COUNT path=$NEGATIVE_CACHE" >&2
+        return 2
+      }
+      validate_negative_cache "$GAD_DATA" "$NEGATIVE_CACHE"
       ;;
     gad_discriminator_warmup)
       require_path "$DISCRIMINATOR_LATEST"
@@ -178,9 +222,19 @@ fi
 SFT_COUNT=$(wc -l < "$CANONICAL_DATA")
 TOOLRL_COUNT=$(wc -l < "$TOOLRL_DATA")
 GAD_COUNT=$(wc -l < "$GAD_DATA")
-if (( SFT_COUNT != 364 || TOOLRL_COUNT != 3182 || GAD_COUNT != 3147 )); then
-  echo "Unexpected dataset counts: SFT=$SFT_COUNT ToolRL=$TOOLRL_COUNT GAD=$GAD_COUNT" >&2
+EXPECTED_SFT_RECORDS=${EXPECTED_SFT_RECORDS:-364}
+EXPECTED_TOOLRL_RECORDS=${EXPECTED_TOOLRL_RECORDS:-3182}
+EXPECTED_GAD_RECORDS=${EXPECTED_GAD_RECORDS:-3147}
+if (( SFT_COUNT != EXPECTED_SFT_RECORDS || TOOLRL_COUNT != EXPECTED_TOOLRL_RECORDS || GAD_COUNT != EXPECTED_GAD_RECORDS )); then
+  echo "Unexpected dataset counts: SFT=$SFT_COUNT/$EXPECTED_SFT_RECORDS ToolRL=$TOOLRL_COUNT/$EXPECTED_TOOLRL_RECORDS GAD=$GAD_COUNT/$EXPECTED_GAD_RECORDS" >&2
   exit 2
+fi
+if [[ "$RUN_GAD_ONLY" != 0 && "$RUN_GAD_ONLY" != 1 ]]; then
+  echo "RUN_GAD_ONLY must be 0 or 1; got $RUN_GAD_ONLY" >&2
+  exit 2
+fi
+if [[ "$RUN_GAD_ONLY" == 1 ]]; then
+  require_path "$SFT_DIR/latest_checkpointed_iteration.txt"
 fi
 
 if [[ -e "$RUN_ROOT" && ${RESUME_SERIAL_RUN:-0} != 1 ]]; then
@@ -202,6 +256,7 @@ REF_LOAD=$REF_LOAD
 SFT_SAVE_DIR=$SFT_DIR
 TOOLRL_SAVE_DIR=$TOOLRL_DIR
 GAD_SAVE_DIR=$GAD_DIR
+RUN_GAD_ONLY=$RUN_GAD_ONLY
 SFT_RECORDS=$SFT_COUNT
 TOOLRL_RECORDS=$TOOLRL_COUNT
 GAD_RECORDS=$GAD_COUNT
@@ -219,15 +274,19 @@ if [[ "$PROFILE" == qwen35-122b-8xh200 ]]; then
   SFT_SAVE_INTERVAL=91
   SFT_NO_SAVE_OPTIM=1
 fi
-run_stage sft \
-  env "${FORMAL_PARALLEL_ENV[@]}" CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-    PROMPT_DATA="$CANONICAL_DATA" SAVE_DIR="$SFT_DIR" \
-    NUM_GPUS=8 SFT_EPOCH_ONLY=1 NUM_EPOCH=1 ROLLOUT_BATCH_SIZE=364 GLOBAL_BATCH_SIZE=4 \
-    LR="$SFT_LR" MIN_LR="$SFT_MIN_LR" LR_WARMUP_FRACTION=0.03 \
-    SAVE_INTERVAL="$SFT_SAVE_INTERVAL" CHECKPOINT_KEEP_LAST="$CHECKPOINT_KEEP_LAST" \
-    NO_SAVE_OPTIM="$SFT_NO_SAVE_OPTIM" SFT_DEBUG_TRAIN_ONLY=1 SFT_DISABLE_OFFLOAD=1 \
-    SLIME_DROP_OPTIMIZER_STATE_BEFORE_WEIGHTS_ONLY_SAVE="$SFT_NO_SAVE_OPTIM" \
-    bash drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh
+if [[ "$RUN_GAD_ONLY" == 1 ]]; then
+  echo "[$(date --iso-8601=seconds)] GAD_ONLY imported_sft=$SFT_DIR" | tee -a "$RUN_ROOT/serial_status.log"
+else
+  run_stage sft \
+    env "${FORMAL_PARALLEL_ENV[@]}" CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+      PROMPT_DATA="$CANONICAL_DATA" SAVE_DIR="$SFT_DIR" \
+      NUM_GPUS=8 SFT_EPOCH_ONLY=1 NUM_EPOCH=1 ROLLOUT_BATCH_SIZE="$SFT_COUNT" GLOBAL_BATCH_SIZE=4 \
+      LR="$SFT_LR" MIN_LR="$SFT_MIN_LR" LR_WARMUP_FRACTION=0.03 \
+      SAVE_INTERVAL="$SFT_SAVE_INTERVAL" CHECKPOINT_KEEP_LAST="$CHECKPOINT_KEEP_LAST" \
+      NO_SAVE_OPTIM="$SFT_NO_SAVE_OPTIM" SFT_DEBUG_TRAIN_ONLY=1 SFT_DISABLE_OFFLOAD=1 \
+      SLIME_DROP_OPTIMIZER_STATE_BEFORE_WEIGHTS_ONLY_SAVE="$SFT_NO_SAVE_OPTIM" \
+      bash drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh
+fi
 require_path "$SFT_DIR/latest_checkpointed_iteration.txt"
 
 if [[ "$PROFILE" == qwen35-122b-8xh200 ]]; then
@@ -252,33 +311,42 @@ TOOLRL_ROLLOUTS=$(((TOOLRL_COUNT + 7) / 8))
 # and lower sampling temperature.  Keep the optional reference-KL path off by
 # default: an isolation run with a mathematically zero first-step LR still
 # collapsed only when the ref/actor switching path was active.
-FORMAL_TOOLRL_LR=${FORMAL_TOOLRL_LR:-1e-8}
-FORMAL_USE_KL_LOSS=${FORMAL_USE_KL_LOSS:-0}
-run_stage toolrl \
-  env "${FORMAL_PARALLEL_ENV[@]}" CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-    PROMPT_DATA="$TOOLRL_DATA" SAVE_DIR="$TOOLRL_DIR" LOAD="$SFT_DIR" TOOLRL_RESUME=0 \
-    TOOLRL_REWARD_MODE="${TOOLRL_REWARD_MODE:-molclaw}" \
-    ADVANTAGE_ESTIMATOR=reinforce_plus_plus NORMALIZE_ADVANTAGES=1 \
-    USE_ROLLOUT_LOGPROBS=1 USE_KL_LOSS="$FORMAL_USE_KL_LOSS" KL_LOSS_COEF=0.001 KL_LOSS_TYPE=low_var_kl \
-    USE_PRECISION_AWARE_OPTIMIZER=0 EXP_AVG_DTYPE=fp32 EXP_AVG_SQ_DTYPE=fp32 \
-    SGLANG_MEM_FRACTION_STATIC=0.12 SGLANG_DISABLE_CUDA_GRAPH=1 COLOCATE_OFFLOAD_ROLLOUT=0 \
-    NUM_GPUS=8 NUM_ROLLOUT="$TOOLRL_ROLLOUTS" ROLLOUT_BATCH_SIZE=8 \
-    N_SAMPLES_PER_PROMPT=1 GLOBAL_BATCH_SIZE=8 LR="$FORMAL_TOOLRL_LR" LR_DECAY_STYLE=constant \
-    LR_WARMUP_FRACTION=0.05 LR_WARMUP_INIT=0 ROLLOUT_TEMPERATURE=0.7 \
-    ROLLOUT_MAX_PROMPT_LEN=65536 ROLLOUT_MAX_CONTEXT_LEN=69632 \
-    SAVE_INTERVAL=200 CHECKPOINT_KEEP_LAST="$CHECKPOINT_KEEP_LAST" \
-    bash drug_agent/toolrl/scripts/run_toolrl_grpo.sh
-require_path "$TOOLRL_DIR/latest_checkpointed_iteration.txt"
+if [[ "$RUN_GAD_ONLY" != 1 ]]; then
+  FORMAL_TOOLRL_LR=${FORMAL_TOOLRL_LR:-1e-8}
+  FORMAL_USE_KL_LOSS=${FORMAL_USE_KL_LOSS:-0}
+  run_stage toolrl \
+    env "${FORMAL_PARALLEL_ENV[@]}" CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+      PROMPT_DATA="$TOOLRL_DATA" SAVE_DIR="$TOOLRL_DIR" LOAD="$SFT_DIR" TOOLRL_RESUME=0 \
+      TOOLRL_REWARD_MODE="${TOOLRL_REWARD_MODE:-molclaw}" \
+      ADVANTAGE_ESTIMATOR=reinforce_plus_plus NORMALIZE_ADVANTAGES=1 \
+      USE_ROLLOUT_LOGPROBS=1 USE_KL_LOSS="$FORMAL_USE_KL_LOSS" KL_LOSS_COEF=0.001 KL_LOSS_TYPE=low_var_kl \
+      USE_PRECISION_AWARE_OPTIMIZER=0 EXP_AVG_DTYPE=fp32 EXP_AVG_SQ_DTYPE=fp32 \
+      SGLANG_MEM_FRACTION_STATIC=0.12 SGLANG_DISABLE_CUDA_GRAPH=1 COLOCATE_OFFLOAD_ROLLOUT=0 \
+      NUM_GPUS=8 NUM_ROLLOUT="$TOOLRL_ROLLOUTS" ROLLOUT_BATCH_SIZE=8 \
+      N_SAMPLES_PER_PROMPT=1 GLOBAL_BATCH_SIZE=8 LR="$FORMAL_TOOLRL_LR" LR_DECAY_STYLE=constant \
+      LR_WARMUP_FRACTION=0.05 LR_WARMUP_INIT=0 ROLLOUT_TEMPERATURE=0.7 \
+      ROLLOUT_MAX_PROMPT_LEN=65536 ROLLOUT_MAX_CONTEXT_LEN=69632 \
+      SAVE_INTERVAL=200 CHECKPOINT_KEEP_LAST="$CHECKPOINT_KEEP_LAST" \
+      bash drug_agent/toolrl/scripts/run_toolrl_grpo.sh
+  require_path "$TOOLRL_DIR/latest_checkpointed_iteration.txt"
+fi
 
 # GAD is a separate branch from the same SFT checkpoint.
 GAD_ROLLOUTS=$(((GAD_COUNT + 1) / 2))
+FORMAL_GAD_MAX_PROMPT_LEN=${FORMAL_GAD_MAX_PROMPT_LEN:-98304}
+FORMAL_GAD_MAX_CONTEXT_LEN=${FORMAL_GAD_MAX_CONTEXT_LEN:-102400}
 run_stage gad_negative_generation \
   env "${FORMAL_PARALLEL_ENV[@]}" CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
     PROMPT_DATA="$GAD_DATA" GAD_NEGATIVE_CACHE="$NEGATIVE_CACHE" STUDENT_LOAD="$SFT_DIR" \
     NUM_GPUS=8 NUM_ROLLOUT="$GAD_ROLLOUTS" ROLLOUT_BATCH_SIZE=2 COLOCATE_OFFLOAD_ROLLOUT=0 \
-    ROLLOUT_MAX_PROMPT_LEN=65536 ROLLOUT_MAX_CONTEXT_LEN=69632 \
+    ROLLOUT_MAX_PROMPT_LEN="$FORMAL_GAD_MAX_PROMPT_LEN" ROLLOUT_MAX_CONTEXT_LEN="$FORMAL_GAD_MAX_CONTEXT_LEN" \
     bash drug_agent/gad/scripts/generate_stage2_negatives.sh
-[[ -s "$NEGATIVE_CACHE" ]] || { echo "Empty GAD negative cache: $NEGATIVE_CACHE" >&2; exit 2; }
+NEGATIVE_ROWS=$(wc -l < "$NEGATIVE_CACHE")
+(( NEGATIVE_ROWS == GAD_COUNT )) || {
+  echo "Incomplete GAD negative cache: rows=$NEGATIVE_ROWS expected=$GAD_COUNT path=$NEGATIVE_CACHE" >&2
+  exit 2
+}
+validate_negative_cache "$GAD_DATA" "$NEGATIVE_CACHE"
 
 ray stop --force >/dev/null 2>&1 || true
 pkill -9 sglang 2>/dev/null || true
@@ -324,7 +392,7 @@ run_stage gad \
     GAD_SGLANG_MEM_FRACTION_STATIC=0.12 SGLANG_DISABLE_CUDA_GRAPH=1 COLOCATE_OFFLOAD_ROLLOUT=0 \
     NUM_GPUS=8 NUM_ROLLOUT="$GAD_ROLLOUTS" ROLLOUT_BATCH_SIZE=2 \
     N_SAMPLES_PER_PROMPT=4 GLOBAL_BATCH_SIZE=8 STUDENT_LR="$GAD_LR" \
-    ROLLOUT_MAX_PROMPT_LEN=65536 ROLLOUT_MAX_CONTEXT_LEN=69632 \
+    ROLLOUT_MAX_PROMPT_LEN="$FORMAL_GAD_MAX_PROMPT_LEN" ROLLOUT_MAX_CONTEXT_LEN="$FORMAL_GAD_MAX_CONTEXT_LEN" \
     KL_LOSS_COEF=0.001 SAVE_INTERVAL=200 CHECKPOINT_KEEP_LAST="$CHECKPOINT_KEEP_LAST" \
     bash drug_agent/gad/scripts/run_stage3_gad_grpo.sh
 require_path "$GAD_DIR/latest_checkpointed_iteration.txt"

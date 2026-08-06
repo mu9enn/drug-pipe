@@ -48,6 +48,7 @@ class ClaudeCodeRuntimeCaptureTest(unittest.TestCase):
             run = runtime.run_prompt(
                 "prompt",
                 run_label="test",
+                system_prompt="Invoke /test-skill.",
                 workdir=workdir,
                 builtin_tools="Read",
                 allowed_tools="Read",
@@ -71,6 +72,11 @@ class ClaudeCodeRuntimeCaptureTest(unittest.TestCase):
             self.assertIn("--tools Read", run.command)
             self.assertIn("--allowedTools Read", run.command)
             self.assertIn("--disallowedTools Bash,WebSearch,Agent", run.command)
+            self.assertIn("--system-prompt 'Invoke /test-skill.'", run.command)
+            self.assertEqual(
+                run.system_prompt_sha256,
+                hashlib.sha256(b"Invoke /test-skill.").hexdigest(),
+            )
             claude_env = json.loads((workdir / "claude_environment.json").read_text())
             self.assertEqual(claude_env["concurrency"], "2")
             self.assertEqual(claude_env["background_disabled"], "1")

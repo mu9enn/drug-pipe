@@ -193,6 +193,7 @@ def main() -> None:
             grounding_selection=str(values["grounding_selection"]),
             max_repeat_target=max(1, int(values["max_repeat_target"])),
             max_repeat_compound=max(1, int(values["max_repeat_compound"])),
+            fanout_runtime_target=dict(values["fanout_runtime_target"]),
             seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
             sampling_profile_meta=resolved.manifest_payload(),
         )

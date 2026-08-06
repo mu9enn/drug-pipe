@@ -1,0 +1,7 @@
+{
+  "tool_id": "source_tool",
+  "primary_stage": "preparation",
+  "connectable_outputs": [
+    {"slot_path": "output.structure_file", "semantic_type": "protein_structure"}
+  ]
+}

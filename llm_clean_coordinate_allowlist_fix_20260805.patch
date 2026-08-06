@@ -1,0 +1,55 @@
+diff --git a/data-pipe/pipeline/cleaning/prompts/llm_clean_v1.md b/data-pipe/pipeline/cleaning/prompts/llm_clean_v1.md
+index 9baef7a..d0166bf 100644
+--- a/data-pipe/pipeline/cleaning/prompts/llm_clean_v1.md
++++ b/data-pipe/pipeline/cleaning/prompts/llm_clean_v1.md
+@@ -6,9 +6,13 @@ Read these files before doing anything:
+ 
+ 1. `source_trajectory.json` — the record to inspect and clean;
+ 2. `cleaning_context.json` — the active tool-retention mode;
+-3. `react_trajectory_v1.example.json` — a valid complete trajectory example;
+-4. `llm_clean_patch_v1.example.json` — the exact output shape;
+-5. `llm_clean_patch_v1.schema.json` — the machine-enforced patch contract.
++3. `editable_segments.json` — the complete, Python-generated allowlist of
++   editable `(message_index, segment_type, segment_index)` coordinates;
++4. `prose_findings.json` — deterministic findings whose listed targets must all
++   be cleaned by the patch;
++5. `react_trajectory_v1.example.json` — a valid complete trajectory example;
++6. `llm_clean_patch_v1.example.json` — the exact output shape;
++7. `llm_clean_patch_v1.schema.json` — the machine-enforced patch contract.
+ 
+ Write exactly one file named `llm_clean_patch.json`. Do not modify any input
+ file. Your conversational response is ignored.
+@@ -24,6 +28,17 @@ zero-based occurrence of that segment type inside the message. For
+ `final_summary`, `segment_index` must be `0`. Emit only edits that are actually
+ needed; use an empty `edits` array when the prose is already suitable.
+ 
++Every edit target must exactly equal one entry in `editable_segments.json`.
++Copy all three coordinate fields from that file. Never infer, recount, or guess
++segment coordinates from the XML text, and never emit an edit for a coordinate
++that is absent from the allowlist. The allowlist controls where edits may occur;
++`source_trajectory.json` remains the authority for the prose and evidence.
++
++Every target in `prose_findings.json` is a required cleaning target. Emit a safe
++edit for each of those exact coordinates, even if you would not have flagged the
++text independently. After covering every required target, inspect the remaining
++editable prose for additional occurrences of the prohibited material below.
++
+ Remove or rewrite:
+ 
+ - explicit L2/L3 workflow or methodology orchestration;
+diff --git a/data-pipe/pipeline/cleaning/tests/test_cleaning.py b/data-pipe/pipeline/cleaning/tests/test_cleaning.py
+index 091dec2..77be2b6 100644
+--- a/data-pipe/pipeline/cleaning/tests/test_cleaning.py
++++ b/data-pipe/pipeline/cleaning/tests/test_cleaning.py
+@@ -67,6 +67,11 @@ class ContractTest(unittest.TestCase):
+         self.assertEqual(patch_schema_findings(patch), [])
+         self.assertEqual(validate_final_record(trajectory)["errors"], [])
+ 
++    def test_prompt_requires_machine_generated_targets(self) -> None:
++        prompt = (PIPELINE_DIR / "cleaning/prompts/llm_clean_v1.md").read_text(encoding="utf-8")
++        self.assertIn("Every edit target must exactly equal one entry in `editable_segments.json`.", prompt)
++        self.assertIn("Every target in `prose_findings.json` is a required cleaning target.", prompt)
++
+ 
+ class RestrictedPatchTest(unittest.TestCase):
+     def test_empty_replacement_deletes_only_the_targeted_thought(self) -> None:

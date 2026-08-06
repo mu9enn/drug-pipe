@@ -1,0 +1,3 @@
+```json
+{"status":"reject","public_question_text":"","question_payload":{},"rationale":"Example malformed wrapper to repair."}
+```
