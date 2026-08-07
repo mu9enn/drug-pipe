@@ -77,3 +77,42 @@ def test_converter_keeps_final_answer_and_skips_malformed(tmp_path: Path):
     assert report["kept_rows"] == 1
     skipped = [json.loads(line) for line in skipped_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert any(item["skip_reason"] == "assistant_parse_failed" for item in skipped)
+
+
+def test_converter_keeps_local_and_mixed_tool_decisions_in_order(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("DRUG_AGENT_TOOL_CATALOG", raising=False)
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    record = {
+        "schema_version": "drug_agent_sft_react_json_v1",
+        "id": "react_e2e_local-mixed",
+        "messages": [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "task"},
+            {
+                "role": "assistant",
+                "content": (
+                    '<thought>inspect then validate</thought>'
+                    '<tool_call>{"tool_name":"Read","arguments":{"file_path":"skills/L1_tools/molclaw-smiles-valid-check/SKILL.md"}}</tool_call>'
+                    '<tool_call>{"tool_name":"is_valid_smiles","arguments":{"smiles_list":["CCO"]}}</tool_call>'
+                ),
+            },
+            {"role": "user", "content": '<observation tool_name="Read">{"status":"success"}</observation>'},
+            {
+                "role": "assistant",
+                "content": '<thought>log</thought><tool_call>{"tool_name":"Write","arguments":{"file_path":"run_log.md","content":"ok"}}</tool_call>',
+            },
+        ],
+    }
+    _write_json(input_dir / "sample.json", record)
+    output_path = tmp_path / "toolrl.jsonl"
+    skipped_path = tmp_path / "skipped.jsonl"
+    report = convert_react_to_toolrl_steps(input_dir, output_path, skipped_report_path=skipped_path)
+    rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert report["kept_rows"] == 2
+    assert [call["tool_name"] for call in rows[0]["target_tool_calls"]] == ["Read", "is_valid_smiles"]
+    assert [call["tool_name"] for call in rows[1]["target_tool_calls"]] == ["Write"]
+    assert {"Read", "Write", "Edit", "Bash", "Grep", "Glob"}.issubset(
+        set(rows[0]["metadata"]["allowed_tool_names"])
+    )
+    assert skipped_path.read_text(encoding="utf-8") == ""

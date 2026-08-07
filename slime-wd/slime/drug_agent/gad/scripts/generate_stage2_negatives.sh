@@ -27,6 +27,9 @@ RBS=${ROLLOUT_BATCH_SIZE:-1}
 MAX_PROMPT=${ROLLOUT_MAX_PROMPT_LEN:-6144}
 MAX_RESPONSE=${ROLLOUT_MAX_RESPONSE_LEN:-512}
 MAX_CONTEXT=${ROLLOUT_MAX_CONTEXT_LEN:-6656}
+LONG_RESPONSE=${ROLLOUT_LONG_RESPONSE_LEN:-}
+LONG_TASK_TYPES=${ROLLOUT_LONG_TASK_TYPES:-}
+CUSTOM_GENERATE_FUNCTION_PATH=${CUSTOM_GENERATE_FUNCTION_PATH:-}
 ROLLOUT_TP=${ROLLOUT_NUM_GPUS_PER_ENGINE:-1}
 ROLLOUT_EXTERNAL=${ROLLOUT_EXTERNAL:-0}
 ROLLOUT_EXTERNAL_NUM_GPUS=${ROLLOUT_EXTERNAL_NUM_GPUS:-$NUM_GPUS}
@@ -52,6 +55,27 @@ done
 DATASET_SIZE=$(wc -l < "$PROMPT_DATA")
 if [ -z "$NUM_ROLLOUT" ]; then
   NUM_ROLLOUT=$(((DATASET_SIZE + RBS - 1) / RBS))
+fi
+LENGTH_AWARE_ARGS=()
+if [ -n "$LONG_RESPONSE" ]; then
+  if [ "$LONG_RESPONSE" -lt "$MAX_RESPONSE" ]; then
+    echo "ROLLOUT_LONG_RESPONSE_LEN must be >= ROLLOUT_MAX_RESPONSE_LEN" >&2
+    exit 2
+  fi
+  if [ -z "$CUSTOM_GENERATE_FUNCTION_PATH" ] || [ -z "$LONG_TASK_TYPES" ]; then
+    echo "Long-response tier requires CUSTOM_GENERATE_FUNCTION_PATH and ROLLOUT_LONG_TASK_TYPES" >&2
+    exit 2
+  fi
+  if [ $((MAX_PROMPT + LONG_RESPONSE)) -gt "$MAX_CONTEXT" ]; then
+    echo "Prompt plus long response exceeds rollout context: prompt=$MAX_PROMPT long=$LONG_RESPONSE context=$MAX_CONTEXT" >&2
+    exit 2
+  fi
+  read -r -a LONG_TASK_TYPE_ARGS <<< "$LONG_TASK_TYPES"
+  LENGTH_AWARE_ARGS+=(--custom-generate-function-path "$CUSTOM_GENERATE_FUNCTION_PATH")
+  LENGTH_AWARE_ARGS+=(--rollout-long-response-len "$LONG_RESPONSE")
+  LENGTH_AWARE_ARGS+=(--rollout-long-task-types "${LONG_TASK_TYPE_ARGS[@]}")
+elif [ -n "$CUSTOM_GENERATE_FUNCTION_PATH" ]; then
+  LENGTH_AWARE_ARGS+=(--custom-generate-function-path "$CUSTOM_GENERATE_FUNCTION_PATH")
 fi
 MODEL_PARALLEL_SIZE=$((TP * PP * CP))
 if [ "$MODEL_PARALLEL_SIZE" -le 0 ] || [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne 0 ]; then
@@ -253,6 +277,7 @@ ray job submit --address="$RAY_DASHBOARD_ADDRESS" \
   --num-rollout "$NUM_ROLLOUT" --rollout-batch-size "$RBS" --n-samples-per-prompt 1 \
   --rollout-max-prompt-len "$MAX_PROMPT" --rollout-max-response-len "$MAX_RESPONSE" \
   --rollout-max-context-len "$MAX_CONTEXT" --rollout-temperature "${ROLLOUT_TEMPERATURE:-0.8}" \
+  "${LENGTH_AWARE_ARGS[@]}" \
   --rollout-num-gpus-per-engine "$ROLLOUT_TP" \
   --sglang-mem-fraction-static "$SGLANG_MEM_FRACTION_STATIC" \
   "${SGLANG_EXTRA_ARGS[@]}" \

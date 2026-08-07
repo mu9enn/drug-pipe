@@ -133,6 +133,52 @@ def test_official_reward_exact_tool_match_uses_official_range():
     assert out["components"]["correctness"] == 3.0
 
 
+def test_official_reward_treats_local_tool_as_first_class_decision():
+    sample = _sample(
+        '<thought>read the tool contract</thought><tool_call>{"tool_name":"Read","arguments":{"file_path":"skills/L1_tools/molclaw-fix-pdb/SKILL.md"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [
+                {"tool_name": "Read", "arguments": {"file_path": "skills/L1_tools/molclaw-fix-pdb/SKILL.md"}}
+            ],
+        },
+    )
+    out = _reward(sample, mode="official")
+    assert out["score"] == 4.0
+    assert out["components"]["correctness"] == 3.0
+    assert out["diagnostics"]["pred_call_count"] == 1
+
+
+def test_molclaw_reward_no_longer_penalizes_supported_local_tool():
+    sample = _sample(
+        '<thought>write</thought><tool_call>{"tool_name":"Write","arguments":{"file_path":"run_log.md","content":"ok"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [
+                {"tool_name": "Write", "arguments": {"file_path": "run_log.md", "content": "ok"}}
+            ],
+        },
+    )
+    out = _reward(sample, mode="molclaw")
+    assert out["score"] > 0.95
+    assert out["matched_calls"] == 1
+
+
+def test_truncated_official_match_cannot_receive_positive_reward():
+    sample = _sample(
+        '<thought>t</thought><tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x"}}],
+        },
+    )
+    sample.status = SimpleNamespace(value="truncated")
+    out = _reward(sample, mode="official")
+    assert out["score"] == 0.0
+    assert out["diagnostics"]["score_before_truncation_guard"] == 4.0
+    assert out["diagnostics"]["truncation_guard_applied"] is True
+
+
 def test_official_final_answer_extension_scores_structured_result_without_summary():
     final = {"task_type": "kg", "result": "artifact", "evidence": []}
     sample = _sample(

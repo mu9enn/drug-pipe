@@ -48,7 +48,15 @@ RAY_DASHBOARD_ADDRESS=${RAY_DASHBOARD_ADDRESS:-http://127.0.0.1:8265}
 MAX_PROMPT=${ROLLOUT_MAX_PROMPT_LEN:-6144}
 MAX_RESPONSE=${ROLLOUT_MAX_RESPONSE_LEN:-512}
 MAX_CONTEXT=${ROLLOUT_MAX_CONTEXT_LEN:-6656}
+LONG_RESPONSE=${ROLLOUT_LONG_RESPONSE_LEN:-}
+LONG_TASK_TYPES=${ROLLOUT_LONG_TASK_TYPES:-}
+CUSTOM_GENERATE_FUNCTION_PATH=${CUSTOM_GENERATE_FUNCTION_PATH:-}
 SGLANG_MEM_FRACTION_STATIC=${GAD_SGLANG_MEM_FRACTION_STATIC:-${SGLANG_MEM_FRACTION_STATIC:-0.75}}
+# Grouped GAD sends several continuations with the same long prefix.  The
+# default cache-aware router may place the complete group on one engine.  Keep
+# the default unless an explicit throughput gate proves that spreading decode
+# with round_robin wins on the target prompt-length distribution.
+ROUTER_POLICY=${ROUTER_POLICY:-}
 COLOCATE_OFFLOAD_TRAIN=${COLOCATE_OFFLOAD_TRAIN:-1}
 COLOCATE_OFFLOAD_ROLLOUT=${COLOCATE_OFFLOAD_ROLLOUT:-1}
 OPTIMIZER_CPU_OFFLOAD=${GAD_OPTIMIZER_CPU_OFFLOAD:-${OPTIMIZER_CPU_OFFLOAD:-0}}
@@ -80,6 +88,27 @@ TOTAL_SAMPLES=$((RBS * N_SAMPLES))
 if [ "$TOTAL_SAMPLES" -lt "$GBS" ] || [ $((TOTAL_SAMPLES % GBS)) -ne 0 ]; then
   echo "RBS*N_SAMPLES must be >= and divisible by GBS: RBS=$RBS N_SAMPLES=$N_SAMPLES GBS=$GBS" >&2
   exit 2
+fi
+LENGTH_AWARE_ARGS=()
+if [ -n "$LONG_RESPONSE" ]; then
+  if [ "$LONG_RESPONSE" -lt "$MAX_RESPONSE" ]; then
+    echo "ROLLOUT_LONG_RESPONSE_LEN must be >= ROLLOUT_MAX_RESPONSE_LEN" >&2
+    exit 2
+  fi
+  if [ -z "$CUSTOM_GENERATE_FUNCTION_PATH" ] || [ -z "$LONG_TASK_TYPES" ]; then
+    echo "Long-response tier requires CUSTOM_GENERATE_FUNCTION_PATH and ROLLOUT_LONG_TASK_TYPES" >&2
+    exit 2
+  fi
+  if [ $((MAX_PROMPT + LONG_RESPONSE)) -gt "$MAX_CONTEXT" ]; then
+    echo "Prompt plus long response exceeds rollout context: prompt=$MAX_PROMPT long=$LONG_RESPONSE context=$MAX_CONTEXT" >&2
+    exit 2
+  fi
+  read -r -a LONG_TASK_TYPE_ARGS <<< "$LONG_TASK_TYPES"
+  LENGTH_AWARE_ARGS+=(--custom-generate-function-path "$CUSTOM_GENERATE_FUNCTION_PATH")
+  LENGTH_AWARE_ARGS+=(--rollout-long-response-len "$LONG_RESPONSE")
+  LENGTH_AWARE_ARGS+=(--rollout-long-task-types "${LONG_TASK_TYPE_ARGS[@]}")
+elif [ -n "$CUSTOM_GENERATE_FUNCTION_PATH" ]; then
+  LENGTH_AWARE_ARGS+=(--custom-generate-function-path "$CUSTOM_GENERATE_FUNCTION_PATH")
 fi
 MODEL_PARALLEL_SIZE=$((TP * PP * CP))
 if [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne 0 ]; then
@@ -270,6 +299,9 @@ fi
 if [ "${SGLANG_DISABLE_OVERLAP_SCHEDULE:-0}" = "1" ]; then
   SGLANG_EXTRA_ARGS+=(--sglang-disable-overlap-schedule)
 fi
+if [ -n "$ROUTER_POLICY" ]; then
+  SGLANG_EXTRA_ARGS+=(--router-policy "$ROUTER_POLICY")
+fi
 if [ -n "$DYNAMIC_SAMPLING_FILTER_PATH" ]; then
   SGLANG_EXTRA_ARGS+=(--dynamic-sampling-filter-path "$DYNAMIC_SAMPLING_FILTER_PATH")
 fi
@@ -349,6 +381,7 @@ ray job submit --address="$RAY_DASHBOARD_ADDRESS" --runtime-env-json="$RUNTIME_E
   --num-rollout "$NUM_ROLLOUT" --rollout-batch-size "$RBS" --n-samples-per-prompt "$N_SAMPLES" \
   --rollout-max-prompt-len "$MAX_PROMPT" --rollout-max-response-len "$MAX_RESPONSE" \
   --rollout-max-context-len "$MAX_CONTEXT" --rollout-temperature "${ROLLOUT_TEMPERATURE:-0.8}" \
+  "${LENGTH_AWARE_ARGS[@]}" \
   --rollout-num-gpus-per-engine "$ROLLOUT_TP" \
   --sglang-mem-fraction-static "$SGLANG_MEM_FRACTION_STATIC" \
   "${SGLANG_EXTRA_ARGS[@]}" \

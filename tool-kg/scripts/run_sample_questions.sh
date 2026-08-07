@@ -161,7 +161,6 @@ cmd=(
   python3 -m molclaw_kg.cli
   --project-root "$PROJECT_ROOT"
   --run-id "$RUN_ID"
-  --api-key "$API_KEY"
   --mode claude_cc
   sample-questions
   --sampling-profile "$SAMPLING_PROFILE"

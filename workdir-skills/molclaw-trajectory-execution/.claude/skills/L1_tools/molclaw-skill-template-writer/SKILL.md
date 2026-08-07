@@ -213,6 +213,7 @@ Run through the validation checklist from L2-12 Phase 4:
 - [ ] All SCP tool names are snake_case
 - [ ] No kebab-case skill names in tool invocation contexts
 - [ ] All placeholders have documented defaults
+- [ ] No API keys, tokens, or credentials are embedded; reference environment variable names defined in `.env.template`
 
 **Logical checks:**
 - [ ] Phase dependencies are correctly ordered

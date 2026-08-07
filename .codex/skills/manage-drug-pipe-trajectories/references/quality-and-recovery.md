@@ -37,7 +37,7 @@ Do not count precreated `row*` directories. Exclude `attempts/` when auditing ca
 Use:
 
 ```bash
-python "$HOME/.codex/skills/manage-drug-pipe-trajectories/scripts/audit_raw_sessions.py" \
+python "$REPO/.codex/skills/manage-drug-pipe-trajectories/scripts/audit_raw_sessions.py" \
   "$RAW_RUN_DIR" --expected "$EXPECTED" --fail-on-hard
 ```
 
@@ -117,7 +117,13 @@ Two controllers can read the same pending state and both create attempts. Use `.
 
 ### Provider mismatch
 
-Generic scripts should keep `CLAUDE_PROVIDER=`. A provider named in an old run is historical configuration, not authority to switch the current user selection. Check the current provider directly.
+Generic scripts must pass `--skip-provider-switch 1`. A provider named in an old
+run is historical metadata, not authority to switch the current user selection.
+Check the current provider directly and compare it with the run-start snapshot.
+If it changes, pause before the next invocation and start/resume under an
+explicit new run boundary; never switch it back automatically. On rate limit,
+timeout, or provider failure, retry with bounded backoff against the same
+provider and then fail closed. Never enable cc-switch failover.
 
 ### NumPy/RDKit warnings
 
@@ -143,7 +149,8 @@ Keep material diagnosis reports near the affected run and include evidence, root
 After modifying capture, runner, cleaning, cache, or concurrency:
 
 ```bash
-cd /home/sunxiangyu/sunxiangyu/drug-pipe/data-pipe
+cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/data-pipe
+# worker: cd /root/slime_sxy/group-space/sunxiangyu/drug-pipe/data-pipe
 PYTHONPATH=. python -m unittest discover -s pipeline/claude_agent/tests -p 'test_*.py' -v
 PYTHONPATH=. python -m unittest discover -s pipeline/cleaning/tests -p 'test_*.py' -v
 PYTHONPATH=. python -m unittest discover -s pipeline/kg/tests -p 'test_*.py' -v

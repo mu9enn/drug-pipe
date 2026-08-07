@@ -13,6 +13,9 @@ from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES
 from drug_agent.utils import normalize_tool_name
 
 
+_LOCAL_TOOL_NAME_BY_CASEFOLD = {name.casefold(): name for name in LOCAL_TOOL_NAMES}
+
+
 @dataclass
 class ParsedToolCall:
     index: int
@@ -59,8 +62,17 @@ def _canonical_allowlist_name(tool_name: str | None) -> str:
     return canonical_tool_name(tool_name, None)
 
 
+def canonical_decision_tool_name(tool_name: str | None) -> str:
+    """Return the runtime spelling for local tools and canonical MCP spelling otherwise."""
+    bare = normalize_tool_name(tool_name)
+    local_name = _LOCAL_TOOL_NAME_BY_CASEFOLD.get(bare.casefold())
+    return local_name or canonical_tool_name(bare, None)
+
+
 def _is_molclaw_tool(tool_name: str, allowed_tool_names: set[str] | None) -> bool:
     bare = normalize_tool_name(tool_name)
+    if bare.casefold() in _LOCAL_TOOL_NAME_BY_CASEFOLD:
+        return False
     canonical = _canonical_allowlist_name(bare)
     if not canonical:
         return False
@@ -69,11 +81,25 @@ def _is_molclaw_tool(tool_name: str, allowed_tool_names: set[str] | None) -> boo
     if allowed_tool_names:
         canonical_allowed = {_canonical_allowlist_name(name) for name in allowed_tool_names}
         return canonical in canonical_allowed
-    return bare not in LOCAL_TOOL_NAMES
+    return bare.casefold() not in _LOCAL_TOOL_NAME_BY_CASEFOLD
 
 
 def is_molclaw_decision_name(tool_name: str, allowed_tool_names: set[str] | None = None) -> bool:
     return _is_molclaw_tool(tool_name, allowed_tool_names)
+
+
+def is_local_decision_name(tool_name: str | None) -> bool:
+    return normalize_tool_name(tool_name).casefold() in _LOCAL_TOOL_NAME_BY_CASEFOLD
+
+
+def is_supported_decision_name(tool_name: str, allowed_tool_names: set[str] | None = None) -> bool:
+    return is_local_decision_name(tool_name) or _is_molclaw_tool(tool_name, allowed_tool_names)
+
+
+def supported_training_tool_names(allowed_tool_names: set[str] | None = None) -> set[str]:
+    if allowed_tool_names is None:
+        allowed_tool_names = default_molclaw_allowlist()
+    return {canonical_decision_tool_name(name) for name in allowed_tool_names} | set(LOCAL_TOOL_NAMES)
 
 
 def parse_tool_calls(
@@ -86,8 +112,9 @@ def parse_tool_calls(
     """Parse ReAct content and extract one or more tool calls.
 
     The parser accepts tagged ReAct assistant messages and returns all
-    `tool_call` blocks in order. By default, only MolClaw tools listed in the
-    allowlist are marked as keep=True and included in `molclaw_tool_calls`.
+    `tool_call` blocks in order. MolClaw, supported local, and unsupported
+    calls are classified separately; `keep` remains the legacy MolClaw-only
+    flag and must not be used as the training-decision authority.
     """
 
     parsed = parse_react_sequence(text, role=role)
@@ -101,6 +128,8 @@ def parse_tool_calls(
         "blocks": parsed.get("blocks") or [],
         "tool_calls": [],
         "molclaw_tool_calls": [],
+        "local_tool_calls": [],
+        "unsupported_tool_calls": [],
         "non_molclaw_tool_calls": [],
     }
     if not result["ok"]:
@@ -114,11 +143,12 @@ def parse_tool_calls(
         if not isinstance(payload, dict):
             continue
         tool_name_raw = str(payload.get("tool_name") or "")
-        tool_name = canonical_tool_name(tool_name_raw or None, None)
+        tool_name = canonical_decision_tool_name(tool_name_raw or None)
         arguments = payload.get("arguments")
         if not isinstance(arguments, dict):
             arguments = {}
         keep = _is_molclaw_tool(tool_name_raw or tool_name, allowed_tool_names)
+        is_local = is_local_decision_name(tool_name_raw or tool_name)
         item = ParsedToolCall(
             index=block_index,
             tool_name_raw=tool_name_raw,
@@ -135,6 +165,10 @@ def parse_tool_calls(
                 result["tool_calls"].append(item.to_dict())
         else:
             result["non_molclaw_tool_calls"].append(item.to_dict())
+            if is_local:
+                result["local_tool_calls"].append(item.to_dict())
+            else:
+                result["unsupported_tool_calls"].append(item.to_dict())
             if keep_non_molclaw:
                 result["tool_calls"].append(item.to_dict())
 
@@ -145,6 +179,9 @@ def parse_tool_calls(
 
     result["tool_call_count"] = len(result["tool_calls"])
     result["molclaw_tool_call_count"] = len(result["molclaw_tool_calls"])
+    result["local_tool_call_count"] = len(result["local_tool_calls"])
+    result["supported_tool_call_count"] = len(result["molclaw_tool_calls"]) + len(result["local_tool_calls"])
+    result["unsupported_tool_call_count"] = len(result["unsupported_tool_calls"])
     result["non_molclaw_tool_call_count"] = len(result["non_molclaw_tool_calls"])
     result["has_tool_call"] = result["tool_call_count"] > 0
     final_blocks = [

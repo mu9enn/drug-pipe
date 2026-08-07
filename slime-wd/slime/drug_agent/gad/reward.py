@@ -7,6 +7,13 @@ from drug_agent.toolrl.parse_tool_calls import parse_tool_calls
 from drug_agent.utils import clamp, to_jsonable
 
 
+def _sample_was_truncated(sample: Any) -> bool:
+    """Accept Slime's enum status without importing its torch-backed types."""
+    status = getattr(sample, "status", None)
+    status_value = getattr(status, "value", status)
+    return str(status_value or "").strip().lower() in {"truncated", "status.truncated"}
+
+
 def _teacher_response(sample: Any) -> str:
     label = sample.label if isinstance(sample.label, dict) else {}
     metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
@@ -26,14 +33,20 @@ def _state_messages(sample: Any) -> list[dict[str, Any]]:
 
 def _rule_components(args, sample: Any) -> tuple[float, float, dict[str, Any]]:
     """Compute strict format and decision-aware schema components."""
+    metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
+    allowed_raw = metadata.get("allowed_tool_names")
+    allowed_tool_names = (
+        {str(name) for name in allowed_raw if str(name).strip()}
+        if isinstance(allowed_raw, list)
+        else None
+    )
     parsed = parse_tool_calls(
         sample.response if isinstance(sample.response, str) else str(sample.response or ""),
-        allowed_tool_names=None,
+        allowed_tool_names=allowed_tool_names,
         keep_non_molclaw=True,
     )
     parse_ok = bool(parsed.get("ok"))
     label = sample.label if isinstance(sample.label, dict) else {}
-    metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
     decision_type = label.get("decision_type") or metadata.get("decision_type")
     format_score = 1.0 if parse_ok else 0.0
     if decision_type == "final_answer":
@@ -48,9 +61,9 @@ def _rule_components(args, sample: Any) -> tuple[float, float, dict[str, Any]]:
         schema_score = (
             1.0
             if parse_ok
-            and int(parsed.get("molclaw_tool_call_count") or 0) > 0
+            and int(parsed.get("supported_tool_call_count") or 0) > 0
             and not parsed.get("has_final_answer")
-            and int(parsed.get("non_molclaw_tool_call_count") or 0) == 0
+            and int(parsed.get("unsupported_tool_call_count") or 0) == 0
             else 0.0
         )
     rule = {
@@ -61,6 +74,9 @@ def _rule_components(args, sample: Any) -> tuple[float, float, dict[str, Any]]:
             "expected_decision_type": decision_type,
             "has_final_answer": bool(parsed.get("has_final_answer")),
             "molclaw_tool_call_count": int(parsed.get("molclaw_tool_call_count") or 0),
+            "local_tool_call_count": int(parsed.get("local_tool_call_count") or 0),
+            "supported_tool_call_count": int(parsed.get("supported_tool_call_count") or 0),
+            "unsupported_tool_call_count": int(parsed.get("unsupported_tool_call_count") or 0),
         },
     }
     return format_score, schema_score, rule
@@ -126,6 +142,10 @@ async def reward_func(args, sample_or_samples, **kwargs):
             score = clamp(0.5 * format_score + 0.5 * tool_score, -final_clip, final_clip)
         else:
             score = clamp(gad_coef * gad_score + format_coef * format_score + tool_coef * tool_score, -final_clip, final_clip)
+        truncated = _sample_was_truncated(sample)
+        score_before_truncation_guard = score
+        if truncated:
+            score = min(score, 0.0)
         out = {
             "score": score,
             "components": {
@@ -141,6 +161,9 @@ async def reward_func(args, sample_or_samples, **kwargs):
                 "student_weight_versions": to_jsonable(sample.weight_versions),
                 "discriminator_metrics": result.get("metrics") or {},
                 "rule_reward": to_jsonable(rule),
+                "response_truncated": truncated,
+                "score_before_truncation_guard": score_before_truncation_guard,
+                "truncation_guard_applied": truncated and score_before_truncation_guard > 0.0,
             },
         }
         if not isinstance(sample.metadata, dict):

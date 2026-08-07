@@ -15,12 +15,12 @@ If MCP environment. is not installed, please run `pip install mcp`.
 The server is defined as below:
 
 ```python
+import os
 import json
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 
 DrugSDA_Tool_SERVER_URL = "https://scp.intern-ai.org.cn/api/v1/mcp/2/DrugSDA-Tool"
-DrugSDA_Tool_API_KEY = "sk-7e8704c0-b838-44e9-ab74-f116037bbf35"
 
 class DrugSDAClient:    
     def __init__(self, server_url: str):
@@ -30,9 +30,12 @@ class DrugSDAClient:
     async def connect(self):
         print(f"server url: {self.server_url}")
         try:
+            api_key = os.getenv("SCP_HUB_API_KEY")
+            if not api_key:
+                raise ValueError("SCP_HUB_API_KEY is not set. Please configure it in .env.")
             self.transport = streamablehttp_client(
                 url=self.server_url,
-                headers={"SCP-HUB-API-KEY": DrugSDA_Tool_API_KEY}
+                headers={"SCP-HUB-API-KEY": api_key}
             )
             self.read, self.write, self.get_session_id = await self.transport.__aenter__()
             

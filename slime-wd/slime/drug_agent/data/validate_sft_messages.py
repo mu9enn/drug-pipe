@@ -266,8 +266,22 @@ def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
             for block in observation_blocks:
                 tool_name = block.get("tool_name")
                 if pending_tool_calls:
-                    expected_tool = pending_tool_calls.pop(0)
-                    if isinstance(tool_name, str) and expected_tool and tool_name != expected_tool:
+                    expected_tool = pending_tool_calls[0]
+                    # Parallel tool calls may complete in a different order from
+                    # submission.  With no call ids in the canonical ReAct wire
+                    # format, pair each observation to the oldest pending call
+                    # with the same tool name.  An observation whose name is not
+                    # pending remains a hard protocol error.
+                    matching_index = (
+                        pending_tool_calls.index(tool_name)
+                        if isinstance(tool_name, str) and tool_name in pending_tool_calls
+                        else None
+                    )
+                    if matching_index is not None:
+                        if matching_index > 0:
+                            counts["out_of_order_tool_results"] += 1
+                        pending_tool_calls.pop(matching_index)
+                    else:
                         counts["react_json_parse_failed"] += 1
                         samples.append(
                             {
@@ -541,6 +555,7 @@ def main() -> int:
         int(assistant_counter.get("react_json_parse_failed") or 0),
         int(cleaning_counts.get("react_json_parse_failed") or 0),
     )
+    out_of_order_tool_results = int(assistant_counter.get("out_of_order_tool_results") or 0)
     chat_template_failed = len(apply_template_failed)
     chat_template_checked = bool(args.tokenizer) and chat_template_import_failed is None
 
@@ -565,6 +580,7 @@ def main() -> int:
         "fence_wrappers_stripped": fence_wrappers_stripped,
         "fence_inner_content_preserved": fence_inner_content_preserved,
         "react_json_parse_failed": react_json_parse_failed,
+        "out_of_order_tool_results": out_of_order_tool_results,
         "chat_template_failed": chat_template_failed,
         "chat_template_checked": chat_template_checked,
         "bad": len(bad),

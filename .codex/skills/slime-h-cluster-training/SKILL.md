@@ -1,6 +1,6 @@
 ---
 name: slime-h-cluster-training
-description: Plan, convert, launch, monitor, and diagnose Slime/Megatron/SGLang training on PJLab H-cluster 4-GPU or 8-GPU workers, especially Qwen3.5/3.6 27B, 35B-A3B, and 122B-A10B-FP8 SFT, ToolRL, GAD, full-parameter, and LoRA runs. Use for worker preflight, HF-to-torch_dist conversion, parallelism and memory sizing, long-context batching, FP8/LoRA decisions, serial SFT-to-RL workflows, Ray/tmux health checks, OOM/NCCL/numerical/reward diagnosis, and recovery of these drug-agent experiments.
+description: Plan, convert, launch, monitor, and diagnose Slime/Megatron/SGLang training on PJLab H-cluster 4-GPU or 8-GPU workers, especially Qwen3.5/3.6 9B, 27B, 35B-A3B, and 122B-A10B-FP8 SFT, ToolRL, GAD, full-parameter, and LoRA runs. Use for worker preflight, HF-to-torch_dist conversion, parallelism and memory sizing, long-context batching, FP8/LoRA decisions, serial SFT-to-RL workflows, Ray/tmux health checks, OOM/NCCL/numerical/reward diagnosis, and recovery of these drug-agent experiments.
 ---
 
 # Slime H-Cluster Training
@@ -32,7 +32,9 @@ When framework, model, or CUDA/SGLang/Megatron versions differ, browse current p
 ### 2. Select the training regime explicitly
 
 - Distinguish dense from MoE, total from active parameters, full-parameter from LoRA, train-only SFT from colocated online RL, and official FP8 weights from BF16 compute/KV tensors.
-- For 27B/35B, begin from the measured profile matching 4 or 8 H200 GPUs, then gate the actual length buckets and method.
+- For 9B/27B/35B, begin from the measured profile matching the exact H200
+  count, then gate the actual length buckets and method. Do not assume the
+  smaller 9B prefers TP1: its large vocabulary made TP4 the measured winner.
 - For 122B on one 8×H200/1-TiB worker:
   - Use full-parameter training only for the already gated SFT path.
   - Use the official `Qwen/Qwen3.5-122B-A10B-FP8` lineage and LoRA for single-node ToolRL/GAD.
@@ -50,6 +52,14 @@ When framework, model, or CUDA/SGLang/Megatron versions differ, browse current p
 Advance in order: preflight → conversion → load → shortest step → p50 step → p95/max step → checkpoint-save → one online RL group → multi-update stability → production. Require every stage to pass the criteria in [failures-and-gates.md](references/failures-and-gates.md).
 
 Do not launch a full epoch merely because weights load or one short batch fits. Separate steady-state compute, train↔rollout transition, adapter/full-weight synchronization, and checkpoint serialization gates.
+
+Treat every checkpoint produced by a smoke test, gate, probe, dry run, or other
+non-production test as temporary. Write it under an explicitly scoped test run
+directory; after the test finishes and required metrics/logs have been preserved,
+delete all of its checkpoint files and verify that the storage was reclaimed. Never
+apply this cleanup to production/resume checkpoints, source checkpoints, or reusable
+HF-to-`torch_dist` conversions; resolve and validate the exact test path before
+deleting anything.
 
 ### 5. Launch resumably
 
@@ -82,7 +92,9 @@ Stop only monitoring processes when monitoring is no longer requested; leave tra
 
 ## Preserve key invariants
 
-- Keep `num_query_groups % TP == 0`; Qwen3.5/3.6 large profiles here have two KV query groups, so TP2 is the practical maximum.
+- Keep `num_query_groups % TP == 0`. Read it from the exact checkpoint:
+  Qwen3.5-9B has four groups and measured best at TP4, while the larger
+  27B/35B/122B profiles here have two and are capped at TP2.
 - Check both dense and expert grid divisibility. Prefer PP over CP when optimizer memory is the bottleneck because CP replicates optimizer state.
 - Treat `max_tokens_per_gpu` as a dynamic packing target, not automatic truncation of an oversized sample.
 - Balance long samples across DP ranks and account for the LM-head/loss pipeline stage separately.

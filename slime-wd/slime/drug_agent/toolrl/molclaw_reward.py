@@ -209,12 +209,17 @@ def _official_reward(sample: Any, parsed: dict[str, Any], pred_calls: list[dict[
 def _format_reward(parsed: dict[str, Any]) -> float:
     if not parsed.get("ok"):
         return -0.3
-    tool_calls = parsed.get("molclaw_tool_calls")
+    tool_calls = [
+        item
+        for item in (parsed.get("tool_calls") or [])
+        if isinstance(item, dict)
+        and item not in (parsed.get("unsupported_tool_calls") or [])
+    ]
     if not isinstance(tool_calls, list) or not tool_calls:
         if parsed.get("has_final_answer"):
             return 0.35
         return 0.2
-    if parsed.get("non_molclaw_tool_calls"):
+    if parsed.get("unsupported_tool_calls"):
         return 0.85
     return 1.0
 
@@ -502,13 +507,44 @@ def _tool_reward_components(pred_calls: list[dict[str, Any]], gold_calls: list[d
     return metrics
 
 
+def _sample_was_truncated(sample: Any) -> bool:
+    """Accept Slime's enum status without importing its torch-backed types."""
+    status = getattr(sample, "status", None)
+    status_value = getattr(status, "value", status)
+    return str(status_value or "").strip().lower() in {"truncated", "status.truncated"}
+
+
+def _apply_truncation_guard(sample: Any, out: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = out.setdefault("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {"original_diagnostics": to_jsonable(diagnostics)}
+        out["diagnostics"] = diagnostics
+    truncated = _sample_was_truncated(sample)
+    diagnostics["response_truncated"] = truncated
+    diagnostics["truncation_guard_applied"] = False
+    if truncated:
+        original_score = float(out.get("score") or 0.0)
+        diagnostics["score_before_truncation_guard"] = original_score
+        out["score"] = min(original_score, 0.0)
+        diagnostics["truncation_guard_applied"] = original_score > 0.0
+        warnings = out.setdefault("warnings", [])
+        if isinstance(warnings, list):
+            warnings.append(
+                {
+                    "type": "TruncatedResponse",
+                    "message": "response hit the rollout cap; positive reward was suppressed",
+                }
+            )
+    return out
+
+
 def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     config = load_tool_schema_config()
     response_text = _extract_response_text(sample)
     parsed = parse_tool_calls(response_text, allowed_tool_names=None, keep_non_molclaw=True)
     gold_calls = _extract_gold_tool_calls(sample)
 
-    pred_calls = parsed.get("molclaw_tool_calls") if isinstance(parsed.get("molclaw_tool_calls"), list) else []
+    pred_calls = parsed.get("tool_calls") if isinstance(parsed.get("tool_calls"), list) else []
     pred_calls = [item for item in pred_calls if isinstance(item, dict)]
     gold_calls = [item for item in gold_calls if isinstance(item, dict)]
 
@@ -517,6 +553,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         raise ValueError(f"unsupported TOOLRL_REWARD_MODE: {reward_mode}")
     if reward_mode == "official":
         out = _official_reward(sample, parsed, pred_calls, gold_calls)
+        out = _apply_truncation_guard(sample, out)
         if not isinstance(sample.metadata, dict):
             sample.metadata = {}
         sample.metadata["toolrl_reward"] = to_jsonable(out)
@@ -527,6 +564,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     # otherwise malformed/no-output generations receive positive reward.
     if _decision_type(sample) == "final_answer":
         out = _molclaw_final_answer_reward(sample, parsed)
+        out = _apply_truncation_guard(sample, out)
         if not isinstance(sample.metadata, dict):
             sample.metadata = {}
         sample.metadata["toolrl_reward"] = to_jsonable(out)
@@ -558,8 +596,8 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         score -= min(0.15, 0.03 * (num_pred - num_gold))
     if num_gold > num_pred:
         score -= min(0.15, 0.03 * (num_gold - num_pred))
-    if parsed.get("non_molclaw_tool_calls"):
-        score -= min(0.10, 0.02 * len(parsed.get("non_molclaw_tool_calls") or []))
+    if parsed.get("unsupported_tool_calls"):
+        score -= min(0.10, 0.02 * len(parsed.get("unsupported_tool_calls") or []))
     if not parsed.get("ok"):
         # Dense partial-call credit is useful only inside a valid ReAct
         # envelope.  Extra free text or malformed tags must never turn into a
@@ -623,6 +661,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         "errors": errors,
         "warnings": warnings,
     }
+    out = _apply_truncation_guard(sample, out)
 
     if not isinstance(sample.metadata, dict):
         sample.metadata = {}

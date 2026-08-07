@@ -12,7 +12,12 @@ if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from drug_agent.decision_extractor import iter_react_decisions, parse_assistant_decision
-from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist, is_molclaw_decision_name
+from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES
+from drug_agent.toolrl.parse_tool_calls import (
+    default_molclaw_allowlist,
+    is_supported_decision_name,
+    supported_training_tool_names,
+)
 from drug_agent.utils import ensure_dir, read_jsonl, to_jsonable, write_json, write_jsonl
 
 
@@ -85,7 +90,7 @@ def _build_sample(
     source_path: str,
 ) -> dict[str, Any]:
     decision_type = str(parsed_assistant.get("decision_type") or "")
-    target_tool_calls = [item for item in (parsed_assistant.get("molclaw_tool_calls") or []) if isinstance(item, dict)]
+    target_tool_calls = [item for item in (parsed_assistant.get("target_tool_calls") or []) if isinstance(item, dict)]
     target_final_answer = parsed_assistant.get("final_answer") if decision_type == "final_answer" else None
     tool_names = [str(item.get("tool_name") or "") for item in target_tool_calls]
     tool_names_raw = [str(item.get("tool_name_raw") or "") for item in target_tool_calls]
@@ -117,7 +122,7 @@ def _build_sample(
         "decision_type": decision_type,
         "tool_names": tool_names,
         "tool_names_raw": tool_names_raw,
-        "allowed_tool_names": sorted(default_molclaw_allowlist()),
+        "allowed_tool_names": sorted(supported_training_tool_names(), key=str.casefold),
         "target_assistant": target_assistant,
         "target_tool_calls": target_tool_calls,
         "target_final_answer": target_final_answer,
@@ -164,6 +169,8 @@ def convert_react_to_toolrl_steps(
     skipped_rows: list[dict[str, Any]] = []
     counts = Counter()
     per_task_type = defaultdict(int)
+    per_tool_name = Counter()
+    local_tool_names = set(LOCAL_TOOL_NAMES)
 
     for record_idx, record in enumerate(records):
         messages = record.get("messages")
@@ -200,25 +207,47 @@ def convert_react_to_toolrl_steps(
                 )
                 continue
 
+            parsed_tool_calls = [item for item in parsed.get("tool_calls", []) if isinstance(item, dict)]
+            unsupported_tool_calls = [
+                item
+                for item in parsed_tool_calls
+                if not is_supported_decision_name(str(item.get("tool_name") or ""), allowlist)
+            ]
             target_tool_calls = [
                 {**item, "keep": True}
-                for item in parsed.get("tool_calls", [])
-                if isinstance(item, dict) and is_molclaw_decision_name(str(item.get("tool_name") or ""), allowlist)
+                for item in parsed_tool_calls
+                if is_supported_decision_name(str(item.get("tool_name") or ""), allowlist)
             ]
             decision_type = str(decision.get("decision_type") or "")
-            if decision_type == "tool_call" and not target_tool_calls:
-                counts["skip_no_molclaw_tool_calls"] += 1
+            if decision_type == "tool_call" and unsupported_tool_calls:
+                counts["skip_unsupported_tool_calls"] += 1
                 skipped_rows.append(
                     {
                         "source": str(input_path),
                         "record_index": record_idx,
                         "source_id": record.get("id"),
                         "assistant_index": message_index,
-                        "skip_reason": "no_molclaw_tool_calls",
+                        "skip_reason": "unsupported_tool_calls",
                         "details": {
-                            "non_molclaw_tool_call_count": len(parsed.get("tool_calls", [])),
+                            "unsupported_tool_names": [
+                                item.get("tool_name_raw") or item.get("tool_name")
+                                for item in unsupported_tool_calls
+                            ],
                             "has_final_answer": False,
                         },
+                    }
+                )
+                continue
+            if decision_type == "tool_call" and not target_tool_calls:
+                counts["skip_no_supported_tool_calls"] += 1
+                skipped_rows.append(
+                    {
+                        "source": str(input_path),
+                        "record_index": record_idx,
+                        "source_id": record.get("id"),
+                        "assistant_index": message_index,
+                        "skip_reason": "no_supported_tool_calls",
+                        "details": {"has_final_answer": False},
                     }
                 )
                 continue
@@ -247,13 +276,23 @@ def convert_react_to_toolrl_steps(
                     **parsed,
                     "decision_type": decision_type,
                     "final_answer": decision.get("final_answer"),
-                    "molclaw_tool_calls": target_tool_calls,
+                    "target_tool_calls": target_tool_calls,
                 },
                 source_path=str(input_path),
             )
             output_rows.append(sample)
             counts["kept"] += 1
             counts[f"kept_{decision_type}"] += 1
+            if decision_type == "tool_call":
+                names = [str(item.get("tool_name") or "") for item in target_tool_calls]
+                per_tool_name.update(names)
+                local_count = sum(name in local_tool_names for name in names)
+                molclaw_count = len(names) - local_count
+                counts["target_tool_call_total"] += len(names)
+                counts["local_target_tool_call_total"] += local_count
+                counts["molclaw_target_tool_call_total"] += molclaw_count
+                counts["kept_tool_call_with_local"] += local_count > 0
+                counts["kept_tool_call_mixed_local_molclaw"] += local_count > 0 and molclaw_count > 0
             per_task_type[str(sample["metadata"].get("task_type") or "unknown")] += 1
 
     ensure_dir(output_path.parent)
@@ -268,6 +307,7 @@ def convert_react_to_toolrl_steps(
         "skipped_report_path": str(skipped_report_path) if skipped_report_path else None,
         "counts": dict(counts),
         "per_task_type": dict(per_task_type),
+        "per_tool_name": dict(sorted(per_tool_name.items(), key=lambda item: item[0].casefold())),
         "kept_rows": len(output_rows),
         "skipped_rows": len(skipped_rows),
         "sample_preview": [_compact_preview(sample) for sample in output_rows[:3]],

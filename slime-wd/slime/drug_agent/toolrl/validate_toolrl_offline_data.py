@@ -10,18 +10,28 @@ from typing import Any, Iterable
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist
-from drug_agent.utils import read_jsonl, write_json, write_jsonl
+from drug_agent.toolrl.parse_tool_calls import default_molclaw_allowlist, supported_training_tool_names
+from drug_agent.utils import write_json, write_jsonl
 
 
-def _load_rows(path: Path) -> list[dict[str, Any]]:
+def _iter_rows(path: Path) -> Iterable[dict[str, Any]]:
     if path.suffix == ".jsonl":
-        return read_jsonl(path)
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if not isinstance(payload, dict):
+                    raise ValueError(f"{path}:{line_number}: row is not an object")
+                yield payload
+        return
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
+        yield from (item for item in payload if isinstance(item, dict))
+        return
     if isinstance(payload, dict):
-        return [payload]
+        yield payload
+        return
     raise ValueError(f"unsupported payload in {path}")
 
 
@@ -68,12 +78,12 @@ def validate_toolrl_offline_data(
     report_path: Path | None = None,
     errors_path: Path | None = None,
 ) -> dict[str, Any]:
-    rows = _load_rows(input_path)
-    catalog_names = default_molclaw_allowlist()
+    catalog_names = supported_training_tool_names(default_molclaw_allowlist())
     counts = Counter()
     errors: list[dict[str, Any]] = []
 
-    for index, row in enumerate(rows):
+    for index, row in enumerate(_iter_rows(input_path)):
+        counts["total_rows"] += 1
         row_errors: list[str] = []
         prompt = row.get("prompt")
         label = row.get("label")
@@ -144,9 +154,9 @@ def validate_toolrl_offline_data(
             counts["valid_rows"] += 1
 
     report = {
-        "ok": counts["invalid_rows"] == 0 and len(rows) > 0,
+        "ok": counts["invalid_rows"] == 0 and counts["total_rows"] > 0,
         "input_path": str(input_path),
-        "total_rows": len(rows),
+        "total_rows": counts["total_rows"],
         "valid_rows": counts["valid_rows"],
         "invalid_rows": counts["invalid_rows"],
         "target_tool_call_total": counts["target_tool_call_total"],

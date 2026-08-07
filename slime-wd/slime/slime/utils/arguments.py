@@ -390,6 +390,22 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 ),
             )
             parser.add_argument(
+                "--rollout-long-response-len",
+                type=int,
+                default=None,
+                help=(
+                    "Optional larger per-sample response cap used by a custom generate function for "
+                    "declared long-output task types. The ordinary rollout max remains the default."
+                ),
+            )
+            parser.add_argument(
+                "--rollout-long-task-types",
+                type=str,
+                nargs="+",
+                default=None,
+                help="Task-type metadata values eligible for rollout_long_response_len.",
+            )
+            parser.add_argument(
                 "--rollout-skip-special-tokens",
                 action="store_true",
                 default=False,

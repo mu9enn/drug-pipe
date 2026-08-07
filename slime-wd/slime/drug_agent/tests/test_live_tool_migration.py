@@ -138,6 +138,53 @@ class LiveToolMigrationTest(unittest.TestCase):
             self.assertNotIn("calculate_mol_topoiogy", text)
             self.assertIn("calculate_mol_topology", text)
 
+    def test_historical_spelling_aliases_are_migrated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.jsonl"
+            source.write_text(json.dumps({
+                "id": "react_kg_spelling_aliases",
+                "messages": [
+                    {"role": "user", "content": "not an excluded prompt"},
+                    {"role": "assistant", "content": (
+                        '<tool_call>{"tool_name":"pepinvent_pepide_sampling_by_template",'
+                        '"arguments":{"template":"AA"}}</tool_call>'
+                    )},
+                    {"role": "user", "content": (
+                        '<observation tool_name="pepinvent_pepide_sampling_by_template">'
+                        '{"status":"success"}</observation>'
+                    )},
+                    {"role": "assistant", "content": (
+                        '<tool_call>{"tool_name":"pulchra_rebuild",'
+                        '"arguments":{"input_pdbs":"x.pdb"}}</tool_call>'
+                    )},
+                    {"role": "user", "content": (
+                        '<observation tool_name="pulchra_rebuild">'
+                        '{"status":"success"}</observation>'
+                    )},
+                ],
+            }) + "\n")
+            catalog = root / "catalog.json"
+            catalog.write_text(json.dumps({"tools": [
+                {
+                    "name": "pepinvent_peptide_sampling_by_template",
+                    "input_schema": {"type": "object", "properties": {"template": {"type": "string"}}},
+                },
+                {
+                    "name": "pulchura_rebuild",
+                    "input_schema": {"type": "object", "properties": {"input_pdbs": {"type": "string"}}},
+                },
+            ]}) + "\n")
+
+            report = migrate_records(source, catalog, root / "out")
+
+            self.assertEqual(report["accepted_count"], 1)
+            migrated = (root / "out/react_trajectories.jsonl").read_text()
+            self.assertNotIn("pepinvent_pepide", migrated)
+            self.assertNotIn("pulchra_rebuild", migrated)
+            self.assertIn("pepinvent_peptide_sampling_by_template", migrated)
+            self.assertIn("pulchura_rebuild", migrated)
+
     def test_schema_invalid_failed_call_is_preserved_for_replanning(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

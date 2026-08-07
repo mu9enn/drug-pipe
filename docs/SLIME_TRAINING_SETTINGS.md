@@ -19,6 +19,10 @@
 - “122B 在单机 8 卡上完全不能做 ToolRL/GAD”已经被后来的 **官方 FP8 基座 + LoRA** 方案推翻；
 - 两句话描述的是不同训练制度，并不矛盾。
 
+> 当前 510 条 canonical v3 及其新 ToolRL/GAD decision 数据的训练交接，以
+> [CANONICAL_V3_510_TRAINING_HANDOFF.md](CANONICAL_V3_510_TRAINING_HANDOFF.md) 为准。
+> 本文后续出现的 v1/v2 条数和路径只代表对应历史实验，不能覆盖该数据合同。
+
 ---
 
 ## 1. 先看结论：哪些组合已经验证到什么程度

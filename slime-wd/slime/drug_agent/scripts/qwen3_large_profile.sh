@@ -19,11 +19,12 @@ GPFS2_PUBLIC=${GPFS2_PUBLIC:-$GROUP_SPACE_ROOT/gpfs2-shared-public}
 if [[ ! -d "$GPFS2_PUBLIC/huggingface" && -d "$GROUP_SPACE_ROOT/huggingface" ]]; then
   GPFS2_PUBLIC=$GROUP_SPACE_ROOT
 fi
-LIVE_DATA_ROOT=${LIVE_DATA_ROOT:-$WD/outputs/slime_drug_agent_data/live_tool_catalog_v2}
+LIVE_DATA_ROOT=${LIVE_DATA_ROOT:-$WD/outputs/slime_drug_agent_data/live_tool_catalog_v3}
 
 export CANONICAL_DATA=${CANONICAL_DATA:-$LIVE_DATA_ROOT/react_trajectories.jsonl}
 export TOOLRL_DATA=${TOOLRL_DATA:-$LIVE_DATA_ROOT/toolrl/toolrl_steps.jsonl}
 export GAD_DATA=${GAD_DATA:-$LIVE_DATA_ROOT/gad/gad_steps.jsonl}
+export DRUG_AGENT_TOOL_CATALOG=${DRUG_AGENT_TOOL_CATALOG:-$LIVE_DATA_ROOT/tool_catalog.json}
 export DISCRIMINATOR_MODEL_PATH=${DISCRIMINATOR_MODEL_PATH:-$GROUP_SPACE/drug-pipe/cached/archive_20260730_150855/models/slime-wd/data/Qwen3.5-0.8B}
 
 # Shared memory-safety defaults.  Optimizer state is the dominant cost for

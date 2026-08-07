@@ -29,7 +29,8 @@ Always verify `config.json`, `model.safetensors.index.json`, and all indexed sha
 
 ## Data contracts
 
-The canonical v1 corpus used in the completed research contains:
+The historical canonical v1 corpus used by the first 27B/122B experiments
+contains:
 
 | Method | Path relative to `outputs/slime_drug_agent_data/live_tool_catalog_v1` | Records |
 |---|---|---:|
@@ -39,9 +40,37 @@ The canonical v1 corpus used in the completed research contains:
 | Audit | `migration_audit.jsonl` | audit only |
 | Rejected | `migration_rejected.jsonl` | never train |
 
-The 122B LoRA production launcher uses compacted `toolrl_steps_ctx10240.jsonl` and `gad_steps_ctx10240.jsonl`. Generic profiles may point to `live_tool_catalog_v2`. Resolve the launcher inputs and recount them instead of silently mixing versions.
+The current canonical v2 corpus is the default for new launches:
 
-With the Qwen3.5 tokenizer and `enable_thinking=false`, the uncompressed corpus is long despite its small record count: SFT is about 8.7M tokens, ToolRL/GAD about 44M each, with maxima near 94K. Record batch size is not token batch size. Preserve migration audits with the run metadata.
+| Method | Path relative to `outputs/slime_drug_agent_data/live_tool_catalog_v2` | Records | SHA-256 |
+|---|---|---:|---|
+| SFT | `react_trajectories.jsonl` | 365 | `deeddf45b5f8d38d4a0d8d09228501876948693329e8e8fba20b23b8e4eb4dbd` |
+| ToolRL | `toolrl/toolrl_steps.jsonl` | 3187 | `21aec7f5729329131d239a9352b069f02dfc77acba2ca6623094804e63eb00a4` |
+| GAD | `gad/gad_steps.jsonl` | 3152 | `f47a5b01fe43f8091feec89c7b6546ae49ddd239a08f8e5468e976dddfbcb0b8` |
+
+V2 removed benchmark overlap and unsafe migrations, canonicalized missing
+human `organism` to the server-authoritative default, removed the standalone
+`Skill` tool, and deduplicated adjacent synonymous thoughts. Preserve its
+migration, rejection, thought-dedup and derived-data manifests with every run.
+
+The 122B LoRA production launcher used compacted v1
+`toolrl_steps_ctx10240.jsonl` and `gad_steps_ctx10240.jsonl`; it is historical,
+not evidence that v2 was trained. Resolve the actual launcher inputs, count and
+hash them instead of silently mixing corpus versions.
+
+With the Qwen3.5 tokenizer and `enable_thinking=false`, v2 is long despite its
+small record count. Measured SFT rendered lengths were p50 14,132, p95 65,612,
+maximum 94,016 and mean 23,873 tokens. ToolRL/GAD prompts had p50 about 9.4K,
+p95 about 33K and maxima near 89.5K; prompt plus target reached about 94K.
+Record batch size is not token batch size, and `max_tokens_per_gpu` does not
+truncate a single oversized sample.
+
+Do not encode the current v2 counts into topology or optimizer settings. The
+9B serial launcher derives rollout/update counts after reading the final files.
+For any non-divisible tail, use `materialize_batch_aligned_sft.py` for SFT and
+`materialize_batch_aligned_jsonl.py` for ToolRL/GAD; append only the minimum
+audited duplicates and preserve source/output hashes. Do not edit canonical
+data or silently drop records.
 
 ## Safe worker workflow
 

@@ -171,6 +171,10 @@ MIGRATIONS: dict[str, Adapter] = {
     "retrieve_protein_sequence_retrieve": ("retrieve_protein_sequence", _sequence),
     "fpocket": ("fpocket_toolkit", _fpocket),
     "pdbfixer": ("fix_pdb", _fix_pdb),
+    # Historical client spelling mistakes. These are name-only migrations:
+    # both legacy calls used the same argument contract as the live tools.
+    "pepinvent_pepide_sampling_by_template": ("pepinvent_peptide_sampling_by_template", _same),
+    "pulchra_rebuild": ("pulchura_rebuild", _same),
 }
 
 

@@ -82,7 +82,6 @@ run_cli() {
   PYTHONPATH="$PROJECT_ROOT/src" python3 -m molclaw_kg.cli \
     --project-root "$PROJECT_ROOT" \
     --run-id "$RUN_ID" \
-    --api-key "$API_KEY" \
     --mode claude_cc \
     --max-workers "$MAX_WORKERS" \
     "${resume_args[@]}" \

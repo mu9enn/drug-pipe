@@ -251,6 +251,46 @@ class LargeModelProfileTest(unittest.TestCase):
                 self.assertIn("--use-rollout-logprobs", text)
                 self.assertIn("--dynamic-sampling-max-dropped-groups", text)
 
+    def test_gad_launcher_exposes_measured_grouped_rollout_router_policy(self) -> None:
+        launcher = (ROOT / "drug_agent/gad/scripts/run_stage3_gad_grpo.sh").read_text()
+        self.assertIn("ROUTER_POLICY=${ROUTER_POLICY:-}", launcher)
+        self.assertIn('SGLANG_EXTRA_ARGS+=(--router-policy "$ROUTER_POLICY")', launcher)
+
+    def test_online_rl_launchers_expose_length_aware_generation(self) -> None:
+        arguments = (ROOT / "slime/utils/arguments.py").read_text()
+        self.assertIn('"--rollout-long-response-len"', arguments)
+        self.assertIn('"--rollout-long-task-types"', arguments)
+        for relative in (
+            "drug_agent/toolrl/scripts/run_toolrl_grpo.sh",
+            "drug_agent/gad/scripts/generate_stage2_negatives.sh",
+            "drug_agent/gad/scripts/run_stage3_gad_grpo.sh",
+        ):
+            with self.subTest(launcher=relative):
+                text = (ROOT / relative).read_text()
+                self.assertIn("CUSTOM_GENERATE_FUNCTION_PATH", text)
+                self.assertIn("--custom-generate-function-path", text)
+                self.assertIn("--rollout-long-response-len", text)
+                self.assertIn("--rollout-long-task-types", text)
+
+    def test_9b_v2_serial_is_size_independent_and_uses_8k_16k_tiers(self) -> None:
+        serial = (
+            ROOT / "drug_agent/scripts/run_qwen3_5_9b_sft_toolrl_gad_serial.sh"
+        ).read_text()
+        self.assertIn("live_tool_catalog_v2", serial)
+        self.assertNotIn("Expected 373 canonical records", serial)
+        self.assertNotIn("NUM_ROLLOUT=757", serial)
+        self.assertIn("TOOLRL_NUM_ROLLOUT=$((TOOLRL_EPOCHS * TOOLRL_COUNT / 8))", serial)
+        self.assertIn("GAD_NUM_ROLLOUT=$((GAD_EPOCHS * GAD_COUNT))", serial)
+        self.assertIn("ROLLOUT_MAX_RESPONSE_LEN=8192", serial)
+        self.assertIn("ROLLOUT_LONG_RESPONSE_LEN=16384", serial)
+        self.assertIn("ROLLOUT_MAX_CONTEXT_LEN=131072", serial)
+        self.assertIn("ROLLOUT_LONG_TASK_TYPES='vs pf'", serial)
+        self.assertIn("PIPELINE_MODEL_PARALLEL_SIZE=1", serial)
+        self.assertIn("GLOBAL_BATCH_SIZE=2 MAX_TOKENS_PER_GPU=16384", serial)
+        self.assertIn("ADVANTAGE_ESTIMATOR=reinforce_plus_plus", serial)
+        self.assertIn("ROLLOUT_BATCH_SIZE=1 N_SAMPLES_PER_PROMPT=8", serial)
+        self.assertIn("ROUTER_POLICY=round_robin", serial)
+
     def test_toolrl_launcher_exposes_policy_stability_controls(self) -> None:
         launcher = (ROOT / "drug_agent/toolrl/scripts/run_toolrl_grpo.sh").read_text()
         serial = (ROOT / "drug_agent/scripts/run_qwen3_large_training_serial.sh").read_text()

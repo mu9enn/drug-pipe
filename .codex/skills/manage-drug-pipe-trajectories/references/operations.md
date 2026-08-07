@@ -13,23 +13,21 @@
 
 ## 1. Environment and preflight
 
-Use the configured environment and wrapper:
+Resolve the repository and use the configured environment. Connect to the
+worker as ordinary `sunxiangyu`; do not use the `sunxiangyu+root` SSH identity.
+The repository remains mounted under `/root/...` but is user-accessible:
 
 ```bash
-source /home/sunxiangyu/miniconda3/etc/profile.d/conda.sh
-conda activate nanobot
-
-export REPO=/home/sunxiangyu/sunxiangyu/drug-pipe
+export REPO=/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe
+# worker: export REPO=/root/slime_sxy/group-space/sunxiangyu/drug-pipe
 export TOOL_KG="$REPO/tool-kg"
 export DATA_PIPE="$REPO/data-pipe"
-export REAL_CLAUDE_BIN=/home/sunxiangyu/.npm-global/bin/claude
-export CLAUDE_BIN="$REPO/runtime/claude"
+export PATH="/home/sunxiangyu/.local/bin:$PATH"
+export CLAUDE_BIN="$(command -v claude)"
 
-export CLAUDE_GATE_ROOT="$REPO/.runtime/claude_gate"
+# These are admission targets, not proof that a gate wrapper exists.
 export CLAUDE_GATE_MAX_CONCURRENCY=4
 export CLAUDE_GATE_DATA_PIPE_MAX_CONCURRENCY=2  # set explicitly to 3 or 4 only when requested
-export CLAUDE_GATE_TRACK_ADMISSION=1
-export CLAUDE_GATE_SCHEDULE_ENABLED=0
 
 export API_TIMEOUT_MS=1800000
 export CLAUDE_CODE_MAX_RETRIES=10
@@ -45,7 +43,40 @@ test -n "$MOLCLAW_SCP_MCP_URL" -a -n "$MOLCLAW_SCP_MCP_AUTH"
 python -c 'import pipeline.cleaning.llm_clean, pipeline.cleaning.python_clean'
 ```
 
-Preserve the active provider unless the user requests a switch. Determine it with the installed `cc-switch` interface and perform a stream check. If an interactive shell succeeds but tmux fails, compare `HTTP_PROXY` and `HTTPS_PROXY` before blaming the provider.
+Require `claude` and `cc-switch` to exist on the worker. On 2026-08-07 they were
+available through ordinary-user SSH but absent through the root-style endpoint;
+SSH identity is therefore part of preflight. Do not install provider state,
+copy credentials, or choose a provider implicitly.
+
+For Tool-KG, use the isolated worker environment at
+`/home/sunxiangyu/slime_sxy/.venv-tool-kg` when present. Require
+`mcp>=1.0,<2.0`: MCP 2.0 renamed and changed the streamable HTTP client API used
+by the current snapshot code. Never pass MCP/API keys through `--api-key` or
+another argv field; source `.env` and let the Python config read the environment
+so secrets do not appear in `ps`.
+
+Non-interactive tmux shells return from `.bashrc` before its PJLab proxy setup.
+For external MCP endpoints, inject the platform egress proxy into that tmux
+only:
+
+```bash
+export http_proxy=http://httpproxy-headless.kubebrain.svc.pjlab.local:3128
+export https_proxy="$http_proxy"
+export no_proxy=127.0.0.1,10.0.0.0/8,100.96.0.0/12,.pjlab.org.cn,.pjh-service.org.cn,35.220.164.252
+```
+
+Keep `token.pjlab.org.cn` on the direct PJLab route. Validate the MCP initialize
+handshake without printing its URL token or auth value before a long launch.
+
+Preserve the active provider unconditionally. Read the current provider ID with
+`cc-switch --app claude provider list`, and check
+`cc-switch --app claude failover show`.
+Require automatic failover, proxy takeover, and provider scheduling to be off.
+Do not call a mutation to make them so; ask the user to change them manually.
+Avoid logging `provider current` output because it includes a masked API-key
+prefix. See [concurrency-and-provider.md](concurrency-and-provider.md) for the
+full invariant and capacity gates. If an interactive shell succeeds but tmux
+fails, compare `HTTP_PROXY` and `HTTPS_PROXY` before blaming the provider.
 
 Confirm live work:
 
@@ -171,10 +202,12 @@ Do not publish a `debug/` directory or patch file as final output.
 
 ## 5. Concurrency
 
-The wrapper enforces global Claude concurrency 4. KG Data-Pipe defaults to 2
-workers and may be explicitly raised to at most 4 when both gate capacities
-match. The runner serializes tasks whose expected toolchains share the same
-limit-4 MolClaw tool; limit-30 tools do not create task-level exclusions.
+Keep aggregate Claude concurrency at 4 unless a real global admission gate and
+the canary criteria in [concurrency-and-provider.md](concurrency-and-provider.md)
+prove a higher setting. KG Data-Pipe defaults to 2 workers and may be explicitly
+raised to at most 4 when both admission capacities match. The runner serializes
+tasks whose expected toolchains share the same limit-4 MolClaw tool; limit-30
+tools do not create task-level exclusions.
 
 | Active Data-Pipe invocations | Maximum LLM-clean workers | Total Claude |
 |---:|---:|---:|
@@ -186,7 +219,11 @@ Use one controller per raw run. Never split the same run between controllers.
 The controller may leave a worker idle while all pending tasks conflict with a
 limit-4 tool claimed by an active task.
 
-Tool-KG stages and LLM clean do not consume scientific MCP capacity but still consume global Claude slots.
+Tool-KG stages and LLM clean do not consume scientific MCP capacity but still
+consume global Claude slots. Treat 6 as a canary target and 8 as an experimental
+Claude-only ceiling, not as permission to run more than four raw MolClaw tasks.
+If no global gate implementation is present, enforce the aggregate limit by
+running one controller and not overlapping independent cleaners/controllers.
 
 ## 6. Monitoring and progress
 
@@ -197,7 +234,8 @@ date --iso-8601=seconds
 cat "$RUN_ROOT/state/status" 2>/dev/null
 cat "$RUN_ROOT/state/current_stage" 2>/dev/null
 tail -n 100 "$RUN_ROOT/serial.log"
-tail -n 30 "$REPO/.runtime/claude_gate/events.log"
+test ! -f "$REPO/.runtime/claude_gate/events.log" || \
+  tail -n 30 "$REPO/.runtime/claude_gate/events.log"
 ```
 
 Count strict successful raw rows:
@@ -218,7 +256,7 @@ printf 'strict_valid=%s terminal_bad=%s\n' "$valid" "$bad"
 Map the real Claude process to an attempt:
 
 ```bash
-for pid in $(pgrep -f '^/home/sunxiangyu/.npm-global/bin/claude '); do
+for pid in $(pgrep -f '(^|/)claude( |$)'); do
   printf 'pid=%s cwd=' "$pid"
   readlink -f "/proc/$pid/cwd"
 done
@@ -254,4 +292,6 @@ Before terminating anything:
 6. Verify the intended controller remains alive and canonical hashes did not change.
 7. Preserve all attempt files and write a diagnosis report for material incidents.
 
-For ordinary recovery, let the process-group and invocation-marker cleanup in `session_capture.py`/`runtime/claude` do its work. Never use broad `pkill python`, `pkill claude`, or deletion-based recovery.
+For ordinary recovery, let the process-group and invocation-marker cleanup in
+`session_capture.py` and the active launcher do its work. Never use broad
+`pkill python`, `pkill claude`, or deletion-based recovery.
