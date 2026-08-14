@@ -65,10 +65,19 @@ def sample_record() -> dict:
     }
 
 
+def planning_action() -> dict:
+    return {
+        "assistant_index": 2,
+        "operation": "prepend_planning_thought",
+        "planning_text": "Establish the input state, gather the required evidence, and report the supported result.",
+        "reason": "existing_thought_is_step_local",
+    }
+
+
 class ContractTest(unittest.TestCase):
     def test_examples_validate_against_machine_schemas(self) -> None:
         trajectory = json.loads((EXAMPLE_DIR / "react_trajectory_v1.example.json").read_text(encoding="utf-8"))
-        patch = json.loads((EXAMPLE_DIR / "llm_clean_patch_v1.example.json").read_text(encoding="utf-8"))
+        patch = json.loads((EXAMPLE_DIR / "llm_clean_patch_v2.example.json").read_text(encoding="utf-8"))
         self.assertEqual(react_schema_findings(trajectory), [])
         self.assertEqual(patch_schema_findings(patch), [])
         self.assertEqual(validate_final_record(trajectory)["errors"], [])
@@ -82,11 +91,50 @@ class ContractTest(unittest.TestCase):
 
 
 class RestrictedPatchTest(unittest.TestCase):
+    def test_rewrites_an_existing_plan_like_first_thought(self) -> None:
+        source = sample_record()
+        patch = {
+            "schema_version": "llm_clean_patch_v2",
+            "sample_id": "sample-1",
+            "planning_action": {
+                "assistant_index": 2,
+                "operation": "rewrite_first_thought",
+                "planning_text": "Establish the input, gather evidence, and report the supported result.",
+                "reason": "existing_thought_is_plan_like",
+            },
+            "edits": [],
+        }
+        cleaned, findings, actions = apply_restricted_patch(source, patch)
+        self.assertEqual(findings, [])
+        self.assertEqual(cleaned["messages"][2]["content"].count("<thought>"), 1)
+        self.assertEqual(actions[-1]["operation"], "rewrite_first_thought")
+        self.assertEqual(compare_immutable_facts(source, cleaned), [])
+
+    def test_prepends_plan_when_first_decision_has_no_thought(self) -> None:
+        source = sample_record()
+        source["messages"][2]["content"] = '<tool_call>{"arguments":{},"tool_name":"x"}</tool_call>'
+        patch = {
+            "schema_version": "llm_clean_patch_v2",
+            "sample_id": "sample-1",
+            "planning_action": {
+                "assistant_index": 2,
+                "operation": "prepend_planning_thought",
+                "planning_text": "Gather the required evidence and report the supported result.",
+                "reason": "no_existing_thought",
+            },
+            "edits": [],
+        }
+        cleaned, findings, _ = apply_restricted_patch(source, patch)
+        self.assertEqual(findings, [])
+        self.assertTrue(cleaned["messages"][2]["content"].startswith("<thought>"))
+        self.assertEqual(compare_immutable_facts(source, cleaned), [])
+
     def test_empty_replacement_deletes_only_the_targeted_thought(self) -> None:
         source = sample_record()
         patch = {
-            "schema_version": "llm_clean_patch_v1",
+            "schema_version": "llm_clean_patch_v2",
             "sample_id": "sample-1",
+            "planning_action": planning_action(),
             "edits": [
                 {
                     "message_index": 2,
@@ -98,7 +146,7 @@ class RestrictedPatchTest(unittest.TestCase):
         }
         cleaned, findings, actions = apply_restricted_patch(source, patch)
         self.assertEqual(findings, [])
-        self.assertNotIn("<thought>", cleaned["messages"][2]["content"])
+        self.assertEqual(cleaned["messages"][2]["content"].count("<thought>"), 1)
         self.assertIn("<tool_call>", cleaned["messages"][2]["content"])
         self.assertEqual(actions[0]["operation"], "delete")
         self.assertEqual(compare_immutable_facts(source, cleaned), [])
@@ -106,8 +154,9 @@ class RestrictedPatchTest(unittest.TestCase):
     def test_patch_changes_only_existing_editable_prose(self) -> None:
         source = sample_record()
         patch = {
-            "schema_version": "llm_clean_patch_v1",
+            "schema_version": "llm_clean_patch_v2",
             "sample_id": "sample-1",
+            "planning_action": planning_action(),
             "edits": [
                 {
                     "message_index": 2,
@@ -125,7 +174,7 @@ class RestrictedPatchTest(unittest.TestCase):
         }
         cleaned, findings, actions = apply_restricted_patch(source, patch)
         self.assertEqual(findings, [])
-        self.assertEqual(len(actions), 2)
+        self.assertEqual(len(actions), 3)
         self.assertEqual(compare_immutable_facts(source, cleaned), [])
         self.assertIn("recorded result", cleaned["messages"][2]["content"])
         self.assertIn("completed successfully", cleaned["messages"][4]["content"])
@@ -133,8 +182,9 @@ class RestrictedPatchTest(unittest.TestCase):
     def test_patch_cannot_inject_protocol_tags(self) -> None:
         source = sample_record()
         patch = {
-            "schema_version": "llm_clean_patch_v1",
+            "schema_version": "llm_clean_patch_v2",
             "sample_id": "sample-1",
+            "planning_action": planning_action(),
             "edits": [
                 {
                     "message_index": 2,
@@ -181,7 +231,10 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             "from pathlib import Path\n"
             "source = json.loads(Path('source_trajectory.json').read_text())\n"
             "Path('llm_clean_patch.json').write_text(json.dumps({"
-            "'schema_version':'llm_clean_patch_v1','sample_id':source['id'],'edits':[]}))\n"
+            "'schema_version':'llm_clean_patch_v2','sample_id':source['id'],"
+            "'planning_action':{'assistant_index':2,'operation':'prepend_planning_thought',"
+            "'planning_text':'Establish the input state, gather evidence, and report the supported result.',"
+            "'reason':'existing_thought_is_step_local'},'edits':[]}))\n"
             + stream_line,
             encoding="utf-8",
         )
@@ -267,8 +320,9 @@ class ClaudePatchCaptureTest(unittest.TestCase):
 
         def partial(_source, _hints):
             return {
-                "schema_version": "llm_clean_patch_v1",
+                "schema_version": "llm_clean_patch_v2",
                 "sample_id": "sample-1",
+                "planning_action": planning_action(),
                 "edits": [
                     {
                         "message_index": 2,
@@ -294,8 +348,9 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             called = True
             self.assertFalse(context["only_molclaw_tool"])
             return {
-                "schema_version": "llm_clean_patch_v1",
+                "schema_version": "llm_clean_patch_v2",
                 "sample_id": "sample-1",
+                "planning_action": planning_action(),
                 "edits": [],
             }, {"status": "patch_received", "findings": []}
 
@@ -311,7 +366,7 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             empty_patch,
         )
         self.assertTrue(called)
-        self.assertEqual(result["audit"]["llm_clean"]["status"], "not_required")
+        self.assertEqual(result["audit"]["llm_clean"]["status"], "cleaned")
         self.assertEqual(result["audit"]["final_status"], "accepted")
 
     def test_unsafe_patch_falls_back_without_rejecting_sample(self) -> None:
@@ -319,8 +374,9 @@ class ClaudePatchCaptureTest(unittest.TestCase):
 
         def unsafe(_source, _hints):
             return {
-                "schema_version": "llm_clean_patch_v1",
+                "schema_version": "llm_clean_patch_v2",
                 "sample_id": "sample-1",
+                "planning_action": planning_action(),
                 "edits": [
                     {
                         "message_index": 2,
@@ -421,8 +477,9 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 with lock:
                     active -= 1
                 return {
-                    "schema_version": "llm_clean_patch_v1",
+                    "schema_version": "llm_clean_patch_v2",
                     "sample_id": source["id"],
+                    "planning_action": planning_action(),
                     "edits": [],
                 }, {"status": "patch_received", "findings": []}
 
@@ -440,6 +497,13 @@ class ClaudePatchCaptureTest(unittest.TestCase):
             self.assertEqual(peak, 2)
             self.assertEqual(output_ids, ["sample-0", "sample-1", "sample-2"])
             self.assertEqual(manifest["max_workers"], 2)
+            self.assertEqual(manifest["planning_annotation_count"], 3)
+            annotations = [
+                json.loads(line)
+                for line in (output_root / "planning_annotations.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual([row["source_id"] for row in annotations], output_ids)
+            self.assertTrue(all(row["planning_sha256"] for row in annotations))
 
 
 class InvariantTest(unittest.TestCase):

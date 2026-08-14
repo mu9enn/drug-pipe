@@ -1,5 +1,7 @@
 # Data Formats
 
+ReAct LLM clean 的 planning annotation、ToolRL/GAD 共享超长上下文物化契约和 262k 长度边界见 [REACT_PLANNING_AND_CONTEXT_SUMMARY.md](REACT_PLANNING_AND_CONTEXT_SUMMARY.md)。
+
 下列字段只列稳定边界；debug、provenance 和派生统计不构成新的 authority。
 
 ## Tool Catalog

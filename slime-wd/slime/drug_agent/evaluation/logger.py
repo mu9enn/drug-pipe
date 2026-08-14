@@ -113,13 +113,17 @@ def log_eval_rollout_data(rollout_id, args, data, extra_metrics) -> bool:
     for (group, subtask), rows in grouped.items():
         write_json(run_dir / "preds" / group / f"{subtask}.json", rows)
 
-    metrics = run_official_evaluation(run_dir, molbench_root)
+    inference_only = os.environ.get("DRUG_AGENT_EVAL_INFERENCE_ONLY", "0").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    metrics = {} if inference_only else run_official_evaluation(run_dir, molbench_root)
     summary = {
         "rollout_id": rollout_id,
         "sample_count": len(predictions),
         "final_answer_count": len(predictions) - len(failures),
         "failure_count": len(failures),
         "metric_groups": sorted(metrics),
+        "metrics_deferred": inference_only,
         "extra_metrics": to_jsonable(extra_metrics or {}),
     }
     write_json(run_dir / "evaluation_summary.json", summary)

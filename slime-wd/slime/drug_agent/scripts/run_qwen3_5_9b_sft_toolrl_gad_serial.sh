@@ -3,14 +3,8 @@
 # The branches are SFT -> ToolRL and SFT -> GAD; GAD does not load ToolRL.
 set -euo pipefail
 
-SLIME_ENV="${SLIME_ENV:-/root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh}"
-if [[ ! -f "$SLIME_ENV" ]]; then
-  SLIME_ENV=/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
-if [[ ! -f "$SLIME_ENV" ]]; then
-  echo "SLIME environment file not found: $SLIME_ENV" >&2
-  exit 2
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/resolve_slime_env.sh"
 source "$SLIME_ENV"
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
@@ -423,6 +417,7 @@ CUDA_VISIBLE_DEVICES=7 \
   DISCRIMINATOR_UPDATE_STEPS=1 DISCRIMINATOR_CLIP_GRAD=1.0 \
   DISCRIMINATOR_REWARD_CLIP=2.0 DISCRIMINATOR_SAVE_INTERVAL=400 \
   DISCRIMINATOR_KEEP_LAST="$DISCRIMINATOR_KEEP_LAST" \
+  DISCRIMINATOR_OFFLOAD_AFTER_REQUEST=1 \
   bash drug_agent/gad/scripts/serve_discriminator.sh > "$LOG_ROOT/gad_discriminator_service.log" 2>&1 &
 DISCRIMINATOR_PID=$!
 

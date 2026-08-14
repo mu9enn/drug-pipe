@@ -21,7 +21,7 @@ LLM_CLEAN_SKILL_DIR = (
 LLM_CLEAN_SYSTEM_PROMPT = LLM_CLEAN_SCENE_DIR / "system_prompt.md"
 LLM_CLEAN_USER_PROMPT = LLM_CLEAN_SCENE_DIR / "user_prompt.md"
 REACT_SCHEMA_VERSION = "drug_agent_sft_react_json_v1"
-PATCH_SCHEMA_VERSION = "llm_clean_patch_v1"
+PATCH_SCHEMA_VERSION = "llm_clean_patch_v2"
 
 
 @lru_cache(maxsize=None)
@@ -46,4 +46,4 @@ def react_schema_findings(value: Any) -> list[str]:
 
 
 def patch_schema_findings(value: Any) -> list[str]:
-    return schema_findings(value, "llm_clean_patch_v1.schema.json")
+    return schema_findings(value, "llm_clean_patch_v2.schema.json")

@@ -1,11 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-if [ -f /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh ]; then
-  source /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-else
-  source /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../scripts/resolve_slime_env.sh"
+source "$SLIME_ENV"
 
 PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/gad/gad_steps.jsonl}
 if [ ! -f "$PROMPT_DATA" ]; then

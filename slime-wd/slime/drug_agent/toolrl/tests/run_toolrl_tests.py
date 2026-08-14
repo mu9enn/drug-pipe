@@ -24,7 +24,10 @@ from drug_agent.toolrl.tests.test_reward import (  # noqa: E402
     test_reward_parameter_alias_no_longer_matches,
     test_reward_perfect_match_near_one,
     test_official_reward_exact_tool_match_uses_official_range,
+    test_official_reward_extra_unsupported_tool_cannot_receive_full_credit,
     test_official_final_answer_extension_scores_structured_result_without_summary,
+    test_official_reward_penalizes_wrong_local_and_molclaw_tools_equally,
+    test_official_reward_treats_local_tool_as_first_class_decision,
 )
 from drug_agent.toolrl.validate_toolrl_offline_data import validate_toolrl_offline_data  # noqa: E402
 
@@ -41,6 +44,9 @@ def main() -> int:
         test_reward_missing_and_extra_params_penalized,
         test_reward_bool_number_smiles_and_artifact_matching,
         test_official_reward_exact_tool_match_uses_official_range,
+        test_official_reward_treats_local_tool_as_first_class_decision,
+        test_official_reward_penalizes_wrong_local_and_molclaw_tools_equally,
+        test_official_reward_extra_unsupported_tool_cannot_receive_full_credit,
         test_official_final_answer_extension_scores_structured_result_without_summary,
     ]:
         fn()

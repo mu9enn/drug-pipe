@@ -41,6 +41,7 @@ def test_parse_tool_calls_preserves_runtime_local_tool_spelling():
     assert parsed["tool_calls"][0]["tool_name"] == "Read"
     assert parsed["local_tool_call_count"] == 1
     assert parsed["supported_tool_call_count"] == 1
+    assert [call["tool_name"] for call in parsed["supported_tool_calls"]] == ["Read"]
     assert parsed["unsupported_tool_call_count"] == 0
 
 
@@ -50,6 +51,7 @@ def test_parse_tool_calls_local_classification_is_case_insensitive():
     assert parsed["molclaw_tool_call_count"] == 0
     assert parsed["local_tool_call_count"] == 1
     assert parsed["supported_tool_call_count"] == 1
+    assert [call["tool_name"] for call in parsed["supported_tool_calls"]] == ["Read"]
     assert parsed["tool_calls"][0]["tool_name"] == "Read"
 
 

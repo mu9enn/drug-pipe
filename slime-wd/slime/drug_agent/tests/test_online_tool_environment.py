@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -11,6 +14,7 @@ from drug_agent.protocol.react_protocol import parse_runtime_decision, project_f
 from drug_agent.tools.artifact_registry import ArtifactRegistry
 from drug_agent.tools.local_tools import LocalToolExecutor
 from drug_agent.tools.mcp_client import MCPClient
+from drug_agent.tools.server_file_materializer import materialize_server_file_result
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry
 
@@ -139,6 +143,90 @@ class ArtifactRegistryTest(unittest.TestCase):
             right_ref = right.register("/server/task-right/result.pdb")
             self.assertEqual(left_ref, right_ref)
             self.assertNotEqual(left.resolve(left_ref), right.resolve(right_ref))
+
+
+class ServerFileMaterializerTest(unittest.TestCase):
+    def test_large_base64_is_atomically_materialized_and_removed_from_result(self):
+        payload = (b"PDB-DATA\n" * 300_000) + b"END\n"
+        encoded = base64.b64encode(payload).decode("ascii")
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = ArtifactRegistry(Path(tmp) / "task")
+            result = materialize_server_file_result(
+                {
+                    "ok": True,
+                    "result": {
+                        "status": "success",
+                        "file_name": "result.pdb",
+                        "base64_string": encoded,
+                    },
+                    "error": None,
+                    "transport_ok": True,
+                    "tool_schema_valid": True,
+                    "tool_execution_success": True,
+                    "tool_semantic_success": True,
+                    "semantic_unknown": False,
+                    "metadata": {"raw": {"base64_string": encoded}},
+                },
+                execution_args={"file_path": "/server/result.pdb"},
+                artifact_registry=registry,
+            )
+
+            expected_sha256 = hashlib.sha256(payload).hexdigest()
+            self.assertTrue(result["ok"])
+            self.assertEqual(
+                result["result"],
+                {
+                    "status": "success",
+                    "artifact": "<artifact:local/result.pdb>",
+                    "bytes_written": len(payload),
+                    "sha256": expected_sha256,
+                },
+            )
+            self.assertEqual((registry.workspace / "result.pdb").read_bytes(), payload)
+            self.assertNotIn("base64", json.dumps(result))
+            self.assertFalse(list(registry.workspace.glob("*.tmp")))
+
+    def test_nested_payload_and_untrusted_file_name_stay_inside_workspace(self):
+        payload = b"safe"
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = ArtifactRegistry(Path(tmp) / "task")
+            result = materialize_server_file_result(
+                {
+                    "ok": True,
+                    "result": {
+                        "content": json.dumps(
+                            {
+                                "file_name": "../../outside.pdb",
+                                "base64_string": base64.b64encode(payload).decode("ascii"),
+                            }
+                        )
+                    },
+                    "metadata": {},
+                },
+                execution_args={"file_path": "/server/fallback.pdb"},
+                artifact_registry=registry,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["result"]["artifact"], "<artifact:local/outside.pdb>")
+            self.assertEqual((registry.workspace / "outside.pdb").read_bytes(), payload)
+            self.assertFalse((Path(tmp) / "outside.pdb").exists())
+
+    def test_invalid_base64_returns_compact_error_without_creating_a_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = ArtifactRegistry(Path(tmp) / "task")
+            result = materialize_server_file_result(
+                {
+                    "ok": True,
+                    "result": {"file_name": "bad.bin", "base64_string": "not base64!"},
+                    "metadata": {"raw": {"large": "discarded"}},
+                },
+                execution_args={"file_path": "/server/bad.bin"},
+                artifact_registry=registry,
+            )
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error"]["type"], "ServerFileMaterializationError")
+            self.assertNotIn("raw", result["metadata"])
+            self.assertFalse((registry.workspace / "bad.bin").exists())
 
 
 class FakeOnlineLoopSmokeTest(unittest.TestCase):

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Clean Drug Trajectory"
-  short_description: "Safely clean editable prose in one drug-agent trace"
-  default_prompt: "Use $clean-drug-trajectory to clean the trajectory in this workdir."
+  display_name: "Clean and Plan Drug Trajectory"
+  short_description: "Clean trajectory prose and add a grounded initial plan"
+  default_prompt: "Use $clean-drug-trajectory to clean this trajectory and create its initial high-level planning thought."

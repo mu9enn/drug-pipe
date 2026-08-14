@@ -2,11 +2,9 @@
 set -ex
 set -o pipefail
 
-if [ -f /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh ]; then
-  source /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-else
-  source /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/resolve_slime_env.sh"
+source "$SLIME_ENV"
 
 cd "$SLIME"
 export OFFLOAD_OPTIMIZER_MASTER_WEIGHTS=${OFFLOAD_OPTIMIZER_MASTER_WEIGHTS:-${SFT_OFFLOAD_OPTIMIZER_MASTER_WEIGHTS:-1}}
@@ -67,7 +65,7 @@ fi
 
 python drug_agent/data/validate_sft_messages.py \
   --input "$PROMPT_DATA" \
-  --protocol react_json
+  --protocol "${SFT_DATA_PROTOCOL:-react_json}"
 
 NUM_ROLLOUT=${NUM_ROLLOUT:-2}
 ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-8}
@@ -154,6 +152,9 @@ if [ "${DISABLE_CHECKPOINT_SAVE:-0}" != "1" ]; then
 fi
 if [ -n "$LOAD" ]; then
   CKPT_ARGS+=(--load "$LOAD")
+  if [ "${SFT_FINETUNE:-0}" = "1" ]; then
+    CKPT_ARGS+=(--finetune --no-load-optim --no-load-rng --start-rollout-id 0)
+  fi
 fi
 if [ "${NO_SAVE_OPTIM:-0}" = "1" ]; then
   CKPT_ARGS+=(--no-save-optim --no-save-rng)

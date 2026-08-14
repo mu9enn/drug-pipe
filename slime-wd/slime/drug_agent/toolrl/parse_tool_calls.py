@@ -127,6 +127,7 @@ def parse_tool_calls(
         "fence_inner_content_preserved": int(parsed.get("fence_inner_content_preserved") or 0),
         "blocks": parsed.get("blocks") or [],
         "tool_calls": [],
+        "supported_tool_calls": [],
         "molclaw_tool_calls": [],
         "local_tool_calls": [],
         "unsupported_tool_calls": [],
@@ -161,12 +162,14 @@ def parse_tool_calls(
         tool_calls.append(item)
         if keep:
             result["molclaw_tool_calls"].append(item.to_dict())
+            result["supported_tool_calls"].append(item.to_dict())
             if keep_non_molclaw:
                 result["tool_calls"].append(item.to_dict())
         else:
             result["non_molclaw_tool_calls"].append(item.to_dict())
             if is_local:
                 result["local_tool_calls"].append(item.to_dict())
+                result["supported_tool_calls"].append(item.to_dict())
             else:
                 result["unsupported_tool_calls"].append(item.to_dict())
             if keep_non_molclaw:

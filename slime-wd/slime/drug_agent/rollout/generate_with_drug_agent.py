@@ -18,6 +18,10 @@ from drug_agent.protocol.prompts import format_final_contract, format_tool_catal
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_WORKSPACES_ROOT
 from drug_agent.tools.artifact_registry import ArtifactRegistry
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
+from drug_agent.tools.server_file_materializer import (
+    SERVER_FILE_TO_BASE64,
+    materialize_server_file_result,
+)
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry, catalog_sha256
 from drug_agent.tools.tool_success import make_validation_failed_result
@@ -35,7 +39,9 @@ ROLLOUT_FORMAT_REMINDER = (
 )
 LOCAL_TOOL_REMINDER = (
     "\nAvailable local tools: Read, Write, Edit, Bash, Grep, and Glob. "
-    "They operate only in this task's workspace; Read, Grep, and Glob may inspect read-only L1 skill documents."
+    "They operate only in this task's workspace; Read, Grep, and Glob may inspect read-only L1 skill documents. "
+    "Successful server_file_to_base64 results are decoded directly into the workspace; use the returned "
+    "local artifact and never copy base64 through Write."
 )
 
 
@@ -421,6 +427,12 @@ async def _generate_impl(
                     if tool_ok and args_ok:
                         execution_args = artifact_registry.resolve(tool_args)
                         tool_result = await _execute_tool(registry, tool_name, execution_args, local_executor)
+                        if tool_name == SERVER_FILE_TO_BASE64:
+                            tool_result = materialize_server_file_result(
+                                tool_result,
+                                execution_args=execution_args,
+                                artifact_registry=artifact_registry,
+                            )
                     else:
                         err_message = tool_reason or args_reason or "tool validation failed"
                         tool_result = make_validation_failed_result(

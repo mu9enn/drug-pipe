@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://drug-pipe.local/schemas/llm_clean_patch_v2.schema.json",
+  "title": "Drug-Pipe restricted prose-cleaning and initial-planning patch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sample_id", "planning_action", "edits"],
+  "properties": {
+    "schema_version": {"const": "llm_clean_patch_v2"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "planning_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assistant_index", "operation", "planning_text", "reason"],
+      "properties": {
+        "assistant_index": {"type": "integer", "minimum": 0},
+        "operation": {"enum": ["rewrite_first_thought", "prepend_planning_thought"]},
+        "planning_text": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "reason": {"enum": ["existing_thought_is_plan_like", "existing_thought_is_step_local", "no_existing_thought"]}
+      }
+    },
+    "edits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message_index", "segment_type", "segment_index", "replacement"],
+        "properties": {
+          "message_index": {"type": "integer", "minimum": 0},
+          "segment_type": {"enum": ["thought", "final_summary"]},
+          "segment_index": {"type": "integer", "minimum": 0},
+          "replacement": {"type": "string", "maxLength": 12000}
+        }
+      }
+    }
+  }
+}

@@ -59,6 +59,14 @@ class TestOfflineTrainingBoundary(unittest.TestCase):
         self.assertIn('--log-probs-chunk-size', gad)
         self.assertIn('--recompute-loss-function', gad)
 
+    def test_9b_gad_discriminator_offloads_between_colocated_requests(self):
+        root = Path(__file__).resolve().parents[1]
+        service = (root / "gad/scripts/serve_discriminator.sh").read_text(encoding="utf-8")
+        serial = (root / "scripts/run_qwen3_5_9b_sft_toolrl_gad_serial.sh").read_text(encoding="utf-8")
+        self.assertIn("DISCRIMINATOR_OFFLOAD_AFTER_REQUEST", service)
+        self.assertIn("--offload-after-request", service)
+        self.assertIn("DISCRIMINATOR_OFFLOAD_AFTER_REQUEST=1", serial)
+
 
 if __name__ == "__main__":
     unittest.main()

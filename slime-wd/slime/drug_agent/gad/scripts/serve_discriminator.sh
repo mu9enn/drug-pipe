@@ -1,9 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-SLIME_ENV=${SLIME_ENV:-/root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh}
-if [ ! -f "$SLIME_ENV" ]; then
-  SLIME_ENV=/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../scripts/resolve_slime_env.sh"
 source "$SLIME_ENV"
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
@@ -13,6 +11,12 @@ OUTPUT_DIR=${DISCRIMINATOR_OUTPUT_DIR:-$DRUG_AGENT_RUNS_ROOT/gad_discriminator_o
 EXTRA_ARGS=()
 : "${DISCRIMINATOR_RESUME:?Set DISCRIMINATOR_RESUME to a Stage 2 discriminator warmup checkpoint}"
 EXTRA_ARGS+=(--resume "$DISCRIMINATOR_RESUME")
+if [ "${DISCRIMINATOR_OFFLOAD_AFTER_REQUEST:-0}" = "1" ]; then
+  EXTRA_ARGS+=(--offload-after-request)
+elif [ "${DISCRIMINATOR_OFFLOAD_AFTER_REQUEST:-0}" != "0" ]; then
+  echo "DISCRIMINATOR_OFFLOAD_AFTER_REQUEST must be 0 or 1" >&2
+  exit 2
+fi
 if [ ! -e "$MODEL_PATH" ]; then
   echo "Discriminator model does not exist: $MODEL_PATH" >&2
   exit 2

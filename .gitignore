@@ -25,6 +25,8 @@ dist/
 
 # Generated runs and archives
 /cached/
+/.runtime/
+/.codex/skills/h-long-sft/
 runs/*
 !runs/.gitkeep
 runs.tar.gz

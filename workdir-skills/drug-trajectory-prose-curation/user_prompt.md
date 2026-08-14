@@ -1,1 +1,1 @@
-Curate the editable prose in `source_trajectory.json` and write `llm_clean_patch.json` according to the runtime context and skill contract.
+Read the complete `source_trajectory.json`, create the required initial high-level planning action, curate the remaining editable prose, and write `llm_clean_patch.json` according to the v2 runtime contract.

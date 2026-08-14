@@ -1,9 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-SLIME_ENV=${SLIME_ENV:-/root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh}
-if [ ! -f "$SLIME_ENV" ]; then
-  SLIME_ENV=/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../scripts/resolve_slime_env.sh"
 source "$SLIME_ENV"
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh

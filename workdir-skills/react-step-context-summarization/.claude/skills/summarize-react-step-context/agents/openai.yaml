@@ -1,0 +1,4 @@
+interface:
+  display_name: "Summarize ReAct Step Context"
+  short_description: "Compress oversized ReAct histories into grounded state summaries"
+  default_prompt: "Use $summarize-react-step-context to summarize this oversized ReAct decision history without exposing its target."

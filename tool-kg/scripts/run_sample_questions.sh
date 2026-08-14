@@ -54,10 +54,11 @@ SCIENCE_KB_TOPK=""
 GROUNDING_SELECTION=""
 MAX_REPEAT_TARGET=""
 MAX_REPEAT_COMPOUND=""
+MAX_WORKERS=1
 
 usage() {
   echo "Usage:"
-  echo "  Default simple profile: $0 <run_id> [--target-successes <N>] [--max-attempts <N>] [...]"
+  echo "  Default simple profile: $0 <run_id> [--target-successes <N>] [--max-attempts <N>] [--max-workers <1-4>] [...]"
 }
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "--help" || "$RUN_ID" == "-h" ]]; then
@@ -116,6 +117,10 @@ while [[ $# -gt 0 ]]; do
       SEED="${2:-}"
       shift 2
       ;;
+    --max-workers)
+      MAX_WORKERS="${2:-}"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -127,6 +132,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ ! "$MAX_WORKERS" =~ ^[1-4]$ ]]; then
+  echo "ERROR: --max-workers must be an integer from 1 to 4" >&2
+  exit 2
+fi
 
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
   set -a
@@ -162,6 +172,7 @@ cmd=(
   --project-root "$PROJECT_ROOT"
   --run-id "$RUN_ID"
   --mode claude_cc
+  --max-workers "$MAX_WORKERS"
   sample-questions
   --sampling-profile "$SAMPLING_PROFILE"
 )
@@ -186,6 +197,6 @@ append_override "$MIN_HOPS" --min-hops
 append_override "$MAX_HOPS" --max-hops
 append_override "$SEED" --seed
 
-echo "[sample-questions] run_id=$RUN_ID profile=$SAMPLING_PROFILE (only explicit flags override the profile)"
+echo "[sample-questions] run_id=$RUN_ID profile=$SAMPLING_PROFILE max_workers=$MAX_WORKERS (only explicit flags override the profile)"
 PYTHONPATH="$PROJECT_ROOT/src" "${cmd[@]}"
 echo "[sample-questions] complete: $RUN_DIR/results/tasks.jsonl"

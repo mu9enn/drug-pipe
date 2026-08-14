@@ -68,6 +68,18 @@ class MolBenchAdapterTest(unittest.TestCase):
             })
             self.assertTrue(all([message["role"] for message in row["prompt"]] == ["system", "user"] for row in rows))
 
+    def test_selects_all_molecule_edit_tasks_without_molecule_optimization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = build_molbench_dataset(
+                MOLBENCH_ROOT,
+                tmp,
+                selected_suites=["molbench_mo_edit"],
+            )
+            rows = [json.loads(line) for line in (Path(tmp) / "molbench_eval.jsonl").read_text().splitlines()]
+            self.assertEqual(manifest["total"], 39)
+            self.assertEqual(manifest["counts"]["molbench_mo"], 39)
+            self.assertTrue(all(row["metadata"]["benchmark"]["suite"] == "molbench_mo_edit" for row in rows))
+
     def test_official_wrapper_scores_a_ms1_only_subset(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

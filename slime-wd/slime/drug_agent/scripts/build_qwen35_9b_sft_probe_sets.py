@@ -97,7 +97,7 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
-        "schema_version": "qwen35_9b_sft_probe_sets_v1",
+        "schema_version": "qwen35_9b_sft_probe_sets_v2",
         "source_path": str(args.input.resolve()),
         "source_sha256": _sha256(args.input),
         "source_records": len(records),
@@ -116,29 +116,23 @@ def main() -> None:
             "maximum": lengths[-1],
             "model_max_length": model_max_length,
             "over_131072": sum(length > 131072 for length in lengths),
+            "over_245760": sum(length > 245760 for length in lengths),
+            "over_262144": sum(length > 262144 for length in lengths),
             "over_model_max_length": sum(length > model_max_length for length in lengths),
         },
         "buckets": {},
     }
     manifest["over_limit_records"] = {
-        "131072": [
+        str(threshold): [
             {
                 "record_id": record.get("id"),
                 "source_index": index,
                 "token_length": length,
             }
             for length, index, record in ranked
-            if length > 131072
-        ],
-        str(model_max_length): [
-            {
-                "record_id": record.get("id"),
-                "source_index": index,
-                "token_length": length,
-            }
-            for length, index, record in ranked
-            if length > model_max_length
-        ],
+            if length > threshold
+        ]
+        for threshold in sorted({131072, 245760, 262144, model_max_length})
     }
     for name, selected in buckets.items():
         output = args.output_dir / f"sft_{name}_{args.count}.jsonl"

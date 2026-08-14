@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,9 @@ from drug_agent.protocol.react_protocol import (
     detect_sft_protocol,
     parse_react_sequence,
 )
+
+PROTOCOL_PLAN_JSON = "plan_json"
+PLAN_PATTERN = re.compile(r"^\s*<plan>(?P<payload>\{.*\})</plan>\s*$", re.DOTALL)
 
 
 def _preview_messages(messages: Any, limit: int = 6) -> Any:
@@ -342,6 +346,50 @@ def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
     return counts, samples
 
 
+def audit_plan_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
+    counts = Counter()
+    issues: list[dict[str, Any]] = []
+    if not isinstance(messages, list):
+        return counts, issues
+    assistant_messages = [
+        (index, message) for index, message in enumerate(messages)
+        if isinstance(message, dict) and message.get("role") == "assistant"
+    ]
+    if len(assistant_messages) != 1:
+        counts["plan_json_parse_failed"] += 1
+        issues.append({"turn_index": -1, "role": "assistant", "strict_ok": False, "strict_error_type": "PlanSequenceError", "strict_error_message": "plan sample must contain exactly one assistant target", "parse_source": "plan_json", "content_preview": None})
+        return counts, issues
+    turn_index, message = assistant_messages[0]
+    content = str(message.get("content") or "")
+    match = PLAN_PATTERN.fullmatch(content)
+    error = None
+    if match is None:
+        error = "assistant target must be one <plan> JSON block"
+    else:
+        try:
+            payload = json.loads(match.group("payload"))
+        except json.JSONDecodeError as exc:
+            error = f"invalid plan JSON: {exc}"
+        else:
+            subgoals = payload.get("subgoals") if isinstance(payload, dict) else None
+            if not isinstance(subgoals, list) or not subgoals:
+                error = "plan JSON must contain a non-empty subgoals list"
+            elif any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("step"), int)
+                or not isinstance(item.get("objective"), str)
+                or not item["objective"].strip()
+                for item in subgoals
+            ):
+                error = "each subgoal must contain an integer step and non-empty objective"
+    counts["assistant_total"] += 1
+    counts["assistant_plan_total"] += int(error is None)
+    if error is not None:
+        counts["plan_json_parse_failed"] += 1
+        issues.append({"turn_index": turn_index, "role": "assistant", "strict_ok": False, "strict_error_type": "PlanFormatError", "strict_error_message": error, "parse_source": "plan_json", "content_preview": content[:300]})
+    return counts, issues
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate SFT messages for slime/Qwen chat template compatibility")
     parser.add_argument("--input", type=str, required=True)
@@ -349,7 +397,7 @@ def main() -> int:
         "--protocol",
         type=str,
         default=PROTOCOL_AUTO,
-        choices=[PROTOCOL_AUTO, PROTOCOL_REACT_JSON],
+        choices=[PROTOCOL_AUTO, PROTOCOL_REACT_JSON, PROTOCOL_PLAN_JSON],
         help="SFT message protocol to validate. auto detects per record.",
     )
     parser.add_argument("--tokenizer", type=str, default=None, help="Optional HF tokenizer path for apply_chat_template validation")
@@ -398,8 +446,11 @@ def main() -> int:
             record_protocol = detect_sft_protocol(obj)
 
         protocol_counter[record_protocol] += 1
-        react_protocol_used = True
-        assistant_counts, assistant_issues = audit_react_actions(messages)
+        react_protocol_used = react_protocol_used or record_protocol == PROTOCOL_REACT_JSON
+        if record_protocol == PROTOCOL_PLAN_JSON:
+            assistant_counts, assistant_issues = audit_plan_actions(messages)
+        else:
+            assistant_counts, assistant_issues = audit_react_actions(messages)
 
         reasons = []
         if not isinstance(messages, list) or not messages:
@@ -465,11 +516,16 @@ def main() -> int:
         report_counts = _collect_count_aliases(_load_cleaning_report(metadata), cleaning_alias_map)
         merged_counts = _merge_record_counts(assistant_counts, report_counts)
         react_reasons = list(reasons)
-        parse_failed = int(merged_counts.get("react_json_parse_failed") or 0) > 0
+        parse_failed = (
+            int(merged_counts.get("react_json_parse_failed") or 0) > 0
+            or int(merged_counts.get("plan_json_parse_failed") or 0) > 0
+        )
         orphan_tool_results = int(merged_counts.get("orphan_tool_results") or 0) > 0
         if parse_failed or orphan_tool_results:
             if parse_failed:
-                react_reasons.append("react_json_parse_failed")
+                react_reasons.append(
+                    "plan_json_parse_failed" if record_protocol == PROTOCOL_PLAN_JSON else "react_json_parse_failed"
+                )
             if orphan_tool_results:
                 react_reasons.append("orphan_tool_results")
             for reason in react_reasons:

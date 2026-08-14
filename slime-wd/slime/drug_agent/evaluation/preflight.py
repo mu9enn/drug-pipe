@@ -193,9 +193,17 @@ def main() -> int:
         input_counts = {"manual_prompt": input_manifest["sample_count"]}
     else:
         evaluation_mode = "molbench"
-        _require_rdkit()
-        if not args.molbench_suite or "molbench_mo" in args.molbench_suite:
-            _require_pytdc()
+        inference_only = os.environ.get("DRUG_AGENT_EVAL_INFERENCE_ONLY", "0").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        if not inference_only:
+            _require_rdkit()
+            if (
+                not args.molbench_suite
+                or "molbench_mo" in args.molbench_suite
+                or "molbench_mo_opt" in args.molbench_suite
+            ):
+                _require_pytdc()
         input_manifest = build_molbench_dataset(
             args.molbench_root,
             run_dir,
@@ -244,6 +252,8 @@ def main() -> int:
         "tensor_model_parallel_size": args.tensor_model_parallel_size,
         "pipeline_model_parallel_size": args.pipeline_model_parallel_size,
         "protocol": "canonical_react_xml",
+        "inference_only": os.environ.get("DRUG_AGENT_EVAL_INFERENCE_ONLY", "0").strip().lower()
+        in {"1", "true", "yes", "on"},
         "molbench_suites": args.molbench_suite,
         "molbench_limit_per_suite": args.molbench_limit_per_suite,
     }

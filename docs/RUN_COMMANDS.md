@@ -31,7 +31,7 @@ bash scripts/run_full_pipeline.sh run_x --resume --max-workers 1
 
 ```bash
 PYTHONPATH=src python -m molclaw_kg.cli \
-  --project-root "$PWD" --run-id run_x \
+  --project-root "$PWD" --run-id run_x --max-workers 4 \
   sample-questions --sampling-profile simple_default \
   --target-successes 10 --max-attempts 40 --seed 42
 ```
@@ -106,9 +106,10 @@ task 的多个 rollout。`--parallel-rollouts` 暂时保留为兼容参数；未
 bash scripts/run_cleaning.sh --results-root <raw-run> --max-workers 2
 ```
 
-Tool-KG 的 Tool Card 和 edge adjudication 已使用根 CLI 的 `--max-workers`。Stage 3 的
-success-first question sampler 带有共享的去重/配额状态，目前仍保持串行；不能把根参数误认为
-它已安全并行化。
+Tool-KG 的 Tool Card、edge adjudication 和 Stage 3 success-first question sampler 都使用根
+CLI 的 `--max-workers`。Stage 3 支持 1–4 并发：主线程顺序规划 graph walk、grounding seed
+和重复配额，各 Claude worker 使用独立 runtime/workdir，最后按 attempt 序号归并。不要对同一
+run directory 同时启动多个 sampler。
 
 三段逻辑清洗与 canonical ReAct（前两段由同一个 Python 命令完成）：
 

@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -490,6 +491,145 @@ def _grounding_seed_context(seed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _execute_simple_attempt(
+    *,
+    config: ProjectConfig,
+    attempt_index: int,
+    blueprint: dict[str, Any],
+    context: dict[str, Any],
+    cards: dict[str, dict[str, Any]],
+    workdirs: Path,
+    prompt: str,
+    repair_prompt: str,
+    semantic_repair_prompt: str,
+    json_repair_rounds: int,
+    semantic_repair_rounds: int,
+) -> dict[str, Any]:
+    """Execute one isolated Claude sampling attempt.
+
+    Planning (graph walk, seed selection, and quota accounting) stays in the
+    caller's main thread.  Each worker owns its runtime and sample directory,
+    so bounded parallel execution cannot race on those mutable resources.
+    """
+    runtime = ClaudeCodeRuntime(config)
+    sample_id = f"simple_{attempt_index:04d}"
+    nodes = blueprint["hidden_toolchain_nodes"]
+    base = {
+        "sample_id": sample_id,
+        "attempt_index": attempt_index,
+        "status": "sampling_failed",
+        "failure_reason": "",
+        "created_at_utc": _now_utc(),
+    }
+    sample_root = workdirs / f"{sample_id}__{safe_name(nodes[0])}__{safe_name(nodes[-1])}"
+    attempt_dir = sample_root / "attempt_00"
+    parsed, raw_path, json_repair_count, errors = _generate_with_json_repairs(
+        runtime=runtime,
+        config=config,
+        workdir=attempt_dir,
+        json_repair_root=sample_root,
+        context=context,
+        prompt=prompt,
+        json_repair_prompt=repair_prompt,
+        json_repair_rounds=json_repair_rounds,
+        allow_kb_queries=False,
+    )
+    initial_semantic_failure = _semantic_failure(parsed) if not errors and parsed is not None else None
+    semantic_failure = initial_semantic_failure
+    semantic_repair_count = 0
+    semantic_recovered = False
+    while (
+        semantic_failure
+        and semantic_repair_count < semantic_repair_rounds
+        and parsed is not None
+    ):
+        semantic_repair_count += 1
+        semantic_dir = sample_root / f"semantic_repair_{semantic_repair_count:02d}"
+        semantic_context = {
+            **context,
+            "semantic_repair": {
+                "round": semantic_repair_count,
+                "failure_reason": semantic_failure,
+            },
+        }
+        semantic_dir.mkdir(parents=True, exist_ok=True)
+        write_json(semantic_dir / "previous_output.json", parsed)
+        write_json(
+            semantic_dir / "semantic_feedback.json",
+            {"failure_reason": semantic_failure},
+        )
+        parsed, raw_path, semantic_json_repairs, errors = _generate_with_json_repairs(
+            runtime=runtime,
+            config=config,
+            workdir=semantic_dir,
+            json_repair_root=semantic_dir,
+            context=semantic_context,
+            prompt=semantic_repair_prompt,
+            json_repair_prompt=repair_prompt,
+            json_repair_rounds=json_repair_rounds,
+            allow_kb_queries=True,
+        )
+        json_repair_count += semantic_json_repairs
+        if errors or parsed is None:
+            semantic_failure = None
+            break
+        semantic_failure = _semantic_failure(parsed)
+        semantic_recovered = semantic_failure is None
+    base.update({
+        **blueprint,
+        "raw_llm_output_path": str(raw_path),
+        "workdir": str(sample_root),
+        "json_repaired": json_repair_count > 0,
+        "json_repair_count": json_repair_count,
+        "semantic_repair_rounds": semantic_repair_count,
+        "semantic_recovered": semantic_recovered,
+        "initial_semantic_failure": initial_semantic_failure,
+        "grounding_seed": context["grounding_seed"],
+        "target_fanout_runtime_minutes": context["target_fanout_runtime_minutes"],
+    })
+    if errors:
+        base.update({
+            "status": "parse_failed" if parsed is None else "schema_failed",
+            "failure_reason": errors[0],
+        })
+        return base
+    assert parsed is not None
+    public_text = str(parsed["public_question_text"])
+    soft_warnings: list[str] = []
+    leaks = _tool_leaks(public_text, nodes, cards)
+    if leaks:
+        soft_warnings.append(f"hidden_toolchain_leak:{leaks}")
+    if _sequence_hint(public_text):
+        soft_warnings.append("explicit_hidden_tool_order_hint")
+    if parsed["status"] == "reject":
+        base.update({"status": "reject", "failure_reason": parsed["rationale"], **parsed})
+        return base
+    if contains_user_followup_request(parsed):
+        base.update({
+            **parsed,
+            "status": "reject",
+            "failure_reason": "non_rolloutable_user_followup",
+            "soft_warnings": soft_warnings,
+        })
+        return base
+    if contains_placeholder_or_fake_input(parsed):
+        base.update({
+            **parsed,
+            "status": "reject",
+            "failure_reason": "placeholder_or_fake_input",
+            "soft_warnings": soft_warnings,
+        })
+        return base
+    return {
+        **base,
+        **parsed,
+        "status": "success",
+        "failure_reason": "",
+        "grounding_sources": sorted({str(x["source"]) for x in context["grounding_facts"]}),
+        "soft_warnings": soft_warnings,
+    }
+
+
 def sample_simple_questions(
     config: ProjectConfig,
     *,
@@ -506,11 +646,13 @@ def sample_simple_questions(
     fanout_runtime_target: dict[str, Any] | None = None,
     seed: int | None = None,
     sampling_profile_meta: dict[str, Any] | None = None,
+    max_workers: int = 1,
 ) -> dict[str, Any]:
     if (
         target_successes < 1 or max_attempts < 1 or min_hops < 1 or max_hops < min_hops
         or max_repeat_target < 1 or max_repeat_compound < 1
         or json_repair_rounds < 0 or semantic_repair_rounds < 0
+        or max_workers < 1 or max_workers > 4
     ):
         raise ValueError("invalid simple sampling limits")
     if grounding_selection != "random_seeded":
@@ -527,7 +669,7 @@ def sample_simple_questions(
     graph, card_rows, decision_rows = load_canonical_sampling_inputs(run_dir)
     cards = {str(row["tool_id"]): row for row in card_rows if row.get("tool_id")}
     decisions = _decision_index(decision_rows)
-    runtime, rng = ClaudeCodeRuntime(config), random.Random(seed)
+    rng = random.Random(seed)
     runtime_rng = (
         random.Random()
         if seed is None
@@ -562,164 +704,86 @@ def sample_simple_questions(
     attempts: list[dict[str, Any]] = []
     successes: list[dict[str, Any]] = []
 
-    with tqdm(total=target_successes, desc="simple-question-successes", unit="success") as progress:
-        for attempt_index in range(1, max_attempts + 1):
-            if len(successes) >= target_successes:
-                break
-            sample_id = f"simple_{attempt_index:04d}"
-            blueprint = sample_hidden_toolchain(graph, cards, min_hops, max_hops, rng)
-            base = {
-                "sample_id": sample_id,
-                "attempt_index": attempt_index,
-                "status": "sampling_failed",
-                "failure_reason": "",
-                "created_at_utc": _now_utc(),
-            }
-            if blueprint is None:
-                base["failure_reason"] = "hidden_toolchain_sampling_failed"
-                attempts.append(base)
-                continue
-            target_fanout_runtime_minutes = sample_fanout_runtime_minutes(
-                runtime_rng,
-                fanout_runtime_target,
-            )
-            prompt = render_fanout_runtime_prompt(
-                prompt_template,
-                target_fanout_runtime_minutes,
-            )
-            semantic_repair_prompt = render_fanout_runtime_prompt(
-                semantic_repair_prompt_template,
-                target_fanout_runtime_minutes,
-            )
-            nodes, edges = blueprint["hidden_toolchain_nodes"], blueprint["hidden_toolchain_edges"]
-            tool_cards = [_tool_context(cards[node]) for node in nodes]
-            grounding_seed = select_grounding_seed(
-                grounding_records,
-                seen_targets,
-                seen_compounds,
-                max_repeat_target,
-                max_repeat_compound,
-                rng,
-            )
-            context = {
-                "hidden_toolchain": blueprint,
-                "tool_cards": tool_cards,
-                "edge_evidence": [_edge_evidence(edge, decisions) for edge in edges],
-                "grounding_seed": _grounding_seed_context(grounding_seed),
-                "grounding_facts": _grounding_facts(kb, science_kb_topk, tool_cards, grounding_seed),
-                "target_fanout_runtime_minutes": target_fanout_runtime_minutes,
-            }
-            sample_root = workdirs / f"{sample_id}__{safe_name(nodes[0])}__{safe_name(nodes[-1])}"
-            attempt_dir = sample_root / "attempt_00"
-            parsed, raw_path, json_repair_count, errors = _generate_with_json_repairs(
-                runtime=runtime,
-                config=config,
-                workdir=attempt_dir,
-                json_repair_root=sample_root,
-                context=context,
-                prompt=prompt,
-                json_repair_prompt=repair_prompt,
-                json_repair_rounds=json_repair_rounds,
-                allow_kb_queries=False,
-            )
-            initial_semantic_failure = _semantic_failure(parsed) if not errors and parsed is not None else None
-            semantic_failure = initial_semantic_failure
-            semantic_repair_count = 0
-            semantic_recovered = False
-            while (
-                semantic_failure
-                and semantic_repair_count < semantic_repair_rounds
-                and parsed is not None
-            ):
-                semantic_repair_count += 1
-                semantic_dir = sample_root / f"semantic_repair_{semantic_repair_count:02d}"
-                semantic_context = {
-                    **context,
-                    "semantic_repair": {
-                        "round": semantic_repair_count,
-                        "failure_reason": semantic_failure,
-                    },
+    with (
+        ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="stage3-sampler") as executor,
+        tqdm(total=target_successes, desc="simple-question-successes", unit="success") as progress,
+    ):
+        attempt_index = 1
+        while attempt_index <= max_attempts and len(successes) < target_successes:
+            batch_capacity = min(max_workers, target_successes - len(successes))
+            batch: list[tuple[int, Any | None, dict[str, Any] | None]] = []
+            submitted = 0
+            while attempt_index <= max_attempts and submitted < batch_capacity:
+                sample_id = f"simple_{attempt_index:04d}"
+                blueprint = sample_hidden_toolchain(graph, cards, min_hops, max_hops, rng)
+                base = {
+                    "sample_id": sample_id,
+                    "attempt_index": attempt_index,
+                    "status": "sampling_failed",
+                    "failure_reason": "",
+                    "created_at_utc": _now_utc(),
                 }
-                semantic_dir.mkdir(parents=True, exist_ok=True)
-                write_json(semantic_dir / "previous_output.json", parsed)
-                write_json(
-                    semantic_dir / "semantic_feedback.json",
-                    {"failure_reason": semantic_failure},
+                if blueprint is None:
+                    base["failure_reason"] = "hidden_toolchain_sampling_failed"
+                    batch.append((attempt_index, None, base))
+                    attempt_index += 1
+                    continue
+                target_fanout_runtime_minutes = sample_fanout_runtime_minutes(
+                    runtime_rng,
+                    fanout_runtime_target,
                 )
-                parsed, raw_path, semantic_json_repairs, errors = _generate_with_json_repairs(
-                    runtime=runtime,
+                prompt = render_fanout_runtime_prompt(
+                    prompt_template,
+                    target_fanout_runtime_minutes,
+                )
+                semantic_repair_prompt = render_fanout_runtime_prompt(
+                    semantic_repair_prompt_template,
+                    target_fanout_runtime_minutes,
+                )
+                nodes, edges = blueprint["hidden_toolchain_nodes"], blueprint["hidden_toolchain_edges"]
+                tool_cards = [_tool_context(cards[node]) for node in nodes]
+                grounding_seed = select_grounding_seed(
+                    grounding_records,
+                    seen_targets,
+                    seen_compounds,
+                    max_repeat_target,
+                    max_repeat_compound,
+                    rng,
+                )
+                context = {
+                    "hidden_toolchain": blueprint,
+                    "tool_cards": tool_cards,
+                    "edge_evidence": [_edge_evidence(edge, decisions) for edge in edges],
+                    "grounding_seed": _grounding_seed_context(grounding_seed),
+                    "grounding_facts": _grounding_facts(kb, science_kb_topk, tool_cards, grounding_seed),
+                    "target_fanout_runtime_minutes": target_fanout_runtime_minutes,
+                }
+                future = executor.submit(
+                    _execute_simple_attempt,
                     config=config,
-                    workdir=semantic_dir,
-                    json_repair_root=semantic_dir,
-                    context=semantic_context,
-                    prompt=semantic_repair_prompt,
-                    json_repair_prompt=repair_prompt,
+                    attempt_index=attempt_index,
+                    blueprint=blueprint,
+                    context=context,
+                    cards=cards,
+                    workdirs=workdirs,
+                    prompt=prompt,
+                    repair_prompt=repair_prompt,
+                    semantic_repair_prompt=semantic_repair_prompt,
                     json_repair_rounds=json_repair_rounds,
-                    allow_kb_queries=True,
+                    semantic_repair_rounds=semantic_repair_rounds,
                 )
-                json_repair_count += semantic_json_repairs
-                if errors or parsed is None:
-                    semantic_failure = None
-                    break
-                semantic_failure = _semantic_failure(parsed)
-                semantic_recovered = semantic_failure is None
-            base.update({
-                **blueprint,
-                "raw_llm_output_path": str(raw_path),
-                "workdir": str(sample_root),
-                "json_repaired": json_repair_count > 0,
-                "json_repair_count": json_repair_count,
-                "semantic_repair_rounds": semantic_repair_count,
-                "semantic_recovered": semantic_recovered,
-                "initial_semantic_failure": initial_semantic_failure,
-                "grounding_seed": context["grounding_seed"],
-                "target_fanout_runtime_minutes": target_fanout_runtime_minutes,
-            })
-            if errors:
-                base.update({"status": "parse_failed" if parsed is None else "schema_failed", "failure_reason": errors[0]})
-                attempts.append(base)
-                continue
-            assert parsed is not None
-            public_text = str(parsed["public_question_text"])
-            soft_warnings: list[str] = []
-            leaks = _tool_leaks(public_text, nodes, cards)
-            if leaks:
-                soft_warnings.append(f"hidden_toolchain_leak:{leaks}")
-            if _sequence_hint(public_text):
-                soft_warnings.append("explicit_hidden_tool_order_hint")
-            if parsed["status"] == "reject":
-                base.update({"status": "reject", "failure_reason": parsed["rationale"], **parsed})
-                attempts.append(base)
-                continue
-            if contains_user_followup_request(parsed):
-                base.update({
-                    **parsed,
-                    "status": "reject",
-                    "failure_reason": "non_rolloutable_user_followup",
-                    "soft_warnings": soft_warnings,
-                })
-                attempts.append(base)
-                continue
-            if contains_placeholder_or_fake_input(parsed):
-                base.update({
-                    **parsed,
-                    "status": "reject",
-                    "failure_reason": "placeholder_or_fake_input",
-                    "soft_warnings": soft_warnings,
-                })
-                attempts.append(base)
-                continue
-            row = {
-                **base,
-                **parsed,
-                "status": "success",
-                "failure_reason": "",
-                "grounding_sources": sorted({str(x["source"]) for x in context["grounding_facts"]}),
-                "soft_warnings": soft_warnings,
-            }
-            attempts.append(row)
-            successes.append(row)
-            progress.update(1)
+                batch.append((attempt_index, future, None))
+                submitted += 1
+                attempt_index += 1
+
+            # Consume in attempt order even when Claude calls finish out of order.
+            for _index, future, immediate_row in batch:
+                row = immediate_row if future is None else future.result()
+                assert row is not None
+                attempts.append(row)
+                if row.get("status") == "success":
+                    successes.append(row)
+                    progress.update(1)
 
     kb.close()
     attempts_path = intermediate / "sample_attempts.jsonl"
@@ -733,6 +797,7 @@ def sample_simple_questions(
         "success_count": len(successes),
         "attempt_count": len(attempts),
         "max_attempts": max_attempts,
+        "max_workers": max_workers,
         "semantic_repair_rounds": semantic_repair_rounds,
         "semantic_repair_attempt_count": sum(int(x.get("semantic_repair_rounds") or 0) for x in attempts),
         "semantic_recovered_count": sum(bool(x.get("semantic_recovered")) for x in attempts),

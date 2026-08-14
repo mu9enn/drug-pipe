@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -f /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh ]]; then
-  source /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-else
-  source /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/resolve_slime_env.sh"
+source "$SLIME_ENV"
 
 export MODEL_ARGS_FILE="${MODEL_ARGS_FILE:-scripts/models/qwen3.5-9B.sh}"
 export HF_CHECKPOINT="${HF_CHECKPOINT:-$DATA/Qwen3.5-9B}"

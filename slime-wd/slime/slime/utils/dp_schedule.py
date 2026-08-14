@@ -177,7 +177,28 @@ def build_dp_schedule(
             mbs_token_sums = [sum(step_lengths[i] for i in bin_) for bin_ in step_mbs]
             rank_mbs_idx = get_seqlen_balanced_partitions(mbs_token_sums, dp_size, equal_size=True)
         else:
+            mbs_token_sums = [sum(step_lengths[i] for i in bin_) for bin_ in step_mbs]
             rank_mbs_idx = [list(range(r, K, dp_size)) for r in range(dp_size)]
+        rank_token_sums = [sum(mbs_token_sums[i] for i in indices) for indices in rank_mbs_idx]
+        logger.info(
+            "dynamic batch audit step=%d samples=%d microbatches=%d per_rank=%d "
+            "sample_tokens[min/mean/max]=%d/%.1f/%d microbatch_tokens[min/mean/max]=%d/%.1f/%d "
+            "rank_tokens[min/max]=%d/%d oversized_singletons=%d max_tokens_per_bin=%s",
+            step_i,
+            len(step_lengths),
+            K,
+            num_mbs_per_rank,
+            min(step_lengths),
+            sum(step_lengths) / len(step_lengths),
+            max(step_lengths),
+            min(mbs_token_sums),
+            sum(mbs_token_sums) / len(mbs_token_sums),
+            max(mbs_token_sums),
+            min(rank_token_sums),
+            max(rank_token_sums),
+            sum(1 for bin_, token_sum in zip(step_mbs, mbs_token_sums, strict=True) if len(bin_) == 1 and max_per_bin is not None and token_sum > max_per_bin),
+            max_per_bin,
+        )
 
         # 4. Build per-rank partitions (global sample indices) and micro_batch_indices
         # (local indices into partitions[r]).

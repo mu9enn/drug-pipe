@@ -39,7 +39,6 @@ FORMAL_HOOKS = {
 }
 FORBIDDEN_TRAINING_REFERENCES = (
     "drug_agent.rollout.generate_with_drug_agent.generate",
-    "--custom-generate-function-path",
     "MCPToolExecutor",
     "drug_agent.tools.mcp_client",
     "drug_agent.tools.tool_executor",
@@ -106,8 +105,11 @@ def audit() -> dict[str, Any]:
     training_contract = {
         "sft_native_teacher_forcing": "slime.rollout.sft_rollout.generate_rollout" in sft
         and "--loss-type sft_loss" in sft,
-        "toolrl_native_single_response_rollout": "slime.rollout.sglang_rollout.generate_rollout" in toolrl
-        and "--custom-generate-function-path" not in toolrl,
+        # Merely supporting a custom generation hook is not an online-tool
+        # violation.  Audit the effective default and forbid the agent/tool
+        # executor implementation explicitly via FORBIDDEN_TRAINING_REFERENCES.
+        "toolrl_native_single_response_rollout": "ROLLOUT_FUNCTION_PATH=slime.rollout.sglang_rollout.generate_rollout" in toolrl
+        and "CUSTOM_GENERATE_FUNCTION_PATH=${CUSTOM_GENERATE_FUNCTION_PATH:-}" in toolrl,
         "toolrl_offline_rule_reward": "drug_agent.toolrl.molclaw_reward.reward_func" in toolrl,
         "toolrl_hooks_not_environment_overridable": "ROLLOUT_FUNCTION_PATH=${" not in toolrl
         and "CUSTOM_RM_PATH=${" not in toolrl,
@@ -115,11 +117,10 @@ def audit() -> dict[str, Any]:
     if not all(training_contract.values()):
         findings.append({"severity": "critical", "type": "offline_training_contract_broken", "details": training_contract})
     gad_contract = {
-        "stage3_current_student_generation": "--custom-generate-function-path" not in gad_stage3
-        and "slime.rollout.generate_with_drug_agent" not in gad_stage3,
+        "stage3_current_student_generation": "slime.rollout.generate_with_drug_agent" not in gad_stage3,
         "stage3_group_discriminator_reward": "--group-rm" in gad_stage3
         and "drug_agent.gad.reward.reward_func" in gad_stage3,
-        "stage2_current_student_generation": "--custom-generate-function-path" not in gad_stage2,
+        "stage2_current_student_generation": "slime.rollout.generate_with_drug_agent" not in gad_stage2,
         "stage2_no_tool_reward": "drug_agent.gad.negative_cache.zero_reward" in gad_stage2,
         "discriminator_score_and_update": "/score-and-update" in _read(ROOT / "gad/reward.py"),
     }

@@ -49,6 +49,17 @@ def edge(source: str, target: str, status: str = "valid") -> dict:
 
 
 class SimpleSamplingTests(unittest.TestCase):
+    def test_sampling_worker_limit_is_bounded_at_four(self) -> None:
+        config = SimpleNamespace(paths=SimpleNamespace())
+        with self.assertRaisesRegex(ValueError, "invalid simple sampling limits"):
+            sample_simple_questions(
+                config,
+                target_successes=1,
+                max_attempts=1,
+                fanout_runtime_target=FANOUT_RUNTIME_TARGET,
+                max_workers=5,
+            )
+
     def test_normal_exponent_runtime_target_and_sampling_are_reproducible(self) -> None:
         parameters = derive_normal_exponent_parameters(FANOUT_RUNTIME_TARGET)
         arithmetic_mean = math.exp(

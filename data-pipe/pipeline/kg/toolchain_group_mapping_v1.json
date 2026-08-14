@@ -1,0 +1,64 @@
+{
+  "schema_version": "drug_pipe_toolchain_group_mapping_v1",
+  "toolkg_primary_patterns": {
+    "A": {
+      "name": "single_complex_binding_mode_interaction_hotspot",
+      "indices": [2, 5, 6, 7, 19, 20, 27, 28, 34, 45, 49, 55, 56, 57, 58, 61, 64, 66, 69, 72, 85, 86, 87, 98, 102, 115, 119, 129, 132, 147, 152, 154, 158, 159, 161, 163, 173, 174, 176, 177, 179, 185, 186, 189, 201, 205, 212, 226, 227, 229, 236]
+    },
+    "B": {
+      "name": "known_ligand_comparison_screening_ranking",
+      "indices": [3, 4, 12, 13, 14, 16, 17, 23, 31, 33, 38, 41, 44, 46, 47, 48, 50, 51, 59, 62, 73, 74, 75, 81, 82, 83, 92, 96, 104, 106, 109, 110, 112, 113, 118, 120, 121, 122, 123, 125, 127, 128, 136, 141, 143, 145, 146, 148, 149, 153, 155, 156, 157, 164, 167, 170, 181, 183, 184, 188, 190, 193, 194, 195, 202, 203, 206, 209, 210, 213, 214, 216, 217, 218, 221, 225, 228, 231, 232, 240]
+    },
+    "C": {
+      "name": "small_molecule_generation_lead_optimization",
+      "indices": [1, 8, 11, 22, 26, 30, 40, 43, 54, 67, 70, 71, 79, 80, 94, 95, 101, 103, 105, 116, 131, 135, 144, 165, 171, 172, 180, 187, 197, 198, 200, 204, 211, 215, 222, 223, 237, 239]
+    },
+    "D": {
+      "name": "peptide_protein_binder_generation_design",
+      "indices": [10, 15, 18, 36, 63, 65, 89, 90, 91, 108, 133, 134, 137, 150, 151, 168, 169, 175, 182, 191, 224, 230, 233, 235, 238]
+    },
+    "E": {
+      "name": "protein_structure_preparation_stability_pocket",
+      "indices": [21, 32, 39, 68, 77, 84, 93, 97, 100, 107, 142, 166, 207, 234]
+    },
+    "F": {
+      "name": "molecular_property_descriptor_qc_format_similarity",
+      "indices": [9, 25, 37, 42, 52, 76, 78, 99, 139, 140, 160, 219, 220]
+    },
+    "G": {
+      "name": "md_free_energy_protein_protein_dynamics",
+      "indices": [24, 35, 60, 111, 114, 117, 130, 192, 196, 199]
+    },
+    "H": {
+      "name": "disease_reversal_therapeutic_prioritization",
+      "indices": [29, 53, 88, 124, 126, 138, 162, 178, 208]
+    }
+  },
+  "molbench_ms_groups": {
+    "MS1_PF": {
+      "trajectory_id_prefix": "react_pf_",
+      "name": "molecular_property_filtering",
+      "toolkg_primary_pattern": "F"
+    },
+    "MS2_AC": {
+      "trajectory_id_prefix": "react_ac_",
+      "name": "binding_affinity_comparison",
+      "toolkg_primary_pattern": "B"
+    },
+    "MS3_VS": {
+      "trajectory_id_prefix": "react_vs_",
+      "name": "molecular_docking_screening",
+      "toolkg_primary_pattern": "B"
+    }
+  },
+  "mapped_comparisons": [
+    {"toolkg_group": "F", "molbench_group": "MS1_PF"},
+    {"toolkg_group": "B", "molbench_group": "MS2_AC"},
+    {"toolkg_group": "B", "molbench_group": "MS3_VS"}
+  ],
+  "notes": [
+    "A-H are mutually exclusive primary workflow-intent classes for Tool-KG indices 1-240.",
+    "Mappings compare standalone primary objectives; no per-question pairing is implied.",
+    "Tool-KG A, D, E, and H have no standalone MolBench-MS counterpart."
+  ]
+}

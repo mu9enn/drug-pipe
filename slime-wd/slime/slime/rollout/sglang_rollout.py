@@ -467,6 +467,11 @@ async def generate_rollout_async(
                     )
                     state.remaining_batch_size -= 1
                     continue
+                if args.dynamic_sampling_strict_max_drops:
+                    raise RuntimeError(
+                        f"Dynamic sampling reached the strict cap of {max_dropped_groups} dropped groups; "
+                        "no policy-boundary batch could be formed"
+                    )
                 logger.warning(
                     "Dynamic sampling reached the cap of %d dropped groups; admitting this group "
                     "to prevent an unbounded sparse-reward loop. Its group-normalized advantage "

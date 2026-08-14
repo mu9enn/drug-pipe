@@ -49,7 +49,6 @@ When framework, model, or CUDA/SGLang/Megatron versions differ, browse current p
 
 ### 4. Promote through gates
 
-Advance in order: preflight → conversion → load → shortest step → p50 step → p95/max step → checkpoint-save → one online RL group → multi-update stability → production. Require every stage to pass the criteria in [failures-and-gates.md](references/failures-and-gates.md).
 
 Do not launch a full epoch merely because weights load or one short batch fits. Separate steady-state compute, train↔rollout transition, adapter/full-weight synchronization, and checkpoint serialization gates.
 

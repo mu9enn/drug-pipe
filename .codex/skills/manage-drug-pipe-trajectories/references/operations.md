@@ -106,6 +106,7 @@ bash scripts/run_sample_questions.sh \
   --grounding-selection random_seeded \
   --max-repeat-target 2 \
   --max-repeat-compound 2 \
+  --max-workers 4 \
   --seed "$SEED"
 ```
 
@@ -224,6 +225,11 @@ consume global Claude slots. Treat 6 as a canary target and 8 as an experimental
 Claude-only ceiling, not as permission to run more than four raw MolClaw tasks.
 If no global gate implementation is present, enforce the aggregate limit by
 running one controller and not overlapping independent cleaners/controllers.
+
+Stage 3 question sampling supports `--max-workers 1..4`. The main thread plans
+graph walks, grounding seeds, and repeat quotas deterministically; isolated
+Claude workers execute those plans concurrently, and results are merged in
+attempt order. Do not launch multiple samplers against the same run directory.
 
 ## 6. Monitoring and progress
 

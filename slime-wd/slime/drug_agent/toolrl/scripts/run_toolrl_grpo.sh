@@ -1,33 +1,21 @@
 #!/bin/bash
 set -ex
 
-if [ -f /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh ]; then
-  source /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-else
-  source /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../scripts/resolve_slime_env.sh"
+source "$SLIME_ENV"
 
 cd "$SLIME"
 source drug_agent/scripts/offline_training_env.sh
 MEGATRON_LM_PATH=${MEGATRON_LM_PATH:-/root/Megatron-LM}
 ROLLOUT_EXTERNAL=${ROLLOUT_EXTERNAL:-0}
 
-# Preserve expandable segments for a fully resident Megatron actor: long
-# Qwen3.5 GDN batches otherwise strand several GiB in split reserved blocks and
-# can OOM on one contiguous recurrent-state allocation despite enough aggregate
-# reserve.  Local SGLang workers receive an allocator-clean environment in
-# slime/ray/rollout.py because their load-time TorchMemorySaver region is
-# incompatible with expandable segments.
-USES_COLOCATED_MEMORY_SAVER=0
-if [ "$ROLLOUT_EXTERNAL" != "1" ] && { [ "${COLOCATE_OFFLOAD_ROLLOUT:-1}" = "1" ] || [ "${COLOCATE_OFFLOAD_TRAIN:-1}" = "1" ]; }; then
-  USES_COLOCATED_MEMORY_SAVER=1
-fi
-if [ "$USES_COLOCATED_MEMORY_SAVER" = "1" ] && [[ "${PYTORCH_CUDA_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
-  unset PYTORCH_CUDA_ALLOC_CONF
-fi
-if [ "$USES_COLOCATED_MEMORY_SAVER" = "1" ] && [[ "${PYTORCH_ALLOC_CONF:-}" == *"expandable_segments"* ]]; then
-  unset PYTORCH_ALLOC_CONF
-fi
+# Preserve expandable segments for the Megatron actors: long Qwen3.5 GDN
+# batches otherwise strand memory in split reserved blocks.  SGLang's
+# TorchMemorySaver adapter is incompatible with expandable segments, so local
+# SGLang Ray actors explicitly receive allocator-clean environment variables in
+# slime/ray/rollout.py.  Do not unset the parent value here: that would also
+# remove the fragmentation protection from Megatron.
 
 unset RAY_ADDRESS || true
 SKIP_RAY_RESTART=${SKIP_RAY_RESTART:-0}
@@ -73,6 +61,7 @@ REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-0.8B_torch_dist}
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-0.8B_toolrl_grpo}
 SAVE_INTERVAL=${SAVE_INTERVAL:-1}
 CHECKPOINT_KEEP_LAST=${CHECKPOINT_KEEP_LAST:-2}
+DISTRIBUTED_TIMEOUT_MINUTES=${DISTRIBUTED_TIMEOUT_MINUTES:-10}
 LOAD=${LOAD:-}
 TOOLRL_RESUME=${TOOLRL_RESUME:-0}
 
@@ -94,6 +83,8 @@ ROLLOUT_MAX_CONTEXT_LEN=${ROLLOUT_MAX_CONTEXT_LEN:-}
 ROLLOUT_LONG_RESPONSE_LEN=${ROLLOUT_LONG_RESPONSE_LEN:-}
 ROLLOUT_LONG_TASK_TYPES=${ROLLOUT_LONG_TASK_TYPES:-}
 CUSTOM_GENERATE_FUNCTION_PATH=${CUSTOM_GENERATE_FUNCTION_PATH:-}
+CUSTOM_ROLLOUT_LOG_FUNCTION_PATH=${CUSTOM_ROLLOUT_LOG_FUNCTION_PATH:-}
+ROLLOUT_ALL_SAMPLES_PROCESS_PATH=${ROLLOUT_ALL_SAMPLES_PROCESS_PATH:-}
 ROLLOUT_TEMPERATURE=${ROLLOUT_TEMPERATURE:-1.0}
 SGLANG_MEM_FRACTION_STATIC=${SGLANG_MEM_FRACTION_STATIC:-0.75}
 # Slime's colocate default pauses the complete Megatron CUDA allocator into
@@ -187,8 +178,8 @@ if [[ "$ADVANTAGE_ESTIMATOR" =~ ^(grpo|gspo|reinforce_plus_plus_baseline)$ ]] &&
   echo "Group-baseline ToolRL requires N_SAMPLES_PER_PROMPT >= 2 for $ADVANTAGE_ESTIMATOR; got $N_SAMPLES_PER_PROMPT" >&2
   exit 2
 fi
-if [ "$TOOLRL_REWARD_MODE" != "official" ] && [ "$TOOLRL_REWARD_MODE" != "molclaw" ]; then
-  echo "TOOLRL_REWARD_MODE must be official or molclaw; got $TOOLRL_REWARD_MODE" >&2
+if [ "$TOOLRL_REWARD_MODE" != "official" ] && [ "$TOOLRL_REWARD_MODE" != "molclaw" ] && [ "$TOOLRL_REWARD_MODE" != "decision_aware" ] && [ "$TOOLRL_REWARD_MODE" != "hierarchical" ]; then
+  echo "TOOLRL_REWARD_MODE must be official, molclaw, decision_aware, or hierarchical; got $TOOLRL_REWARD_MODE" >&2
   exit 2
 fi
 if [ "$USE_ROLLOUT_LOGPROBS" != "0" ] && [ "$USE_ROLLOUT_LOGPROBS" != "1" ]; then
@@ -241,6 +232,7 @@ if [ "${NO_SAVE_OPTIM:-0}" = "1" ]; then
 fi
 
 TOOLRL_ARGS=(
+  --distributed-timeout-minutes "$DISTRIBUTED_TIMEOUT_MINUTES"
   --rollout-function-path "$ROLLOUT_FUNCTION_PATH"
   --custom-rm-path "$CUSTOM_RM_PATH"
   --reward-key "$REWARD_KEY"
@@ -271,6 +263,12 @@ TOOLRL_ARGS=(
 if [ -n "$CUSTOM_GENERATE_FUNCTION_PATH" ]; then
   TOOLRL_ARGS+=(--custom-generate-function-path "$CUSTOM_GENERATE_FUNCTION_PATH")
 fi
+if [ -n "$CUSTOM_ROLLOUT_LOG_FUNCTION_PATH" ]; then
+  TOOLRL_ARGS+=(--custom-rollout-log-function-path "$CUSTOM_ROLLOUT_LOG_FUNCTION_PATH")
+fi
+if [ -n "$ROLLOUT_ALL_SAMPLES_PROCESS_PATH" ]; then
+  TOOLRL_ARGS+=(--rollout-all-samples-process-path "$ROLLOUT_ALL_SAMPLES_PROCESS_PATH")
+fi
 if [ -n "$ROLLOUT_LONG_RESPONSE_LEN" ]; then
   read -r -a ROLLOUT_LONG_TASK_TYPE_ARGS <<< "$ROLLOUT_LONG_TASK_TYPES"
   TOOLRL_ARGS+=(--rollout-long-response-len "$ROLLOUT_LONG_RESPONSE_LEN")
@@ -284,6 +282,9 @@ if [ -n "$DYNAMIC_SAMPLING_FILTER_PATH" ]; then
 fi
 if [ -n "${DYNAMIC_SAMPLING_MAX_DROPPED_GROUPS:-}" ]; then
   TOOLRL_ARGS+=(--dynamic-sampling-max-dropped-groups "$DYNAMIC_SAMPLING_MAX_DROPPED_GROUPS")
+fi
+if [ "${DYNAMIC_SAMPLING_STRICT_MAX_DROPS:-0}" = "1" ]; then
+  TOOLRL_ARGS+=(--dynamic-sampling-strict-max-drops)
 fi
 if [ "$USE_ROLLOUT_LOGPROBS" = "1" ]; then
   # The generated tokens come from SGLang.  When its token log-probabilities

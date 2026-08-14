@@ -78,7 +78,12 @@ def validate_toolrl_offline_data(
     report_path: Path | None = None,
     errors_path: Path | None = None,
 ) -> dict[str, Any]:
-    catalog_names = supported_training_tool_names(default_molclaw_allowlist())
+    # Without an explicit offline catalog, MolClaw names are intentionally
+    # open-ended (the parser has the same fallback).  Local tools remain
+    # first-class in both modes.  A configured catalog makes validation
+    # fail-closed for the exact release used by training.
+    molclaw_names = default_molclaw_allowlist()
+    catalog_names = supported_training_tool_names(molclaw_names) if molclaw_names else set()
     counts = Counter()
     errors: list[dict[str, Any]] = []
 

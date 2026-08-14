@@ -13,6 +13,7 @@ from drug_agent.utils import ensure_dir, write_json, write_jsonl
 
 
 EXPECTED_COUNTS = {"molbench_ms1": 50, "molbench_ms2": 33, "molbench_ms3": 25, "molbench_mo": 78}
+SELECTABLE_SUITES = set(EXPECTED_COUNTS) | {"molbench_mo_edit", "molbench_mo_opt"}
 
 
 def _sha256_file(path: Path) -> str:
@@ -81,7 +82,7 @@ def _select_samples(
     limit_per_suite: int,
 ) -> list[dict[str, Any]]:
     suites = list(dict.fromkeys(selected_suites or []))
-    unknown = sorted(set(suites) - set(EXPECTED_COUNTS))
+    unknown = sorted(set(suites) - SELECTABLE_SUITES)
     if unknown:
         raise ValueError(f"Unknown MolBench suite selection: {unknown}")
     if limit_per_suite < 0:
@@ -93,8 +94,13 @@ def _select_samples(
     kept: list[dict[str, Any]] = []
     counts: dict[str, int] = {suite: 0 for suite in active_suites}
     for sample in samples:
-        suite = _suite_group(sample)
-        if suite not in counts:
+        raw_suite = str(sample["metadata"]["benchmark"]["suite"])
+        grouped_suite = _suite_group(sample)
+        suite = next(
+            (candidate for candidate in active_suites if candidate in {raw_suite, grouped_suite}),
+            None,
+        )
+        if suite is None:
             continue
         if limit_per_suite and counts[suite] >= limit_per_suite:
             continue

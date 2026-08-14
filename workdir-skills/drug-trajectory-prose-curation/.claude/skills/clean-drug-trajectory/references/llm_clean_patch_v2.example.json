@@ -1,0 +1,18 @@
+{
+  "schema_version": "llm_clean_patch_v2",
+  "sample_id": "react_kg_example_0001",
+  "planning_action": {
+    "assistant_index": 2,
+    "operation": "prepend_planning_thought",
+    "planning_text": "First establish the requested molecular state, then evaluate the relevant scientific evidence, resolve any failed intermediate state, and report the supported result.",
+    "reason": "existing_thought_is_step_local"
+  },
+  "edits": [
+    {
+      "message_index": 6,
+      "segment_type": "final_summary",
+      "segment_index": 0,
+      "replacement": "The example structure was retrieved and repaired successfully."
+    }
+  ]
+}

@@ -149,6 +149,42 @@ def test_official_reward_treats_local_tool_as_first_class_decision():
     assert out["diagnostics"]["pred_call_count"] == 1
 
 
+def test_official_reward_penalizes_wrong_local_and_molclaw_tools_equally():
+    local = _sample(
+        '<thought>wrong</thought><tool_call>{"tool_name":"Write","arguments":{"file_path":"x"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "Read", "arguments": {"file_path": "x"}}],
+        },
+    )
+    molclaw = _sample(
+        '<thought>wrong</thought><tool_call>{"tool_name":"is_valid_smiles","arguments":{"input_path":"x"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x"}}],
+        },
+    )
+    local_out = _reward(local, mode="official")
+    molclaw_out = _reward(molclaw, mode="official")
+    assert local_out["score"] == molclaw_out["score"] == -2.0
+    assert local_out["components"]["correctness"] == molclaw_out["components"]["correctness"] == -3.0
+
+
+def test_official_reward_extra_unsupported_tool_cannot_receive_full_credit():
+    sample = _sample(
+        (
+            '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>'
+            '<tool_call>{"tool_name":"DefinitelyNotATool","arguments":{}}</tool_call>'
+        ),
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "Read", "arguments": {"file_path": "x"}}],
+        },
+    )
+    out = _reward(sample, mode="official")
+    assert out["score"] < 4.0
+
+
 def test_molclaw_reward_no_longer_penalizes_supported_local_tool():
     sample = _sample(
         '<thought>write</thought><tool_call>{"tool_name":"Write","arguments":{"file_path":"run_log.md","content":"ok"}}</tool_call>',
@@ -235,3 +271,120 @@ def test_molclaw_malformed_tool_response_cannot_receive_positive_dense_credit():
     out = _reward(sample)
     assert out["diagnostics"]["parse_ok"] is False
     assert out["score"] <= -0.3
+
+
+def test_decision_aware_exact_tool_and_params_scores_one():
+    sample = _sample(
+        '<thought>use it</thought><tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x","remove_water":true}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x", "remove_water": True}}],
+        },
+        {"decision_role": "planning"},
+    )
+    out = _reward(sample, mode="decision_aware")
+    assert out["score"] == 1.0
+    assert out["diagnostics"]["decision_role"] == "planning"
+    assert out["components"]["tool_name_f1"] == 1.0
+
+
+def test_decision_aware_correct_tool_wrong_params_stays_positive():
+    sample = _sample(
+        '<thought>use it</thought><tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"wrong"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x", "remove_water": True}}],
+        },
+    )
+    out = _reward(sample, mode="decision_aware")
+    assert 0.35 < out["score"] < 1.0
+    assert out["components"]["tool_name_f1"] == 1.0
+    assert out["components"]["param_value"] == 0.0
+
+
+def test_decision_aware_wrong_tool_is_gated_negative_even_with_same_params():
+    sample = _sample(
+        '<thought>wrong tool</thought><tool_call>{"tool_name":"Read","arguments":{"input_path":"x"}}</tool_call>',
+        {
+            "decision_type": "tool_call",
+            "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x"}}],
+        },
+    )
+    out = _reward(sample, mode="decision_aware")
+    assert out["score"] == -0.5
+    assert out["diagnostics"]["gate_reason"] == "no_correct_tool_name"
+
+
+def test_decision_aware_missing_and_extra_calls_reduce_score():
+    target = [
+        {"tool_name": "Read", "arguments": {"file_path": "x"}},
+        {"tool_name": "Glob", "arguments": {"pattern": "*.pdb"}},
+    ]
+    missing = _sample(
+        '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>',
+        {"decision_type": "tool_call", "target_tool_calls": target},
+    )
+    extra = _sample(
+        (
+            '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>'
+            '<tool_call>{"tool_name":"Glob","arguments":{"pattern":"*.pdb"}}</tool_call>'
+            '<tool_call>{"tool_name":"Write","arguments":{"file_path":"y","content":"z"}}</tool_call>'
+        ),
+        {"decision_type": "tool_call", "target_tool_calls": target},
+    )
+    perfect = _sample(
+        (
+            '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>'
+            '<tool_call>{"tool_name":"Glob","arguments":{"pattern":"*.pdb"}}</tool_call>'
+        ),
+        {"decision_type": "tool_call", "target_tool_calls": target},
+    )
+    assert _reward(missing, mode="decision_aware")["score"] < _reward(perfect, mode="decision_aware")["score"]
+    assert _reward(extra, mode="decision_aware")["score"] < _reward(perfect, mode="decision_aware")["score"]
+
+
+def test_decision_aware_final_and_truncation_contract():
+    final = {"task_type": "kg", "result": {"artifact": "x"}, "evidence": []}
+    sample = _sample(
+        '<final_answer>' + __import__("json").dumps(final) + "</final_answer>",
+        {"decision_type": "final_answer", "target_final_answer": {**final, "summary": "ignored"}},
+        {"decision_role": "final"},
+    )
+    assert _reward(sample, mode="decision_aware")["score"] == 1.0
+    sample.status = SimpleNamespace(value="truncated")
+    assert _reward(sample, mode="decision_aware")["score"] == 0.0
+
+
+def test_hierarchical_reward_gates_tool_before_arguments():
+    gold = {"decision_type": "tool_call", "target_tool_calls": [{"tool_name": "fix_pdb", "arguments": {"input_path": "x", "remove_water": True}}]}
+    wrong = _sample('<tool_call>{"tool_name":"Read","arguments":{"input_path":"x"}}</tool_call>', gold)
+    missing = _sample('<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x"}}</tool_call>', gold)
+    exact = _sample('<tool_call>{"tool_name":"fix_pdb","arguments":{"input_path":"x","remove_water":true}}</tool_call>', gold)
+    wrong_out = _reward(wrong, mode="hierarchical")
+    missing_out = _reward(missing, mode="hierarchical")
+    exact_out = _reward(exact, mode="hierarchical")
+    assert wrong_out["diagnostics"]["reward_stage"] == "wrong_tool"
+    assert wrong_out["score"] < missing_out["score"] < exact_out["score"]
+    assert exact_out["score"] == 1.0
+
+
+def test_hierarchical_configurable_value_can_differ_from_teacher():
+    sample = _sample(
+        '<tool_call>{"tool_name":"pred_pocket_prank","arguments":{"input_path":"x.pdb","top_n":8}}</tool_call>',
+        {"decision_type": "tool_call", "target_tool_calls": [{"tool_name": "pred_pocket_prank", "arguments": {"input_path": "x.pdb", "top_n": 5}}]},
+    )
+    out = _reward(sample, mode="hierarchical")
+    assert out["diagnostics"]["reward_stage"] == "valid_alternative_configuration"
+    assert out["score"] == 0.9
+
+
+def test_hierarchical_final_and_truncation_contract():
+    final = {"task_type": "kg", "result": {"artifact": "x"}, "evidence": []}
+    sample = _sample(
+        '<final_answer>' + __import__("json").dumps(final) + "</final_answer>",
+        {"decision_type": "final_answer", "target_final_answer": {**final, "summary": "ignored"}},
+        {"decision_role": "final"},
+    )
+    assert _reward(sample, mode="hierarchical")["score"] == 1.0
+    sample.status = SimpleNamespace(value="truncated")
+    assert _reward(sample, mode="hierarchical")["score"] == 0.0

@@ -45,13 +45,19 @@ def test_converter_builds_step_level_samples(tmp_path: Path):
     rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 3
     assert rows[0]["metadata"]["assistant_index"] == 2
+    assert rows[0]["metadata"]["decision_role"] == "tool_step"
+    assert rows[0]["metadata"]["is_initial_step"] is True
+    assert rows[0]["metadata"]["decision_ordinal"] == 0
+    assert rows[0]["metadata"]["trajectory_decision_count"] == 3
     assert rows[0]["metadata"]["task_type"] == "ac"
     assert rows[0]["prompt"][-1]["role"] == "user"
     assert "final_answer" not in rows[0]["prompt"][-1]["content"]
     assert rows[1]["metadata"]["assistant_index"] == 4
+    assert rows[1]["metadata"]["decision_role"] == "tool_step"
     assert rows[1]["prompt"][-1]["role"] == "user"
     assert rows[1]["target_tool_calls"][0]["tool_name"] == "is_valid_smiles"
     assert rows[2]["metadata"]["decision_type"] == "final_answer"
+    assert rows[2]["metadata"]["decision_role"] == "final"
     assert rows[2]["target_final_answer"]["answer_smiles"] == "CCO"
 
 
@@ -116,3 +122,73 @@ def test_converter_keeps_local_and_mixed_tool_decisions_in_order(tmp_path: Path,
         set(rows[0]["metadata"]["allowed_tool_names"])
     )
     assert skipped_path.read_text(encoding="utf-8") == ""
+
+
+def test_converter_marks_initial_without_thought_and_order_insensitive_repeat(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("DRUG_AGENT_TOOL_CATALOG", raising=False)
+    source = tmp_path / "source.json"
+    _write_json(
+        source,
+        {
+            "id": "react_kg_repeat",
+            "messages": [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "task"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        '<tool_call>{"tool_name":"Read","arguments":{"file_path":"a"}}</tool_call>'
+                        '<tool_call>{"tool_name":"Glob","arguments":{"pattern":"*.pdb"}}</tool_call>'
+                    ),
+                },
+                {"role": "user", "content": '<observation tool_name="Read">{"ok":true}</observation>'},
+                {
+                    "role": "assistant",
+                    "content": (
+                        '<thought>retry in reverse serialization order</thought>'
+                        '<tool_call>{"arguments":{"pattern":"*.pdb"},"tool_name":"Glob"}</tool_call>'
+                        '<tool_call>{"arguments":{"file_path":"a"},"tool_name":"Read"}</tool_call>'
+                    ),
+                },
+                {"role": "user", "content": '<observation tool_name="Glob">{"ok":true}</observation>'},
+                {
+                    "role": "assistant",
+                    "content": '<final_answer>{"task_type":"kg","result":{},"evidence":[]}</final_answer>',
+                },
+            ],
+        },
+    )
+    output = tmp_path / "toolrl.jsonl"
+    report = convert_react_to_toolrl_steps(source, output)
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert report["counts"]["trajectories_with_no_progress_repeat"] == 1
+    assert rows[0]["metadata"]["decision_role"] == "tool_step"
+    assert rows[0]["metadata"]["is_initial_step"] is True
+    assert rows[1]["metadata"]["is_no_progress_repeat"] is True
+    assert rows[1]["metadata"]["repeat_of_assistant_index"] == 2
+    assert all(row["metadata"]["trajectory_has_no_progress_repeat"] for row in rows)
+
+
+def test_converter_keeps_retry_after_timeout(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("DRUG_AGENT_TOOL_CATALOG", raising=False)
+    source = tmp_path / "source.json"
+    call = '<tool_call>{"tool_name":"Read","arguments":{"file_path":"a"}}</tool_call>'
+    _write_json(
+        source,
+        {
+            "id": "react_kg_retry",
+            "messages": [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "task"},
+                {"role": "assistant", "content": call},
+                {"role": "user", "content": '<observation tool_name="Read">{"ok":false,"status":"timeout"}</observation>'},
+                {"role": "assistant", "content": call},
+                {"role": "user", "content": '<observation tool_name="Read">{"ok":true,"status":"success"}</observation>'},
+            ],
+        },
+    )
+    output = tmp_path / "toolrl.jsonl"
+    convert_react_to_toolrl_steps(source, output)
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert rows[1]["metadata"]["repeat_prior_usable_success"] is False
+    assert rows[1]["metadata"]["is_no_progress_repeat"] is False

@@ -23,7 +23,12 @@ def _base_parser() -> argparse.ArgumentParser:
     p.add_argument("--server-url", default=None)
     p.add_argument("--skills-root", default=None)
     p.add_argument("--mode", default="claude_cc", choices=["claude_cc"])
-    p.add_argument("--max-workers", type=int, default=1, help="Parallel worker count for tool-card/adjudication stages.")
+    p.add_argument(
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Parallel worker count for tool-card, adjudication, and question-sampling stages.",
+    )
     p.add_argument("--resume", action="store_true", help="Resume an existing run_dir instead of starting from scratch.")
     return p
 
@@ -196,6 +201,7 @@ def main() -> None:
             fanout_runtime_target=dict(values["fanout_runtime_target"]),
             seed=int(values["random_seed"]) if values.get("random_seed") is not None else None,
             sampling_profile_meta=resolved.manifest_payload(),
+            max_workers=args.max_workers,
         )
     else:
         raise ValueError(f"Unknown command {args.cmd}")

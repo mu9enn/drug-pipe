@@ -26,6 +26,7 @@ def parse_assistant_decision(content: Any) -> dict[str, Any]:
         return {
             "ok": False,
             "decision_type": None,
+            "thoughts": [],
             "tool_calls": [],
             "final_answer": None,
             "error": "assistant_content_not_string",
@@ -48,6 +49,7 @@ def parse_assistant_decision(content: Any) -> dict[str, Any]:
     return {
         "ok": error is None,
         "decision_type": decision_type,
+        "thoughts": [str(item) for item in (runtime.get("thoughts") or []) if str(item).strip()],
         "tool_calls": tool_calls,
         "final_answer": final_answer,
         "error": error,

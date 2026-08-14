@@ -486,6 +486,15 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                     "so sparse rewards cannot leave rollout generation in an unbounded loop."
                 ),
             )
+            parser.add_argument(
+                "--dynamic-sampling-strict-max-drops",
+                action="store_true",
+                default=False,
+                help=(
+                    "Fail the rollout when the dynamic-sampling drop cap is reached instead of "
+                    "admitting a zero-variance group. Useful when policy-boundary selection is a training contract."
+                ),
+            )
 
             # partial rollout
             parser.add_argument(

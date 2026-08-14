@@ -3,12 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Iterable
 
 from drug_agent.toolrl.normalization import (
     canonical_argument_map,
+    canonical_param_name,
     canonical_tool_name,
     compare_values,
     load_tool_schema_config,
@@ -104,6 +108,11 @@ def _decision_type(sample: Any) -> str:
     label = _label_dict(sample)
     metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
     return str(label.get("decision_type") or metadata.get("decision_type") or "tool_call")
+
+
+def _decision_role(sample: Any) -> str:
+    metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
+    return str(metadata.get("decision_role") or _decision_type(sample))
 
 
 def _target_final_answer(sample: Any) -> Any:
@@ -507,6 +516,304 @@ def _tool_reward_components(pred_calls: list[dict[str, Any]], gold_calls: list[d
     return metrics
 
 
+def _decision_aware_tool_reward(
+    sample: Any,
+    parsed: dict[str, Any],
+    pred_calls: list[dict[str, Any]],
+    gold_calls: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Tool-name-first dense reward on the common [-0.5, 1.0] scale."""
+    valid_envelope = bool(
+        parsed.get("ok")
+        and parsed.get("has_tool_call")
+        and not parsed.get("has_final_answer")
+    )
+    tool_metrics = _tool_reward_components(pred_calls, gold_calls, config=config)
+    matched = int(tool_metrics.get("matched_calls") or 0)
+    name_f1 = float(tool_metrics.get("f1") or 0.0)
+    pred_count = len(pred_calls)
+    gold_count = len(gold_calls)
+    count_completeness = (
+        1.0 - abs(pred_count - gold_count) / max(pred_count, gold_count)
+        if pred_count or gold_count
+        else 1.0
+    )
+    param_name = float(tool_metrics.get("param_name_score") or 0.0)
+    param_value = float(tool_metrics.get("param_value_score") or 0.0)
+    format_score = 1.0 if valid_envelope else 0.0
+    quality = (
+        0.10 * format_score
+        + 0.55 * name_f1
+        + 0.10 * count_completeness
+        + 0.10 * param_name
+        + 0.15 * param_value
+    )
+    score = clamp(1.5 * quality - 0.5, -0.5, 1.0)
+    gate_reason = None
+    if not valid_envelope:
+        score = -0.5
+        gate_reason = "invalid_react_tool_envelope"
+    elif matched == 0:
+        score = -0.5
+        gate_reason = "no_correct_tool_name"
+
+    components = {
+        "format": format_score,
+        "tool_name_f1": name_f1,
+        "call_completeness": count_completeness,
+        "param_name": param_name,
+        "param_value": param_value,
+        "weighted_quality": quality,
+        "matched_calls": float(matched),
+    }
+    errors = []
+    if gate_reason is not None:
+        errors.append({"type": "DecisionAwareRewardGate", "message": gate_reason})
+    return {
+        "score": score,
+        "format": format_score,
+        "tool_name": name_f1,
+        "param_name": param_name,
+        "param_value": param_value,
+        "matched_calls": float(matched),
+        "components": components,
+        "diagnostics": {
+            "reward_mode": "decision_aware",
+            "decision_role": _decision_role(sample),
+            "expected_decision_type": "tool_call",
+            "predicted_decision_type": "tool_call" if valid_envelope else "invalid",
+            "parse_ok": bool(parsed.get("ok")),
+            "pred_call_count": pred_count,
+            "gold_call_count": gold_count,
+            "matched_calls": matched,
+            "unmatched_pred_count": max(0, pred_count - matched),
+            "unmatched_gold_count": max(0, gold_count - matched),
+            "gate_reason": gate_reason,
+        },
+        "errors": errors,
+        "warnings": [],
+    }
+
+
+def _decision_aware_final_reward(sample: Any, parsed: dict[str, Any]) -> dict[str, Any]:
+    out = _molclaw_final_answer_reward(sample, parsed)
+    out["diagnostics"]["reward_mode"] = "decision_aware"
+    out["diagnostics"]["decision_role"] = _decision_role(sample)
+    return out
+
+
+_CRITICAL_ARGUMENT_PATTERN = re.compile(
+    r"(^|_)(id|ids|name|target|gene|protein|ligand|receptor|sequence|smiles|mutation|chain|"
+    r"artifact|file|path|input|structure|complex|pdb|cif|sdf|mol2)(_|$)",
+    re.IGNORECASE,
+)
+
+
+@lru_cache(maxsize=4)
+def _tool_catalog_schemas(path: str) -> dict[str, dict[str, Any]]:
+    if not path or not Path(path).is_file():
+        return {}
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    tools = payload.get("tools") if isinstance(payload, dict) else None
+    if not isinstance(tools, list):
+        return {}
+    return {
+        canonical_tool_name(str(tool.get("name") or "")): tool.get("input_schema")
+        for tool in tools
+        if isinstance(tool, dict) and isinstance(tool.get("input_schema"), dict)
+    }
+
+
+def _argument_schema(tool_name: str) -> dict[str, Any]:
+    path = os.environ.get("DRUG_AGENT_TOOL_CATALOG", "")
+    return _tool_catalog_schemas(path).get(canonical_tool_name(tool_name), {})
+
+
+def _schema_value_valid(value: Any, schema: dict[str, Any]) -> bool:
+    """Small, deterministic JSON-schema subset used by the reward boundary."""
+    if not schema:
+        return True
+    expected = schema.get("type")
+    type_ok = {
+        "string": isinstance(value, str),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "boolean": isinstance(value, bool),
+        "array": isinstance(value, list),
+        "object": isinstance(value, dict),
+    }.get(str(expected), True)
+    if not type_ok:
+        return False
+    if "enum" in schema and value not in schema["enum"]:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            return False
+        if "maximum" in schema and value > schema["maximum"]:
+            return False
+        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+            return False
+        if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
+            return False
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < int(schema["minLength"]):
+            return False
+        if "maxLength" in schema and len(value) > int(schema["maxLength"]):
+            return False
+    if isinstance(value, list):
+        if "minItems" in schema and len(value) < int(schema["minItems"]):
+            return False
+        if "maxItems" in schema and len(value) > int(schema["maxItems"]):
+            return False
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict) and not all(_schema_value_valid(item, item_schema) for item in value):
+            return False
+    return True
+
+
+def _is_critical_argument(name: str, schema: dict[str, Any]) -> bool:
+    extension = schema.get("x-toolrl-importance")
+    if extension in {"identity", "critical"}:
+        return True
+    if extension in {"configurable", "configuration"}:
+        return False
+    return bool(_CRITICAL_ARGUMENT_PATTERN.search(name))
+
+
+def _hierarchical_argument_metrics(
+    pred_call: dict[str, Any], gold_call: dict[str, Any], config: dict[str, Any]
+) -> dict[str, Any]:
+    tool_name = canonical_tool_name(gold_call.get("tool_name") or gold_call.get("name"), config)
+    pred_args = canonical_argument_map(pred_call.get("arguments") or {}, tool_name=tool_name, config=config)
+    gold_args = canonical_argument_map(gold_call.get("arguments") or {}, tool_name=tool_name, config=config)
+    schema = _argument_schema(tool_name)
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    required = {
+        canonical_param_name(str(name), config)
+        for name in (schema.get("required") or [])
+        if isinstance(name, str)
+    }
+    # A catalog-less local tool falls back to the teacher's keys.  This keeps
+    # the gate useful without pretending all teacher values are mandatory.
+    if not properties:
+        required = set(gold_args)
+    required_coverage = len(required & set(pred_args)) / max(1, len(required)) if required else 1.0
+
+    critical_keys = {
+        key for key in gold_args
+        if _is_critical_argument(key, properties.get(key) if isinstance(properties.get(key), dict) else {})
+    }
+    critical_scores = [
+        compare_values(pred_args.get(key), gold_args[key], tool_name=tool_name, param_name=key, config=config)["score"]
+        if key in pred_args else 0.0
+        for key in critical_keys
+    ]
+    critical_exact = sum(score >= 1.0 for score in critical_scores) / len(critical_scores) if critical_scores else 1.0
+
+    configurable_keys = set(pred_args) - critical_keys
+    validity = []
+    for key in configurable_keys:
+        param_schema = properties.get(key) if isinstance(properties.get(key), dict) else {}
+        validity.append(bool(key in properties or not properties) and _schema_value_valid(pred_args[key], param_schema))
+    configurable_validity = sum(validity) / len(validity) if validity else 1.0
+    all_keys_exact = set(pred_args) == set(gold_args) and all(
+        compare_values(pred_args[key], gold_args[key], tool_name=tool_name, param_name=key, config=config)["score"] >= 1.0
+        for key in gold_args
+    )
+    return {
+        "required_coverage": required_coverage,
+        "critical_exact": critical_exact,
+        "configurable_validity": configurable_validity,
+        "teacher_exact": bool(all_keys_exact),
+        "required_arguments": sorted(required),
+        "critical_arguments": sorted(critical_keys),
+        "configurable_arguments": sorted(configurable_keys),
+    }
+
+
+def _hierarchical_tool_reward(
+    sample: Any,
+    parsed: dict[str, Any],
+    pred_calls: list[dict[str, Any]],
+    gold_calls: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Stage-gated reward: envelope -> tool set -> required args -> validity."""
+    valid_envelope = bool(parsed.get("ok") and parsed.get("has_tool_call") and not parsed.get("has_final_answer"))
+    pairs = _pair_tool_calls(pred_calls, gold_calls, config=config) if valid_envelope else []
+    metrics = _compute_pair_metrics(pred_calls, gold_calls, pairs)
+    tool_f1 = float(metrics["f1"])
+    tool_set_exact = len(pairs) == len(pred_calls) == len(gold_calls)
+    gate = "format"
+    argument_metrics: list[dict[str, Any]] = []
+
+    if not valid_envelope:
+        score = -0.5
+        gate = "invalid_react_tool_envelope"
+    elif not pairs:
+        score = -0.4
+        gate = "wrong_tool"
+    elif not tool_set_exact:
+        score = -0.05 + 0.35 * tool_f1
+        gate = "partial_tool_set"
+    else:
+        for pair in pairs:
+            argument_metrics.append(_hierarchical_argument_metrics(pred_calls[pair.pred_index], gold_calls[pair.gold_index], config))
+        required_coverage = min(item["required_coverage"] for item in argument_metrics) if argument_metrics else 1.0
+        critical_exact = min(item["critical_exact"] for item in argument_metrics) if argument_metrics else 1.0
+        configurable_validity = min(item["configurable_validity"] for item in argument_metrics) if argument_metrics else 1.0
+        teacher_exact = all(item["teacher_exact"] for item in argument_metrics)
+        if required_coverage < 1.0:
+            score = 0.30 + 0.20 * required_coverage
+            gate = "missing_required_arguments"
+        elif critical_exact < 1.0:
+            score = 0.55 + 0.15 * critical_exact
+            gate = "critical_argument_mismatch"
+        elif configurable_validity < 1.0:
+            score = 0.72 + 0.13 * configurable_validity
+            gate = "invalid_configurable_arguments"
+        elif teacher_exact:
+            score = 1.0
+            gate = "teacher_equivalent"
+        else:
+            score = 0.90
+            gate = "valid_alternative_configuration"
+
+    required_coverage = min((item["required_coverage"] for item in argument_metrics), default=0.0)
+    critical_exact = min((item["critical_exact"] for item in argument_metrics), default=0.0)
+    configurable_validity = min((item["configurable_validity"] for item in argument_metrics), default=0.0)
+    out = {
+        "score": clamp(score, -0.5, 1.0),
+        "format": 1.0 if valid_envelope else 0.0,
+        "tool_name": tool_f1,
+        "param_name": required_coverage,
+        "param_value": critical_exact,
+        "matched_calls": float(len(pairs)),
+        "components": {
+            "tool_name_f1": tool_f1,
+            "tool_set_exact": float(tool_set_exact),
+            "required_argument_coverage": required_coverage,
+            "critical_argument_exact": critical_exact,
+            "configurable_argument_validity": configurable_validity,
+        },
+        "diagnostics": {
+            "reward_mode": "hierarchical",
+            "decision_role": _decision_role(sample),
+            "is_initial_step": bool((sample.metadata or {}).get("is_initial_step")) if isinstance(sample.metadata, dict) else False,
+            "reward_stage": gate,
+            "parse_ok": bool(parsed.get("ok")),
+            "pred_call_count": len(pred_calls),
+            "gold_call_count": len(gold_calls),
+            "matched_calls": len(pairs),
+            "argument_policy": argument_metrics,
+        },
+        "errors": [] if score >= 0 else [{"type": "HierarchicalRewardGate", "message": gate}],
+        "warnings": [],
+    }
+    return out
+
+
 def _sample_was_truncated(sample: Any) -> bool:
     """Accept Slime's enum status without importing its torch-backed types."""
     status = getattr(sample, "status", None)
@@ -549,10 +856,34 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     gold_calls = [item for item in gold_calls if isinstance(item, dict)]
 
     reward_mode = os.environ.get("TOOLRL_REWARD_MODE", "official").strip().lower()
-    if reward_mode not in {"official", "molclaw"}:
+    if reward_mode not in {"official", "molclaw", "decision_aware", "hierarchical"}:
         raise ValueError(f"unsupported TOOLRL_REWARD_MODE: {reward_mode}")
     if reward_mode == "official":
         out = _official_reward(sample, parsed, pred_calls, gold_calls)
+        out = _apply_truncation_guard(sample, out)
+        if not isinstance(sample.metadata, dict):
+            sample.metadata = {}
+        sample.metadata["toolrl_reward"] = to_jsonable(out)
+        return out
+
+    if reward_mode == "decision_aware":
+        if _decision_type(sample) == "final_answer":
+            out = _decision_aware_final_reward(sample, parsed)
+        else:
+            out = _decision_aware_tool_reward(sample, parsed, pred_calls, gold_calls, config)
+        out = _apply_truncation_guard(sample, out)
+        if not isinstance(sample.metadata, dict):
+            sample.metadata = {}
+        sample.metadata["toolrl_reward"] = to_jsonable(out)
+        return out
+
+    if reward_mode == "hierarchical":
+        if _decision_type(sample) == "final_answer":
+            out = _molclaw_final_answer_reward(sample, parsed)
+            out["diagnostics"]["reward_mode"] = "hierarchical"
+            out["diagnostics"]["decision_role"] = _decision_role(sample)
+        else:
+            out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config)
         out = _apply_truncation_guard(sample, out)
         if not isinstance(sample.metadata, dict):
             sample.metadata = {}

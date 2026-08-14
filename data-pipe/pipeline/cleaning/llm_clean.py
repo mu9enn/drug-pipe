@@ -18,6 +18,7 @@ from pipeline.cleaning.artifacts import ABSOLUTE_PATH_RE, RELATIVE_PATH_RE
 from pipeline.cleaning.invariants import (
     FINAL_RE,
     THOUGHT_RE,
+    TOOL_CALL_RE,
     assistant_prose_findings,
     compare_immutable_facts,
     validate_final_record,
@@ -35,6 +36,7 @@ from pipeline.cleaning.models import (
 
 PROTOCOL_TAG_RE = re.compile(r"</?(?:thought|tool_call|observation|final_answer)(?:\s[^>]*)?>", re.I)
 PatchProvider = Callable[[dict[str, Any], dict[str, Any]], tuple[dict[str, Any] | None, dict[str, Any]]]
+PLANNING_SKILL_VERSION = "clean-drug-trajectory-v2"
 
 
 def _serialize(value: Any) -> str:
@@ -43,6 +45,20 @@ def _serialize(value: Any) -> str:
 
 def _safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._") or "sample"
+
+
+def _record_sha256(value: dict[str, Any]) -> str:
+    return hashlib.sha256(_serialize(value).encode("utf-8")).hexdigest()
+
+
+def _first_assistant_decision_index(source: dict[str, Any]) -> int | None:
+    for message_index, message in enumerate(source.get("messages") or []):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = str(message.get("content") or "")
+        if TOOL_CALL_RE.search(content) or FINAL_RE.search(content):
+            return message_index
+    return None
 
 
 def _editable_segments(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -105,6 +121,39 @@ def apply_restricted_patch(
             findings.append(f"replacement_contains_path:{target}")
             continue
         edits_by_message.setdefault(edit["message_index"], []).append(edit)
+    planning = patch.get("planning_action") if isinstance(patch.get("planning_action"), dict) else {}
+    planning_index = planning.get("assistant_index")
+    expected_planning_index = _first_assistant_decision_index(source)
+    planning_text = str(planning.get("planning_text") or "").strip()
+    planning_operation = str(planning.get("operation") or "")
+    planning_reason = str(planning.get("reason") or "")
+    if planning_index != expected_planning_index:
+        findings.append(
+            f"planning_target_not_first_decision:{planning_index}:{expected_planning_index}"
+        )
+    if PROTOCOL_TAG_RE.search(planning_text):
+        findings.append("planning_contains_protocol_tag")
+    if ABSOLUTE_PATH_RE.search(planning_text) or RELATIVE_PATH_RE.search(planning_text):
+        findings.append("planning_contains_path")
+    if expected_planning_index is not None:
+        first_content = str((source.get("messages") or [])[expected_planning_index].get("content") or "")
+        has_thought = bool(THOUGHT_RE.search(first_content))
+        if planning_operation == "rewrite_first_thought":
+            if not has_thought:
+                findings.append("planning_rewrite_requires_existing_thought")
+            if planning_reason != "existing_thought_is_plan_like":
+                findings.append("planning_rewrite_reason_mismatch")
+            if any(
+                edit.get("message_index") == expected_planning_index
+                and edit.get("segment_type") == "thought"
+                and edit.get("segment_index") == 0
+                for edit in patch.get("edits") or []
+            ):
+                findings.append("planning_rewrite_conflicts_with_prose_edit")
+        elif planning_operation == "prepend_planning_thought":
+            expected_reason = "existing_thought_is_step_local" if has_thought else "no_existing_thought"
+            if planning_reason != expected_reason:
+                findings.append("planning_prepend_reason_mismatch")
     if findings:
         return copy.deepcopy(source), findings, actions
 
@@ -183,6 +232,27 @@ def apply_restricted_patch(
                 {"message_index": message_index, "segment_type": "final_summary", "segment_index": 0}
             )
         message["content"] = content
+    if not findings and expected_planning_index is not None:
+        message = messages[expected_planning_index]
+        content = str(message.get("content") or "")
+        if planning_operation == "rewrite_first_thought":
+            content = THOUGHT_RE.sub(
+                lambda _match: f"<thought>{planning_text}</thought>",
+                content,
+                count=1,
+            )
+        elif planning_operation == "prepend_planning_thought":
+            content = f"<thought>{planning_text}</thought>\n{content.lstrip()}"
+        message["content"] = content
+        actions.append(
+            {
+                "message_index": expected_planning_index,
+                "segment_type": "planning",
+                "segment_index": 0,
+                "operation": planning_operation,
+                "reason": planning_reason,
+            }
+        )
     if findings:
         return copy.deepcopy(source), findings, []
     findings.extend(compare_immutable_facts(source, candidate))
@@ -192,12 +262,45 @@ def apply_restricted_patch(
     return candidate, findings, actions
 
 
+def _planning_annotation(
+    source: dict[str, Any], candidate: dict[str, Any], patch: dict[str, Any] | None, actions: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    if not isinstance(patch, dict) or not any(action.get("segment_type") == "planning" for action in actions):
+        return None
+    planning = patch.get("planning_action")
+    if not isinstance(planning, dict):
+        return None
+    text = str(planning.get("planning_text") or "").strip()
+    return {
+        "schema_version": "react_planning_annotation_v1",
+        "source_id": source.get("id"),
+        "assistant_index": planning.get("assistant_index"),
+        "operation": planning.get("operation"),
+        "reason": planning.get("reason"),
+        "planning_text": text,
+        "planning_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "source_trajectory_sha256": _record_sha256(source),
+        "cleaned_trajectory_sha256": _record_sha256(candidate),
+        "patch_schema_version": PATCH_SCHEMA_VERSION,
+        "skill_version": PLANNING_SKILL_VERSION,
+        "system_prompt_sha256": hashlib.sha256(
+            LLM_CLEAN_SYSTEM_PROMPT.read_bytes()
+        ).hexdigest(),
+        "user_prompt_sha256": hashlib.sha256(
+            LLM_CLEAN_USER_PROMPT.read_bytes()
+        ).hexdigest(),
+    }
+
+
 def build_claude_patch_provider(
     *,
     claude_bin: str,
     debug_root: Path,
     timeout_sec: float,
+    max_attempts: int = 3,
 ) -> PatchProvider:
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be >= 1")
     system_prompt = LLM_CLEAN_SYSTEM_PROMPT.read_text(encoding="utf-8").strip()
     user_prompt = LLM_CLEAN_USER_PROMPT.read_text(encoding="utf-8").strip()
 
@@ -220,8 +323,6 @@ def build_claude_patch_provider(
             ),
         )
         patch_path = sample_dir / "llm_clean_patch.json"
-        if patch_path.exists():
-            patch_path.unlink()
         command = [
             claude_bin,
             "--print",
@@ -244,52 +345,87 @@ def build_claude_patch_provider(
             "status": "failed",
             "debug_dir": str(sample_dir),
             "timeout_sec": timeout_sec,
+            "max_attempts": max_attempts,
             "findings": [],
+            "claude_attempts": [],
         }
-        attempt = run_stream_json(
-            command,
-            cwd=sample_dir,
-            archive_root=sample_dir,
-            timeout_sec=timeout_sec,
-        )
-        selected = select_attempt(attempt, sample_dir / "complete_session.jsonl")
-        metadata.update(
-            {
-                "command": command,
-                "return_code": attempt["return_code"],
-                "session_file": str(sample_dir / "complete_session.jsonl"),
-                "attempt_session_file": attempt["session_file"],
-                "claude_attempts": [attempt],
-                "selected_claude_attempt": attempt["attempt_index"],
-                "session_byte_count": selected["byte_count"],
-                "session_sha256": selected["sha256"],
-                "parseable_event_count": selected["parseable_event_count"],
-                "raw_session_valid": selected["raw_session_valid"],
-            }
-        )
-        if attempt["timed_out"]:
-            metadata["findings"].append("claude_timeout")
-            return None, metadata
-        if not selected["raw_session_valid"]:
-            metadata["findings"].append("raw_session_invalid")
-            return None, metadata
-        if metadata.get("return_code") != 0:
-            metadata["findings"].append(f"claude_exit_code:{metadata.get('return_code')}")
-            return None, metadata
-        if not patch_path.is_file():
-            metadata["findings"].append("missing_llm_clean_patch_file")
-            return None, metadata
-        try:
-            patch = json.loads(patch_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            metadata["findings"].append(f"patch_json_decode_error:{exc.msg}")
-            return None, metadata
-        if not isinstance(patch, dict):
-            metadata["findings"].append("patch_not_object")
-            return None, metadata
-        metadata["status"] = "patch_received"
-        metadata["patch_file"] = str(patch_path)
-        return patch, metadata
+        # A successful Claude run may have written a fully validated patch before a
+        # later batch-level retry.  Reuse that artifact instead of deleting it and
+        # paying for another model invocation.  The restricted-patch validator
+        # binds the cache to this sample and rechecks every immutable boundary.
+        if patch_path.is_file():
+            try:
+                cached_patch = json.loads(patch_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                cached_patch = None
+            if isinstance(cached_patch, dict):
+                _candidate, cache_findings, _actions = apply_restricted_patch(source, cached_patch)
+                if not cache_findings:
+                    metadata.update(
+                        {
+                            "status": "cached_patch_received",
+                            "patch_file": str(patch_path),
+                            "cache_reused": True,
+                        }
+                    )
+                    return cached_patch, metadata
+        for _attempt_number in range(1, max_attempts + 1):
+            if patch_path.exists():
+                patch_path.unlink()
+            attempt = run_stream_json(
+                command,
+                cwd=sample_dir,
+                archive_root=sample_dir,
+                timeout_sec=timeout_sec,
+            )
+            selected = select_attempt(attempt, sample_dir / "complete_session.jsonl")
+            metadata["claude_attempts"].append(attempt)
+            metadata.update(
+                {
+                    "command": command,
+                    "return_code": attempt["return_code"],
+                    "session_file": str(sample_dir / "complete_session.jsonl"),
+                    "attempt_session_file": attempt["session_file"],
+                    "selected_claude_attempt": attempt["attempt_index"],
+                    "session_byte_count": selected["byte_count"],
+                    "session_sha256": selected["sha256"],
+                    "parseable_event_count": selected["parseable_event_count"],
+                    "raw_session_valid": selected["raw_session_valid"],
+                }
+            )
+            attempt_findings = []
+            if attempt["timed_out"]:
+                attempt_findings.append("claude_timeout")
+            if not selected["raw_session_valid"]:
+                attempt_findings.append("raw_session_invalid")
+            if attempt.get("return_code") != 0:
+                attempt_findings.append(f"claude_exit_code:{attempt.get('return_code')}")
+            if not patch_path.is_file():
+                attempt_findings.append("missing_llm_clean_patch_file")
+                patch = None
+            else:
+                try:
+                    patch = json.loads(patch_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError as exc:
+                    attempt_findings.append(f"patch_json_decode_error:{exc.msg}")
+                    patch = None
+            if patch is not None and not isinstance(patch, dict):
+                attempt_findings.append("patch_not_object")
+                patch = None
+            if isinstance(patch, dict):
+                _candidate, safety_findings, _actions = apply_restricted_patch(source, patch)
+                attempt_findings.extend(f"unsafe_patch:{item}" for item in safety_findings)
+            if not attempt_findings and isinstance(patch, dict):
+                metadata["status"] = "patch_received"
+                metadata["patch_file"] = str(patch_path)
+                return patch, metadata
+            metadata["findings"].extend(
+                f"attempt_{len(metadata['claude_attempts'])}:{item}" for item in attempt_findings
+            )
+            for item in attempt_findings:
+                if item not in metadata["findings"]:
+                    metadata["findings"].append(item)
+        return None, metadata
 
     return provide
 
@@ -326,6 +462,9 @@ def clean_draft(
             llm_status = "cleaned"
         else:
             llm_status = "not_required"
+    planning_annotation = _planning_annotation(source, candidate, patch, actions)
+    if planning_annotation is None:
+        llm_findings.append("missing_valid_planning_action")
     invariant_report = validate_final_record(candidate)
     immutable_findings = compare_immutable_facts(source, candidate)
     decision = decide_final_status(
@@ -348,6 +487,7 @@ def clean_draft(
                 "status": llm_status,
                 "findings": llm_findings,
                 "actions": actions,
+                "planning_annotation": planning_annotation,
                 "cleaning_context": cleaning_context,
                 "residual_prose_findings": invariant_report["prose_findings"],
                 "residual_prose_finding_count": len(invariant_report["prose_findings"]),
@@ -390,6 +530,7 @@ def llm_clean(
     timeout_sec: float = 300.0,
     limit: int = 0,
     max_workers: int = 1,
+    max_attempts: int = 3,
     patch_provider: PatchProvider | None = None,
 ) -> dict[str, Any]:
     if max_workers < 1:
@@ -414,7 +555,7 @@ def llm_clean(
     audits_by_id = {str(row.get("id") or ""): row for row in audit_rows}
     debug_root = output_root / "debug"
     provider = patch_provider or build_claude_patch_provider(
-        claude_bin=claude_bin, debug_root=debug_root, timeout_sec=timeout_sec
+        claude_bin=claude_bin, debug_root=debug_root, timeout_sec=timeout_sec, max_attempts=max_attempts
     )
     processed: list[dict[str, Any]] = []
     finalized_python_rejected = [_finalize_python_rejection(row) for row in python_rejected]
@@ -444,6 +585,20 @@ def llm_clean(
             ordered_results[futures[future]] = future.result()
     processed = [item for item in ordered_results if item is not None]
 
+    missing_planning = [
+        item
+        for item in processed
+        if item["audit"]["final_status"] == "accepted"
+        and (item["audit"].get("llm_clean") or {}).get("planning_annotation") is None
+    ]
+    for item in missing_planning:
+        item["audit"]["final_status"] = "rejected"
+        item["audit"]["final_status_authority"] = "llm_clean_planning_gate"
+        item["audit"]["final_status_reasons"] = [
+            *(item["audit"].get("final_status_reasons") or []),
+            "missing_valid_planning_action",
+        ]
+        rejected.append(item["audit"])
     accepted = [item for item in processed if item["audit"]["final_status"] == "accepted"]
     llm_status_hist = Counter(
         str((item["audit"].get("llm_clean") or {}).get("status") or "unknown")
@@ -458,8 +613,13 @@ def llm_clean(
         "curation_audit": output_root / "curation_audit.jsonl",
         "rejected": output_root / "rejected.jsonl",
         "run_manifest": output_root / "run_manifest.json",
+        "planning_annotations": output_root / "planning_annotations.jsonl",
     }
     write_jsonl(outputs["react_trajectories"], [item["record"] for item in accepted])
+    write_jsonl(
+        outputs["planning_annotations"],
+        [(item["audit"].get("llm_clean") or {})["planning_annotation"] for item in accepted],
+    )
     write_jsonl(outputs["curation_audit"], final_audits)
     write_jsonl(outputs["rejected"], rejected)
     repo_root = Path(__file__).resolve().parents[3]
@@ -471,6 +631,8 @@ def llm_clean(
         "processed_count": len(processed),
         "accepted_count": len(accepted),
         "rejected_count": len(rejected),
+        "missing_planning_count": len(missing_planning),
+        "planning_annotation_count": len(accepted),
         "llm_clean_status_hist": dict(llm_status_hist),
         "llm_fallback_count": sum(
             llm_status_hist.get(status, 0)
@@ -483,6 +645,7 @@ def llm_clean(
         "claude_bin": claude_bin,
         "timeout_sec": timeout_sec,
         "max_workers": max_workers,
+        "max_attempts": max_attempts,
         "outputs": {name: str(path) for name, path in outputs.items()},
     }
     write_json(outputs["run_manifest"], manifest)
@@ -498,6 +661,7 @@ def main() -> None:
     parser.add_argument("--timeout-sec", type=float, default=300.0)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--max-workers", type=int, default=int(os.environ.get("MAX_WORKERS", "1") or 1))
+    parser.add_argument("--max-attempts", type=int, default=3)
     args = parser.parse_args()
     result = llm_clean(
         Path(args.input),
@@ -507,6 +671,7 @@ def main() -> None:
         timeout_sec=args.timeout_sec,
         limit=args.limit,
         max_workers=args.max_workers,
+        max_attempts=args.max_attempts,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
