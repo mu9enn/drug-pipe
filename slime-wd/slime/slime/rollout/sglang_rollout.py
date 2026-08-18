@@ -511,7 +511,16 @@ async def generate_rollout_async(
     # There can be circumstances where users want to process all samples including filtered ones.
     if args.rollout_all_samples_process_path is not None:
         process_func = load_function(args.rollout_all_samples_process_path)
-        process_func(args, all_samples, data_source)
+        # Instrumentation callbacks need the accepted set and rollout id to
+        # distinguish actual optimizer input from attempted/filtered groups.
+        # Existing callbacks remain compatible through **kwargs.
+        process_func(
+            args,
+            all_samples,
+            data_source,
+            accepted_groups=data,
+            rollout_id=rollout_id,
+        )
 
     return RolloutFnTrainOutput(samples=data, metrics=metric_gatherer.collect()), aborted_samples
 

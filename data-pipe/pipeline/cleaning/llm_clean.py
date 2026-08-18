@@ -7,12 +7,18 @@ import json
 import os
 import re
 import shutil
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
-from pipeline.claude_agent.session_capture import run_stream_json, select_attempt
+from pipeline.claude_agent.session_capture import (
+    http_500_retry_delay,
+    run_stream_json,
+    select_attempt,
+    session_has_retryable_http_500,
+)
 from pipeline.cleaning.acceptance_gate import decide_final_status
 from pipeline.cleaning.artifacts import ABSOLUTE_PATH_RE, RELATIVE_PATH_RE
 from pipeline.cleaning.invariants import (
@@ -37,6 +43,10 @@ from pipeline.cleaning.models import (
 PROTOCOL_TAG_RE = re.compile(r"</?(?:thought|tool_call|observation|final_answer)(?:\s[^>]*)?>", re.I)
 PatchProvider = Callable[[dict[str, Any], dict[str, Any]], tuple[dict[str, Any] | None, dict[str, Any]]]
 PLANNING_SKILL_VERSION = "clean-drug-trajectory-v2"
+
+
+def _sleep_before_http_500_retry(delay: float) -> None:
+    time.sleep(delay)
 
 
 def _serialize(value: Any) -> str:
@@ -348,6 +358,7 @@ def build_claude_patch_provider(
             "max_attempts": max_attempts,
             "findings": [],
             "claude_attempts": [],
+            "http_500_retry_count": 0,
         }
         # A successful Claude run may have written a fully validated patch before a
         # later batch-level retry.  Reuse that artifact instead of deleting it and
@@ -369,7 +380,9 @@ def build_claude_patch_provider(
                         }
                     )
                     return cached_patch, metadata
-        for _attempt_number in range(1, max_attempts + 1):
+        non_retryable_attempts = 0
+        http_500_streak = 0
+        while non_retryable_attempts < max_attempts:
             if patch_path.exists():
                 patch_path.unlink()
             attempt = run_stream_json(
@@ -419,12 +432,35 @@ def build_claude_patch_provider(
                 metadata["status"] = "patch_received"
                 metadata["patch_file"] = str(patch_path)
                 return patch, metadata
+            retryable_http_500 = (
+                attempt.get("return_code") != 0
+                and not attempt.get("timed_out")
+                and patch is None
+                and session_has_retryable_http_500(Path(str(attempt["session_file"])))
+            )
             metadata["findings"].extend(
                 f"attempt_{len(metadata['claude_attempts'])}:{item}" for item in attempt_findings
             )
             for item in attempt_findings:
                 if item not in metadata["findings"]:
                     metadata["findings"].append(item)
+            if retryable_http_500:
+                http_500_streak += 1
+                metadata["http_500_retry_count"] += 1
+                delay = http_500_retry_delay(http_500_streak)
+                metadata["findings"].append(
+                    f"attempt_{len(metadata['claude_attempts'])}:retryable_http_500_backoff_sec:{delay}"
+                )
+                print(
+                    f"[llm-clean] sample={source.get('id', 'unknown')} "
+                    f"upstream_http_500 retry={metadata['http_500_retry_count']} "
+                    f"backoff_sec={delay}",
+                    flush=True,
+                )
+                _sleep_before_http_500_retry(delay)
+                continue
+            http_500_streak = 0
+            non_retryable_attempts += 1
         return None, metadata
 
     return provide

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Resumable 8xH200 Qwen3.5-9B SFT -> hierarchical policy-boundary ToolRL
-# using only the audited 365-trajectory v4 MolBench subset.
+# using an audited prematerialized SFT+ToolRL release. Historical v4-mol
+# defaults remain for compatibility; v5 wrappers override the contract.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +22,9 @@ LIVE_DATA_ROOT="${LIVE_DATA_ROOT:-$DATA_ROOT/live_tool_catalog_v4_mol}"
 CANONICAL_DATA="$LIVE_DATA_ROOT/react_trajectories.jsonl"
 TOOL_CATALOG="$LIVE_DATA_ROOT/tool_catalog.json"
 EXPECTED_CANONICAL_SHA256="${EXPECTED_CANONICAL_SHA256:-d3c5fa5954fbf1c85f859f0789d75d9b349e47b5735bc165e36eab0952f59d98}"
-EXPECTED_CANONICAL_RECORDS=365
+EXPECTED_CANONICAL_RECORDS="${EXPECTED_CANONICAL_RECORDS:-365}"
+EXPECTED_DATASET_VERSION="${EXPECTED_DATASET_VERSION:-live_tool_catalog_v4_mol}"
+EXPECTED_EXCLUDED_RECORDS="${EXPECTED_EXCLUDED_RECORDS:-240}"
 PREMATERIALIZED_RL_VIEW_ROOT="${PREMATERIALIZED_RL_VIEW_ROOT:-$LIVE_DATA_ROOT}"
 
 HF_CHECKPOINT="${HF_CHECKPOINT:-$MODEL_ROOT/Qwen3.5-9B}"
@@ -39,6 +42,11 @@ SFT_PROBES="$VIEW_ROOT/sft_probes"
 SFT_MAX_SEQUENCE_LEN=131072
 SFT_TRUNCATION_HEAD_TOKENS=8192
 RESUME_MOL_RUN="${RESUME_MOL_RUN:-0}"
+PIPELINE_TOOLRL_REWARD_MODE="${TOOLRL_REWARD_MODE:-hierarchical}"
+PIPELINE_TOOLRL_USE_KL_LOSS="${TOOLRL_USE_KL_LOSS:-1}"
+PIPELINE_TOOLRL_KL_COEF="${TOOLRL_KL_COEF:-0.0}"
+PIPELINE_TOOLRL_KL_LOSS_COEF="${TOOLRL_KL_LOSS_COEF:-0.001}"
+PIPELINE_TOOLRL_KL_LOSS_TYPE="${TOOLRL_KL_LOSS_TYPE:-low_var_kl}"
 
 require_path() { [[ -e "$1" ]] || { echo "Required path does not exist: $1" >&2; exit 2; }; }
 mark_complete() { touch "$RUN_ROOT/$1.complete"; }
@@ -94,18 +102,21 @@ for path in "$CANONICAL_DATA" "$TOOL_CATALOG" "$LIVE_DATA_ROOT/dataset_manifest.
   require_path "$path"
 done
 [[ "$(sha256sum "$CANONICAL_DATA" | awk '{print $1}')" == "$EXPECTED_CANONICAL_SHA256" ]] || {
-  echo "v4-mol canonical hash mismatch" >&2; exit 2;
+  echo "canonical dataset hash mismatch" >&2; exit 2;
 }
 [[ "$(wc -l < "$CANONICAL_DATA")" == "$EXPECTED_CANONICAL_RECORDS" ]] || {
-  echo "Expected 365 v4-mol trajectories" >&2; exit 2;
+  echo "Expected $EXPECTED_CANONICAL_RECORDS trajectories" >&2; exit 2;
 }
-python - "$LIVE_DATA_ROOT/dataset_manifest.json" "$PREMATERIALIZED_RL_VIEW_ROOT/manifest.json" <<'PY'
+python - "$LIVE_DATA_ROOT/dataset_manifest.json" "$PREMATERIALIZED_RL_VIEW_ROOT/manifest.json" \
+  "$EXPECTED_DATASET_VERSION" "$EXPECTED_CANONICAL_RECORDS" "$EXPECTED_EXCLUDED_RECORDS" <<'PY'
 import json, sys
-data, rl = (json.load(open(path)) for path in sys.argv[1:])
-assert data["dataset_version"] == "live_tool_catalog_v4_mol"
-assert data["canonical_react"]["records"] == 365
-assert data["excluded_parent_records"] == 240
-assert rl["source_sha256"] == data["canonical_react"]["sha256"]
+data, rl = (json.load(open(path)) for path in sys.argv[1:3])
+version, records, excluded = sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+assert data["dataset_version"] == version
+sft = data.get("canonical_react", data.get("sft", {}))
+assert int(sft["records"]) == records
+assert int(data.get("excluded_parent_records", data.get("excluded_parent_trajectories", 0))) == excluded
+assert rl["source_sha256"] == sft["sha256"]
 assert rl["limits"] == {"context": 262144, "prompt": 245760, "response": 16384}
 PY
 
@@ -130,20 +141,23 @@ if [[ ! -f "$RUN_ROOT/sft_data.complete" ]]; then
   python drug_agent/scripts/build_qwen35_9b_sft_probe_sets.py \
     --input "$SFT_DATA" --model "$HF_CHECKPOINT" --output-dir "$SFT_PROBES" --count 2 \
     > "$LOG_ROOT/sft_probes.log"
-  [[ "$(wc -l < "$SFT_DATA")" == 366 ]] || { echo "Expected 366 batch-aligned SFT rows" >&2; exit 2; }
+  EXPECTED_ALIGNED_RECORDS=$(( (EXPECTED_CANONICAL_RECORDS + 1) / 2 * 2 ))
+  [[ "$(wc -l < "$SFT_DATA")" == "$EXPECTED_ALIGNED_RECORDS" ]] || {
+    echo "Expected $EXPECTED_ALIGNED_RECORDS batch-aligned SFT rows" >&2; exit 2;
+  }
   mark_complete sft_data
 fi
 
 cat > "$RUN_ROOT/serial_config.env" <<EOF
 RUN_ID=$RUN_ID
 TRAINING_PIPELINE=SFT_TO_TOOLRL
-DATASET_VERSION=live_tool_catalog_v4_mol
+DATASET_VERSION=$EXPECTED_DATASET_VERSION
 CANONICAL_DATA=$CANONICAL_DATA
 CANONICAL_SHA256=$EXPECTED_CANONICAL_SHA256
-CANONICAL_RECORDS=365
-EXCLUDED_V4_RECORDS=240
+CANONICAL_RECORDS=$EXPECTED_CANONICAL_RECORDS
+EXCLUDED_PARENT_RECORDS=$EXPECTED_EXCLUDED_RECORDS
 SFT_DATA=$SFT_DATA
-SFT_RECORDS=366
+SFT_RECORDS=$(( (EXPECTED_CANONICAL_RECORDS + 1) / 2 * 2 ))
 SFT_TP=4
 SFT_PP=1
 SFT_DP=2
@@ -152,8 +166,12 @@ SFT_EPOCHS=1
 SFT_LR=5e-6
 SFT_MIN_LR=5e-7
 SFT_MAX_SEQUENCE_LEN=$SFT_MAX_SEQUENCE_LEN
-TOOLRL_REWARD_MODE=hierarchical
-TOOLRL_SELECTOR=current_policy_reward_variance_n4
+TOOLRL_REWARD_MODE=$PIPELINE_TOOLRL_REWARD_MODE
+TOOLRL_SELECTOR=deterministic_static_coverage
+TOOLRL_USE_KL_LOSS=$PIPELINE_TOOLRL_USE_KL_LOSS
+TOOLRL_KL_COEF=$PIPELINE_TOOLRL_KL_COEF
+TOOLRL_KL_LOSS_COEF=$PIPELINE_TOOLRL_KL_LOSS_COEF
+TOOLRL_KL_LOSS_TYPE=$PIPELINE_TOOLRL_KL_LOSS_TYPE
 TOOLRL_RBS=4
 TOOLRL_N=4
 TOOLRL_GBS=16
@@ -195,14 +213,14 @@ if [[ ! -f "$RUN_ROOT/sft.complete" ]]; then
   [[ -f "$SFT_DIR/latest_checkpointed_iteration.txt" ]] && SFT_RESUME+=(RESUME_DIR="$SFT_DIR")
   run_logged sft "${SFT_COMMON[@]}" "${SFT_RESUME[@]}" \
     PROMPT_DATA="$SFT_DATA" SAVE_DIR="$SFT_DIR" RUN_NAME="${RUN_ID}_sft" \
-    NUM_EPOCH=1 ROLLOUT_BATCH_SIZE=366 SAVE_INTERVAL=100 CHECKPOINT_KEEP_LAST=4 \
+    NUM_EPOCH=1 ROLLOUT_BATCH_SIZE=$(( (EXPECTED_CANONICAL_RECORDS + 1) / 2 * 2 )) SAVE_INTERVAL=100 CHECKPOINT_KEEP_LAST=4 \
     bash drug_agent/scripts/run_qwen3_5_9b_drug_sft_full.sh
   require_path "$SFT_DIR/latest_checkpointed_iteration.txt"
   mark_complete sft
 fi
 
 TOOLRL_CANDIDATES=$(wc -l < "$PREMATERIALIZED_RL_VIEW_ROOT/toolrl/toolrl_steps.jsonl")
-TOOLRL_NUM_ROLLOUT="${TOOLRL_NUM_ROLLOUT:-1259}"
+TOOLRL_NUM_ROLLOUT="${TOOLRL_NUM_ROLLOUT:-$(( (TOOLRL_CANDIDATES + 3) / 4 ))}"
 cat >> "$RUN_ROOT/serial_config.env" <<EOF
 TOOLRL_DATA=$PREMATERIALIZED_RL_VIEW_ROOT/toolrl/toolrl_steps.jsonl
 TOOLRL_CANDIDATES=$TOOLRL_CANDIDATES
@@ -220,5 +238,7 @@ exec env \
   PREMATERIALIZED_RL_VIEW_ROOT="$PREMATERIALIZED_RL_VIEW_ROOT" \
   BASE_SFT_DIR="$SFT_DIR" \
   RUN_ID="$RUN_ID" RUN_ROOT="$RUN_ROOT" RESUME_V2_RUN=1 \
-  TOOLRL_NUM_ROLLOUT="$TOOLRL_NUM_ROLLOUT" TOOLRL_REWARD_MODE=hierarchical \
+  TOOLRL_NUM_ROLLOUT="$TOOLRL_NUM_ROLLOUT" TOOLRL_REWARD_MODE="$PIPELINE_TOOLRL_REWARD_MODE" \
+  TOOLRL_USE_KL_LOSS="$PIPELINE_TOOLRL_USE_KL_LOSS" TOOLRL_KL_COEF="$PIPELINE_TOOLRL_KL_COEF" \
+  TOOLRL_KL_LOSS_COEF="$PIPELINE_TOOLRL_KL_LOSS_COEF" TOOLRL_KL_LOSS_TYPE="$PIPELINE_TOOLRL_KL_LOSS_TYPE" \
   bash drug_agent/scripts/run_qwen3_5_9b_v4_sft_toolrl_v2.sh

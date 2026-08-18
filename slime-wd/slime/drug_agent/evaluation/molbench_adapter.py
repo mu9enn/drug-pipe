@@ -46,6 +46,7 @@ def _sample(
     suite: str,
     subtask: str,
     source_path: Path,
+    max_steps: int,
 ) -> dict[str, Any]:
     return {
         "id": task_id,
@@ -59,7 +60,7 @@ def _sample(
                 "task_id": task_id,
                 "task_type": task_type,
                 "data_source": suite,
-                "max_steps": 0,
+                "max_steps": max_steps,
             },
             "benchmark": {
                 "suite": suite,
@@ -134,6 +135,7 @@ def build_molbench_dataset(
     *,
     selected_suites: list[str] | None = None,
     limit_per_suite: int = 0,
+    max_steps: int = 0,
 ) -> dict[str, Any]:
     root = Path(molbench_root).expanduser().resolve()
     output = ensure_dir(output_dir)
@@ -147,6 +149,8 @@ def build_molbench_dataset(
     missing = [str(path) for path in required.values() if not path.is_file()]
     if missing:
         raise FileNotFoundError(f"MolBench source files missing: {missing}")
+    if max_steps < 0:
+        raise ValueError("max_steps must be non-negative (0 means unlimited)")
 
     exclusion_path = Path(__file__).with_name("molbench_exclusions.json")
     exclusion = json.loads(exclusion_path.read_text(encoding="utf-8"))
@@ -160,7 +164,7 @@ def build_molbench_dataset(
             _sample(
                 task_id=f"molbench_ms1_{index:03d}", task_type="pf", prompt=prompt,
                 label={"answer": row.get("answer", "")}, suite="molbench_ms1", subtask="filter",
-                source_path=required["ms1"],
+                source_path=required["ms1"], max_steps=max_steps,
             )
         )
 
@@ -177,7 +181,7 @@ def build_molbench_dataset(
             _sample(
                 task_id=f"molbench_ms2_{index:03d}", task_type="ac", prompt=question,
                 label={"answer": row.get("answer", ""), "target": row.get("target", ""), "s1": s1, "s2": s2},
-                suite="molbench_ms2", subtask="qa", source_path=required["ms2"],
+                suite="molbench_ms2", subtask="qa", source_path=required["ms2"], max_steps=max_steps,
             )
         )
 
@@ -195,7 +199,7 @@ def build_molbench_dataset(
             _sample(
                 task_id=f"molbench_ms3_{index:03d}", task_type="vs", prompt=question_text,
                 label={"answer": answer, "answer_score": json.loads(row.get("answer_score") or "[]"), "candidates": candidates, "index": row.get("index")},
-                suite="molbench_ms3", subtask="ranking", source_path=required["ms3"],
+                suite="molbench_ms3", subtask="ranking", source_path=required["ms3"], max_steps=max_steps,
             )
         )
 
@@ -223,7 +227,7 @@ def build_molbench_dataset(
             samples.append(
                 _sample(
                     task_id=f"{suite}_{subtask}_{index:03d}", task_type=task_type, prompt=query,
-                    label=label, suite=suite, subtask=subtask, source_path=path,
+                    label=label, suite=suite, subtask=subtask, source_path=path, max_steps=max_steps,
                 )
             )
 
@@ -265,6 +269,7 @@ def build_molbench_dataset(
         "selection": {
             "suites": list(dict.fromkeys(selected_suites or [])),
             "limit_per_suite": limit_per_suite,
+            "max_steps": max_steps,
         },
         "excluded_training_overlap": len(overlap_audit),
         "source_files": [{"path": str(path), "sha256": _sha256_file(path)} for path in source_files],
@@ -283,12 +288,14 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--suite", action="append", default=[])
     parser.add_argument("--limit-per-suite", type=int, default=0)
+    parser.add_argument("--max-steps", type=int, default=0)
     args = parser.parse_args()
     print(json.dumps(build_molbench_dataset(
         args.molbench_root,
         args.output_dir,
         selected_suites=args.suite,
         limit_per_suite=args.limit_per_suite,
+        max_steps=args.max_steps,
     ), ensure_ascii=False, indent=2))
     return 0
 

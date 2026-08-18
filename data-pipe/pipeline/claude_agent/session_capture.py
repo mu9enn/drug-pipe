@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -15,6 +16,8 @@ CLAUDE_CODE_EXECUTION_ENV = {
     "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY": "2",
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
 }
+
+HTTP_500_RE = re.compile(r"\b(?:code|status(?:_code)?)\b.{0,24}\b500\b", re.I | re.S)
 
 
 def claude_code_environment() -> dict[str, str]:
@@ -50,6 +53,35 @@ def inspect_session(path: Path) -> dict[str, Any]:
         "parseable_event_count": parseable_event_count,
         "raw_session_valid": byte_count > 0 and parseable_event_count > 0,
     }
+
+
+def session_has_retryable_http_500(path: Path) -> bool:
+    """Return true only for a terminal upstream HTTP-500 API failure."""
+    if not path.is_file():
+        return False
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "result" or not event.get("is_error"):
+                continue
+            text = json.dumps(
+                {"result": event.get("result"), "error": event.get("error")},
+                ensure_ascii=False,
+                default=str,
+            )
+            if ("API Error" in text or "ChatCompletionStreamResponse" in text) and HTTP_500_RE.search(text):
+                return True
+    return False
+
+
+def http_500_retry_delay(retry_count: int) -> int:
+    """Exponential retry delay capped at five minutes."""
+    if retry_count < 1:
+        raise ValueError("retry_count must be >= 1")
+    return min(300, 30 * (2 ** min(retry_count - 1, 4)))
 
 
 def next_attempt_index(workdir: Path) -> int:

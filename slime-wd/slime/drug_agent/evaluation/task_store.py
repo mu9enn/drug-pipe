@@ -149,6 +149,11 @@ def _atomic_write_text(path: Path, text: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_path, path)
+        # Evaluation runs execute as root on GPU workers while official scoring
+        # is intentionally performed by the owning user on the shared CPU
+        # development host. NamedTemporaryFile defaults to 0600, so make the
+        # published JSON artifact readable after the atomic rename.
+        os.chmod(path, 0o644)
         directory_fd = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory_fd)
@@ -304,7 +309,8 @@ def restore_sample(sample: Any, *, evaluation: bool) -> Any | None:
     if record.get("task_fingerprint") != task_fingerprint(sample):
         raise ValueError(f"evaluation task checkpoint fingerprint mismatch for {task_id!r}")
     trace = record.get("trace") if isinstance(record.get("trace"), dict) else {}
-    if _truthy_env(RETRY_NON_FINAL_ENV) and not (
+    retryable = trace.get("retryable") is not False
+    if _truthy_env(RETRY_NON_FINAL_ENV) and retryable and not (
         str(record.get("status") or "") == "completed"
         and str(trace.get("done_reason") or "") == "final_answer"
     ):

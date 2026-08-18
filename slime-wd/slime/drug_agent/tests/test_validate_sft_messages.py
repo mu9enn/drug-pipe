@@ -62,6 +62,29 @@ class ValidateSftMessagesTest(unittest.TestCase):
             )
         )
 
+    def test_prefix_conditioned_sft_may_end_at_supervised_tool_action(self) -> None:
+        messages = [
+            {"role": "user", "content": "task"},
+            {
+                "role": "assistant",
+                "content": (
+                    '<thought>T1</thought>'
+                    '<tool_call>{"tool_name":"a","arguments":{}}</tool_call>'
+                    '<thought>T2</thought>'
+                    '<tool_call>{"tool_name":"b","arguments":{}}</tool_call>'
+                ),
+                "loss_char_start": 76,
+            },
+        ]
+
+        rejected, _ = audit_react_actions(messages)
+        accepted, issues = audit_react_actions(messages, allow_terminal_tool_action=True)
+
+        self.assertGreater(rejected["orphan_tool_calls"], 0)
+        self.assertEqual(accepted["orphan_tool_calls"], 0)
+        self.assertEqual(accepted["terminal_supervised_tool_calls"], 2)
+        self.assertEqual(issues, [])
+
 
 if __name__ == "__main__":
     unittest.main()

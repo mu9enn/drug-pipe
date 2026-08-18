@@ -179,8 +179,18 @@ async def _post(client, url, payload, max_retries=60, headers=None):
 
             if isinstance(e, httpx.HTTPStatusError):
                 response_text = e.response.text
+                status_code = e.response.status_code
+                retryable = status_code in {408, 409, 425, 429} or status_code >= 500
             else:
                 response_text = None
+                retryable = True
+
+            if not retryable:
+                logger.info(
+                    f"Error: {e}, not retrying non-retryable HTTP status "
+                    f"(url={url}, response={response_text})"
+                )
+                raise e
 
             logger.info(
                 f"Error: {e}, retrying... (attempt {retry_count}/{max_retries}, url={url}, response={response_text})"

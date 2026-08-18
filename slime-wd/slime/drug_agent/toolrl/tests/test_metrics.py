@@ -17,10 +17,16 @@ class _Sample:
         components: dict,
         status: str = "completed",
         reward_fields: dict | None = None,
+        reward_stage: str | None = None,
     ):
         self.metadata = {"decision_role": role}
         self.group_index = group
-        self.reward = {"score": value, "components": components, **(reward_fields or {})}
+        self.reward = {
+            "score": value,
+            "components": components,
+            "diagnostics": {"reward_stage": reward_stage} if reward_stage else {},
+            **(reward_fields or {}),
+        }
         self.status = SimpleNamespace(value=status)
 
     def get_reward_value(self, args):
@@ -59,3 +65,22 @@ def test_decision_role_metrics_include_dispersion_accuracy_and_valid_groups():
     assert metrics["decision_role/tool_step/truncated_ratio"] == 0.5
     assert metrics["decision_role/tool_step/format_mean"] == 0.5
     assert metrics["decision_role/final/terminal_correctness_mean"] == 1.0
+
+
+def test_metrics_report_invalid_and_zero_variance_groups_without_special_kl_bucket():
+    samples = [
+        _Sample(
+            role="tool_step",
+            group=0,
+            value=-0.5,
+            components={},
+            reward_stage="invalid_react_tool_envelope",
+        )
+        for _ in range(4)
+    ]
+    metrics = {}
+    args = SimpleNamespace(use_kl_loss=True)
+    assert augment_rollout_metrics(0, args, samples, metrics, 1.0) is False
+    assert metrics["rollout/invalid_envelope_group_ratio"] == 1.0
+    assert metrics["rollout/zero_variance_group_ratio"] == 1.0
+    assert "rollout/format_recovery_kl_group_count" not in metrics

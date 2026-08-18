@@ -102,7 +102,11 @@ def _merge_record_counts(*counts_dicts: Counter) -> Counter:
     return merged
 
 
-def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
+def audit_react_actions(
+    messages: Any,
+    *,
+    allow_terminal_tool_action: bool = False,
+) -> tuple[Counter, list[dict[str, Any]]]:
     counts = Counter()
     samples: list[dict[str, Any]] = []
     if not isinstance(messages, list):
@@ -190,13 +194,15 @@ def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
                 if kind == "thought":
                     counts["assistant_thought_total"] += 1
                 elif kind == "tool_call":
-                    counts["assistant_tool_call_total"] += 1
-                    counts["retained_mcp_tool_calls"] += 1
-                    tool_name = block.get("tool_name")
-                    if isinstance(tool_name, str):
-                        pending_tool_calls.append(tool_name)
-                    else:
-                        pending_tool_calls.append("")
+                    payloads = block.get("payloads")
+                    if not isinstance(payloads, list):
+                        payload = block.get("payload")
+                        payloads = [payload] if isinstance(payload, dict) else []
+                    counts["assistant_tool_call_total"] += len(payloads)
+                    counts["retained_mcp_tool_calls"] += len(payloads)
+                    for payload in payloads:
+                        tool_name = payload.get("tool_name") if isinstance(payload, dict) else None
+                        pending_tool_calls.append(tool_name if isinstance(tool_name, str) else "")
                     seen_react_turn = True
                 elif kind == "final_answer":
                     counts["assistant_final_answer_total"] += 1
@@ -328,6 +334,13 @@ def audit_react_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
             }
         )
 
+    if pending_tool_calls and allow_terminal_tool_action:
+        # Prefix-conditioned SFT rows end at the supervised assistant action.
+        # Its calls intentionally have no observation yet; observations belong
+        # to the next causal state, not to this target.
+        counts["terminal_supervised_tool_calls"] += len(pending_tool_calls)
+        pending_tool_calls.clear()
+
     if pending_tool_calls:
         counts["orphan_tool_calls"] += len(pending_tool_calls)
         counts["react_json_parse_failed"] += len(pending_tool_calls)
@@ -450,7 +463,10 @@ def main() -> int:
         if record_protocol == PROTOCOL_PLAN_JSON:
             assistant_counts, assistant_issues = audit_plan_actions(messages)
         else:
-            assistant_counts, assistant_issues = audit_react_actions(messages)
+            assistant_counts, assistant_issues = audit_react_actions(
+                messages,
+                allow_terminal_tool_action=isinstance(obj.get("sft_segment_target"), dict),
+            )
 
         reasons = []
         if not isinstance(messages, list) or not messages:

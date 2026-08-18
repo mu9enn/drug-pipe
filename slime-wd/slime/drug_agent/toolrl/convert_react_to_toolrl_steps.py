@@ -13,6 +13,7 @@ if __package__ is None or __package__ == "":
 
 from drug_agent.decision_extractor import iter_react_decisions, parse_assistant_decision
 from drug_agent.protocol.react_protocol import parse_react_sequence
+from drug_agent.protocol.toolrl_turn import SFT_SCHEMA, TOOLRL_TURN_PROTOCOL
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES
 from drug_agent.toolrl.parse_tool_calls import (
     default_molclaw_allowlist,
@@ -140,19 +141,21 @@ def _observation_outcome(messages: list[dict[str, Any]], assistant_index: int) -
     }
 
 
-def _decision_annotations(messages: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+def _decision_annotations(messages: list[dict[str, Any]]) -> dict[tuple[int, int], dict[str, Any]]:
     """Annotate valid trajectory decisions before they are expanded to rows."""
     decisions = [
         item
         for item in iter_react_decisions(messages)
         if item["parse"].get("ok") and item.get("decision_type") in {"tool_call", "final_answer"}
     ]
-    seen_calls: dict[str, tuple[int, int]] = {}
-    annotations: dict[int, dict[str, Any]] = {}
+    seen_calls: dict[str, tuple[tuple[int, int], int]] = {}
+    annotations: dict[tuple[int, int], dict[str, Any]] = {}
     successful_state_change_ordinals: set[int] = set()
     trajectory_has_no_progress_repeat = False
     for ordinal, decision in enumerate(decisions):
         assistant_index = int(decision["assistant_index"])
+        assistant_subturn_index = int(decision.get("assistant_subturn_index") or 0)
+        decision_key = (assistant_index, assistant_subturn_index)
         decision_type = str(decision.get("decision_type") or "")
         if decision_type == "final_answer":
             role = "final"
@@ -177,9 +180,13 @@ def _decision_annotations(messages: list[dict[str, Any]]) -> dict[int, dict[str,
         if no_progress_repeat:
             trajectory_has_no_progress_repeat = True
 
+        # A following observation belongs to the last action subturn in the
+        # source assistant message. Earlier subturns have no observed result
+        # yet and must not inherit that success for repeat suppression.
+        is_last_subturn = assistant_subturn_index == int(decision.get("assistant_subturn_count") or 1) - 1
         outcome = (
             _observation_outcome(messages, assistant_index)
-            if decision_type == "tool_call"
+            if decision_type == "tool_call" and is_last_subturn
             else {"status": "not_applicable", "usable_success": False, "observation_count": 0}
         )
         if outcome["usable_success"]:
@@ -187,14 +194,15 @@ def _decision_annotations(messages: list[dict[str, Any]]) -> dict[int, dict[str,
         if signature is not None:
             # Always point later retries at the most recent occurrence.  A
             # failed retry therefore cannot inherit success from an older call.
-            seen_calls[signature] = (assistant_index, ordinal)
-        annotations[assistant_index] = {
+            seen_calls[signature] = (decision_key, ordinal)
+        annotations[decision_key] = {
             "decision_role": role,
             "is_initial_step": ordinal == 0,
             "decision_ordinal": ordinal,
             "trajectory_decision_count": len(decisions),
             "is_no_progress_repeat": no_progress_repeat,
-            "repeat_of_assistant_index": repeat_of,
+            "repeat_of_assistant_index": repeat_of[0] if repeat_of is not None else None,
+            "repeat_of_assistant_subturn_index": repeat_of[1] if repeat_of is not None else None,
             "repeat_prior_usable_success": prior_usable,
             "repeat_intervening_state_change": intervening_state_change,
             "observation_status": outcome["status"],
@@ -211,12 +219,16 @@ def _build_sample(
     *,
     record: dict[str, Any],
     message_index: int,
+    assistant_subturn_index: int,
+    assistant_prefix: str,
     prompt_messages: list[dict[str, Any]],
     assistant_message: dict[str, Any],
     parsed_assistant: dict[str, Any],
     decision_annotation: dict[str, Any],
     source_path: str,
 ) -> dict[str, Any]:
+    protocol = TOOLRL_TURN_PROTOCOL if str(record.get("schema_version") or "") == SFT_SCHEMA else "react_json"
+    step_schema = "toolrl_turn_step_v1" if protocol == TOOLRL_TURN_PROTOCOL else "toolrl_step_v3"
     decision_type = str(parsed_assistant.get("decision_type") or "")
     target_tool_calls = [item for item in (parsed_assistant.get("target_tool_calls") or []) if isinstance(item, dict)]
     target_final_answer = parsed_assistant.get("final_answer") if decision_type == "final_answer" else None
@@ -225,10 +237,13 @@ def _build_sample(
 
     target_assistant = _parse_target_assistant(assistant_message)
     label = {
-        "schema_version": "toolrl_step_v3",
+        "schema_version": step_schema,
+        "protocol": protocol,
         "source_id": record.get("id"),
         "source_path": source_path,
         "assistant_index": message_index,
+        "assistant_subturn_index": assistant_subturn_index,
+        "assistant_prefix": assistant_prefix,
         "assistant_role": assistant_message.get("role"),
         "assistant_content": assistant_message.get("content"),
         "tool_call_count": len(target_tool_calls),
@@ -238,11 +253,14 @@ def _build_sample(
         "target_assistant": target_assistant,
     }
     metadata = {
-        "schema_version": "toolrl_step_v3",
-        "protocol": "react_json",
+        "schema_version": step_schema,
+        "protocol": protocol,
         "source_id": record.get("id"),
         "source_path": source_path,
         "assistant_index": message_index,
+        "assistant_subturn_index": assistant_subturn_index,
+        "assistant_prefix": assistant_prefix,
+        "prompt_is_prefix_conditioned": bool(assistant_prefix),
         "task_id": record.get("id"),
         "task_type": _infer_task_type(record, source_path),
         "prompt_message_count": len(prompt_messages),
@@ -276,6 +294,7 @@ def _compact_preview(sample: dict[str, Any]) -> dict[str, Any]:
         "source_id": metadata.get("source_id"),
         "task_type": metadata.get("task_type"),
         "assistant_index": metadata.get("assistant_index"),
+        "assistant_subturn_index": metadata.get("assistant_subturn_index"),
         "decision_type": metadata.get("decision_type"),
         "prompt_message_count": metadata.get("prompt_message_count"),
         "target_tool_call_count": metadata.get("target_tool_call_count"),
@@ -316,12 +335,14 @@ def convert_react_to_toolrl_steps(
             )
             continue
 
+        is_v6 = str(record.get("schema_version") or "") == SFT_SCHEMA
         annotations = _decision_annotations(messages)
         if any(item.get("trajectory_has_no_progress_repeat") for item in annotations.values()):
             counts["trajectories_with_no_progress_repeat"] += 1
 
         for decision in iter_react_decisions(messages):
             message_index = int(decision["assistant_index"])
+            assistant_subturn_index = int(decision.get("assistant_subturn_index") or 0)
             message = decision["target_assistant"]
             parsed = decision["parse"]
             if not parsed.get("ok"):
@@ -403,6 +424,8 @@ def convert_react_to_toolrl_steps(
             sample = _build_sample(
                 record=record,
                 message_index=message_index,
+                assistant_subturn_index=assistant_subturn_index,
+                assistant_prefix=str(decision.get("assistant_prefix") or ""),
                 prompt_messages=prompt_messages,
                 assistant_message=message,
                 parsed_assistant={
@@ -412,7 +435,7 @@ def convert_react_to_toolrl_steps(
                     "target_tool_calls": target_tool_calls,
                 },
                 decision_annotation=annotations.get(
-                    message_index,
+                    (message_index, assistant_subturn_index),
                     {
                         "decision_role": "final" if decision_type == "final_answer" else "tool_step",
                         "is_initial_step": False,
@@ -420,6 +443,7 @@ def convert_react_to_toolrl_steps(
                         "trajectory_decision_count": len(annotations),
                         "is_no_progress_repeat": False,
                         "repeat_of_assistant_index": None,
+                        "repeat_of_assistant_subturn_index": None,
                         "repeat_prior_usable_success": False,
                         "repeat_intervening_state_change": False,
                         "trajectory_has_no_progress_repeat": False,

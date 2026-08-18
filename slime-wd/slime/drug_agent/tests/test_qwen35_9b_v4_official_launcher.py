@@ -63,3 +63,15 @@ def test_rl_gate_requires_a_minimum_fraction_of_reward_variance_groups(tmp_path)
     assert check_log(log, 4, minimum_nonzero_group_ratio=0.25)["gate"] == "PASS"
     with pytest.raises(ValueError, match="nonzero reward-group ratio"):
         check_log(log, 4, minimum_nonzero_group_ratio=0.26)
+
+
+def test_rl_gate_can_accept_finite_zero_variance_probe_without_weakening_default(tmp_path):
+    log = tmp_path / "zero_variance.log"
+    log.write_text(
+        "rollout 0: {'rollout/raw_reward': -0.4, 'rollout/truncated': 0.0}\n"
+        "step 0: {'train/loss': 0.0, 'train/grad_norm': 0.0}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="all-zero gradients"):
+        check_log(log, 1)
+    assert check_log(log, 1, allow_all_zero_gradients=True)["gate"] == "PASS"

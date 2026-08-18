@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -259,13 +260,22 @@ class ClaudeContextSummarizer:
 
         if str(DATA_PIPE_ROOT) not in sys.path:
             sys.path.insert(0, str(DATA_PIPE_ROOT))
-        from pipeline.claude_agent.session_capture import run_stream_json, select_attempt
+        from pipeline.claude_agent.session_capture import (
+            http_500_retry_delay,
+            run_stream_json,
+            select_attempt,
+            session_has_retryable_http_500,
+        )
 
         system_prompt = (SCENE_DIR / "system_prompt.md").read_text(encoding="utf-8").strip()
         user_prompt = (SCENE_DIR / "user_prompt.md").read_text(encoding="utf-8").strip()
         attempt_audits = []
-        for attempt_number in range(1, self.max_attempts + 1):
-            workdir = entry_root / f"attempt-{attempt_number}"
+        invocation_number = 0
+        non_retryable_attempts = 0
+        http_500_streak = 0
+        while non_retryable_attempts < self.max_attempts:
+            invocation_number += 1
+            workdir = entry_root / f"attempt-{invocation_number}"
             workdir.mkdir(parents=True, exist_ok=True)
             shutil.copytree(SCENE_DIR / ".claude", workdir / ".claude", dirs_exist_ok=True)
             _write_json(
@@ -293,7 +303,7 @@ class ClaudeContextSummarizer:
             attempt = run_stream_json(command, cwd=workdir, archive_root=workdir, timeout_sec=self.timeout_sec)
             selected = select_attempt(attempt, workdir / "complete_session.jsonl")
             audit = {
-                "attempt": attempt_number,
+                "attempt": invocation_number,
                 "return_code": attempt.get("return_code"),
                 "timed_out": attempt.get("timed_out"),
                 "raw_session_valid": selected.get("raw_session_valid"),
@@ -328,10 +338,31 @@ class ClaudeContextSummarizer:
                         return summary, {
                             "cache_hit": False,
                             "cache_key": cache_key,
-                            "attempts": attempt_number,
+                            "attempts": invocation_number,
                             "attempt_audits": attempt_audits,
                         }
             attempt_audits.append(audit)
+            retryable_http_500 = (
+                attempt.get("return_code") != 0
+                and not attempt.get("timed_out")
+                and not result_path.is_file()
+                and session_has_retryable_http_500(Path(str(attempt["session_file"])))
+            )
+            if retryable_http_500:
+                http_500_streak += 1
+                delay = http_500_retry_delay(http_500_streak)
+                audit["retryable_http_500"] = True
+                audit["retry_backoff_sec"] = delay
+                _write_json(entry_root / "audit.json", {"attempts": attempt_audits})
+                print(
+                    f"[context-summary] cache_key={cache_key[:12]} "
+                    f"upstream_http_500 retry={http_500_streak} backoff_sec={delay}",
+                    flush=True,
+                )
+                time.sleep(delay)
+                continue
+            http_500_streak = 0
+            non_retryable_attempts += 1
         raise RuntimeError(f"context summarization failed after {self.max_attempts} attempts: {attempt_audits}")
 
     def summarize(

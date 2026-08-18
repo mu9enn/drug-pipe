@@ -13,6 +13,7 @@ from slime.utils.http_utils import post
 from slime.utils.types import Sample
 
 from drug_agent.evaluation.task_store import bind_task_identity, checkpoint_sample, restore_sample
+from drug_agent.rollout.context_budget import bounded_step_limit, fit_context, make_turn
 from drug_agent.protocol.react_protocol import final_answer_matches_task, parse_runtime_decision, project_final_answer
 from drug_agent.protocol.prompts import format_final_contract, format_tool_catalog, fresh_task_messages
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_WORKSPACES_ROOT
@@ -98,11 +99,11 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
             if tool_name not in allowed_tools:
                 allowed_tools.append(tool_name)
 
-    max_steps = env_kwargs.get("max_steps")
-    if not isinstance(max_steps, int):
-        max_steps = int(os.environ.get("DRUG_AGENT_MAX_STEPS", "0"))
-    if max_steps < 0:
-        raise ValueError("max_steps must be non-negative (0 means unlimited)")
+    sample_max_steps = env_kwargs.get("max_steps")
+    if not isinstance(sample_max_steps, int):
+        sample_max_steps = 0
+    runtime_max_steps = int(os.environ.get("DRUG_AGENT_MAX_STEPS", "0"))
+    max_steps = bounded_step_limit(sample_max_steps, runtime_max_steps)
 
     return {
         "task_id": str(task_id),
@@ -111,6 +112,8 @@ def _resolve_context(sample: Sample) -> dict[str, Any]:
         "allowed_tools": allowed_tools,
         "explicit_tool_policy": explicit_tool_policy,
         "max_steps": max_steps,
+        "sample_max_steps": sample_max_steps,
+        "runtime_max_steps": runtime_max_steps,
         "env_kwargs": env_kwargs,
         "local_tools_enabled": local_tools_enabled,
     }
@@ -147,8 +150,12 @@ def _to_prompt_text(
     local_tools_enabled: bool,
     tool_catalog: str = "",
     final_contract: str = "",
+    assistant_prefix: str = "",
+    prompt_already_rendered: bool = False,
 ) -> str:
     if isinstance(prompt, str):
+        if prompt_already_rendered:
+            return prompt + assistant_prefix
         reminder = ROLLOUT_FORMAT_REMINDER
         if local_tools_enabled:
             reminder += LOCAL_TOOL_REMINDER
@@ -196,12 +203,15 @@ def _append_observation(
     response_token_ids: list[int],
     loss_masks: list[int],
     rollout_log_probs: list[float],
-) -> None:
+) -> list[int]:
     obs_token_ids = state.tokenizer(obs_text, add_special_tokens=False)["input_ids"]
+    if obs_token_ids and isinstance(obs_token_ids[0], list):
+        obs_token_ids = obs_token_ids[0]
     response_buffer.append(obs_text)
     response_token_ids.extend(obs_token_ids)
     loss_masks.extend([0] * len(obs_token_ids))
     rollout_log_probs.extend([0.0] * len(obs_token_ids))
+    return list(obs_token_ids)
 
 
 async def _execute_tool(
@@ -289,6 +299,8 @@ async def _generate_impl(
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     source_prompt = sample.prompt
+    if not isinstance(sample.metadata, dict):
+        sample.metadata = {}
     if evaluation and isinstance(source_prompt, list):
         source_prompt = fresh_task_messages(source_prompt)
         if not any(item.get("role") == "user" for item in source_prompt):
@@ -299,8 +311,18 @@ async def _generate_impl(
         local_tools_enabled=context["local_tools_enabled"],
         tool_catalog=tool_catalog,
         final_contract=final_contract,
+        assistant_prefix=str(sample.metadata.get("assistant_prefix") or ""),
+        prompt_already_rendered=(
+            sample.metadata.get("prompt_rendering")
+            == "qwen_chat_template_plus_exact_assistant_prefix"
+        ),
     )
     prompt_token_ids = state.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+    if prompt_token_ids and isinstance(prompt_token_ids[0], list):
+        prompt_token_ids = prompt_token_ids[0]
+    max_prompt_tokens = int(os.environ.get("DRUG_AGENT_MAX_PROMPT_TOKENS", "245760"))
+    if max_prompt_tokens < 1:
+        raise ValueError("DRUG_AGENT_MAX_PROMPT_TOKENS must be positive")
 
     response_parts: list[str] = []
     response_token_ids: list[int] = []
@@ -309,12 +331,14 @@ async def _generate_impl(
 
     actions: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
-    if not isinstance(sample.metadata, dict):
-        sample.metadata = {}
+    context_turns: list[dict[str, Any]] = []
+    context_compactions: list[dict[str, Any]] = []
+    max_observed_prompt_tokens = len(prompt_token_ids)
     sample.metadata["_drug_agent_partial_trace"] = {
         "actions": actions,
         "observations": observations,
         "artifact_registry": artifact_registry,
+        "context_compactions": context_compactions,
     }
 
     done_reason = "max_steps" if max_steps > 0 else "running"
@@ -335,7 +359,29 @@ async def _generate_impl(
     try:
         step_iterator = range(max_steps) if max_steps > 0 else itertools.count()
         for step in step_iterator:
-            current_token_ids = prompt_token_ids + response_token_ids
+            if evaluation:
+                current_token_ids, context_audit = fit_context(
+                    state.tokenizer,
+                    prefix_ids=prompt_token_ids,
+                    turns=context_turns,
+                    max_prompt_tokens=max_prompt_tokens,
+                )
+                max_observed_prompt_tokens = max(
+                    max_observed_prompt_tokens,
+                    int(context_audit.get("original_tokens") or len(current_token_ids)),
+                )
+                if context_audit.get("compacted"):
+                    signature = (
+                        context_audit.get("strategy"),
+                        context_audit.get("summarized_turns"),
+                        context_audit.get("summary_sha256"),
+                        context_audit.get("output_tokens"),
+                    )
+                    previous_signature = context_compactions[-1].get("_signature") if context_compactions else None
+                    if signature != previous_signature:
+                        context_compactions.append({**context_audit, "_signature": signature})
+            else:
+                current_token_ids = prompt_token_ids + response_token_ids
 
             payload = {
                 "input_ids": current_token_ids,
@@ -385,7 +431,7 @@ async def _generate_impl(
                 actions.append(action_record)
                 break
 
-            parsed = parse_runtime_decision(cur_response)
+            parsed = parse_runtime_decision(cur_response, strict_toolrl_turn=True)
             action_record["parsed"] = to_jsonable(parsed)
             action_record["model_output"] = cur_response
             action_record["parse_recovery"] = None
@@ -394,25 +440,10 @@ async def _generate_impl(
 
             if not parsed.get("ok"):
                 num_invalid += 1
-                obs_payload = {
-                    "tool_name": "runtime",
-                    "status": "error",
-                    "is_error": True,
-                    "content": {
-                        "error_type": parsed.get("error_type"),
-                        "error_message": parsed.get("error_message"),
-                    },
-                }
-                observations.append({"step": step, **obs_payload})
-                _append_observation(
-                    state,
-                    _serialize_observations([obs_payload]),
-                    response_parts,
-                    response_token_ids,
-                    loss_masks,
-                    rollout_log_probs,
-                )
-                continue
+                sample.status = Sample.Status.FAILED
+                done_reason = "invalid_react_format"
+                fatal_error = f"{parsed.get('error_type')}: {parsed.get('error_message')}"
+                break
             strict_valid_count += 1
 
             if parsed.get("decision_type") == "tool_call":
@@ -494,7 +525,7 @@ async def _generate_impl(
                     observations.append({"step": step, **obs_payload})
                     step_observations.append(obs_payload)
 
-                _append_observation(
+                obs_token_ids = _append_observation(
                     state,
                     _serialize_observations(step_observations),
                     response_parts,
@@ -502,6 +533,16 @@ async def _generate_impl(
                     loss_masks,
                     rollout_log_probs,
                 )
+                if evaluation:
+                    context_turns.append(make_turn(
+                        state.tokenizer,
+                        step=step,
+                        assistant_ids=cur_token_ids,
+                        observation_ids=obs_token_ids,
+                        parsed=parsed,
+                        observations=step_observations,
+                        raw_response=cur_response,
+                    ))
                 continue
 
             if parsed.get("decision_type") == "final_answer":
@@ -520,7 +561,7 @@ async def _generate_impl(
                         },
                     }
                     observations.append({"step": step, **obs_payload})
-                    _append_observation(
+                    obs_token_ids = _append_observation(
                         state,
                         _serialize_observations([obs_payload]),
                         response_parts,
@@ -528,6 +569,16 @@ async def _generate_impl(
                         loss_masks,
                         rollout_log_probs,
                     )
+                    if evaluation:
+                        context_turns.append(make_turn(
+                            state.tokenizer,
+                            step=step,
+                            assistant_ids=cur_token_ids,
+                            observation_ids=obs_token_ids,
+                            parsed=parsed,
+                            observations=[obs_payload],
+                            raw_response=cur_response,
+                        ))
                     continue
                 final_answer = artifact_registry.canonicalize(
                     parsed.get("final_answer"),
@@ -590,6 +641,7 @@ async def _generate_impl(
             project_final_answer(final_answer, task_type) if isinstance(final_answer, dict) else None
         ),
         "done_reason": done_reason,
+        "retryable": done_reason != "invalid_react_format",
         "num_steps": num_steps,
         "num_invalid": num_invalid,
         "num_parse_recovery": num_parse_recovery,
@@ -610,6 +662,15 @@ async def _generate_impl(
         "tool_success_rate": tool_success_rate,
         "tool_execution_success_rate": tool_execution_success_rate,
         "artifact_audit": artifact_registry.audit_snapshot(),
+        "context_budget": {
+            "max_prompt_tokens": max_prompt_tokens,
+            "max_observed_prompt_tokens": max_observed_prompt_tokens,
+            "compaction_count": len(context_compactions),
+            "compactions": [
+                {key: value for key, value in audit.items() if key != "_signature"}
+                for audit in context_compactions
+            ],
+        },
     }
     sample.metadata["drug_agent_trace"] = trace
     sample.metadata.pop("_drug_agent_partial_trace", None)
@@ -658,6 +719,7 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                 actions = partial.get("actions") if isinstance(partial, dict) else []
                 observations = partial.get("observations") if isinstance(partial, dict) else []
                 artifact_registry = partial.get("artifact_registry") if isinstance(partial, dict) else None
+                context_compactions = partial.get("context_compactions") if isinstance(partial, dict) else []
                 sample.metadata["drug_agent_trace"] = {
                     "task_id": context["task_id"],
                     "task_type": context["task_type"],
@@ -669,6 +731,11 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                     "observations": to_jsonable(observations or []),
                     "final_answer": None,
                     "projected_final_answer": None,
+                    "context_budget": {
+                        "max_prompt_tokens": int(os.environ.get("DRUG_AGENT_MAX_PROMPT_TOKENS", "245760")),
+                        "compaction_count": len(context_compactions or []),
+                        "compactions": to_jsonable(context_compactions or []),
+                    },
                     "artifact_audit": (
                         artifact_registry.audit_snapshot()
                         if isinstance(artifact_registry, ArtifactRegistry)

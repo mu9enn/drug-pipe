@@ -151,6 +151,7 @@ class MultiTurnLossMaskGenerator:
         end_marker = "<|im_end|>"
 
         char_mask = [0] * len(rendered_text)
+        strict_loss_boundaries = []
         cursor = 0
 
         for message in messages:
@@ -174,7 +175,13 @@ class MultiTurnLossMaskGenerator:
             if message.get("step_loss_mask", 1) != 1:
                 continue
 
-            if rendered_text[content_start : content_start + len(think_prefix)] == think_prefix:
+            loss_char_start = int(message.get("loss_char_start") or 0)
+            if loss_char_start < 0 or loss_char_start > len(str(message.get("content") or "")):
+                raise ValueError("assistant loss_char_start is outside message content")
+            if loss_char_start:
+                mask_start = content_start + loss_char_start
+                strict_loss_boundaries.append(mask_start)
+            elif rendered_text[content_start : content_start + len(think_prefix)] == think_prefix:
                 mask_start = content_start + len(think_prefix)
             else:
                 mask_start = content_start
@@ -191,7 +198,13 @@ class MultiTurnLossMaskGenerator:
             if end <= start:
                 loss_mask.append(0)
             else:
-                loss_mask.append(1 if char_mask_prefix_sum[end] - char_mask_prefix_sum[start] > 0 else 0)
+                crosses_strict_boundary = any(start < boundary < end for boundary in strict_loss_boundaries)
+                loss_mask.append(
+                    1
+                    if char_mask_prefix_sum[end] - char_mask_prefix_sum[start] > 0
+                    and not crosses_strict_boundary
+                    else 0
+                )
 
         return token_ids, loss_mask
 

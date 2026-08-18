@@ -125,6 +125,7 @@ def main() -> int:
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--task-timeout-sec", type=float, required=True)
     parser.add_argument("--max-new-tokens", type=int, required=True)
+    parser.add_argument("--max-prompt-len", type=int, required=True)
     parser.add_argument("--max-context-len", type=int, required=True)
     parser.add_argument("--hf-checkpoint", required=True)
     parser.add_argument("--model-args-file", required=True)
@@ -137,6 +138,13 @@ def main() -> int:
         raise ValueError(
             "max-workers and task-timeout-sec must be positive; "
             "max-steps must be non-negative (0 means unlimited)"
+        )
+    if min(args.max_new_tokens, args.max_prompt_len, args.max_context_len) < 1:
+        raise ValueError("max-new-tokens, max-prompt-len, and max-context-len must be positive")
+    if args.max_prompt_len + args.max_new_tokens > args.max_context_len:
+        raise ValueError(
+            "prompt plus response budget exceeds context: "
+            f"{args.max_prompt_len} + {args.max_new_tokens} > {args.max_context_len}"
         )
     input_count = sum(bool(value) for value in (args.molbench_root, args.prompt_file, args.prompt_suite_file))
     if input_count != 1:
@@ -209,6 +217,7 @@ def main() -> int:
             run_dir,
             selected_suites=args.molbench_suite,
             limit_per_suite=args.molbench_limit_per_suite,
+            max_steps=args.max_steps,
         )
         input_manifest_path = run_dir / "benchmark_manifest.json"
         input_dataset_path = run_dir / "molbench_eval.jsonl"
@@ -247,6 +256,7 @@ def main() -> int:
         "mcp_list_tools_timeout_sec": os.environ.get("MOLCLAW_LIST_TOOLS_TIMEOUT_SEC"),
         "mcp_tool_timeout_sec": os.environ.get("MOLCLAW_TOOL_TIMEOUT_SEC"),
         "max_new_tokens": args.max_new_tokens,
+        "max_prompt_len": args.max_prompt_len,
         "max_context_len": args.max_context_len,
         "num_gpus": args.num_gpus,
         "tensor_model_parallel_size": args.tensor_model_parallel_size,

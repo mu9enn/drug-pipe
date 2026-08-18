@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from drug_agent.protocol.react_protocol import parse_runtime_decision
+from drug_agent.protocol.toolrl_turn import split_assistant_segments
 
 
 def normalize_tool_call(call: dict[str, Any]) -> dict[str, Any]:
@@ -61,38 +62,46 @@ def iter_react_decisions(messages: Iterable[dict[str, Any]]):
     for assistant_index, message in enumerate(materialized):
         if not isinstance(message, dict) or message.get("role") != "assistant":
             continue
-        parsed = parse_assistant_decision(message.get("content"))
-        if parsed["decision_type"] is None:
-            continue
-        if (
+        consecutive_assistant = (
             assistant_index > 0
             and isinstance(materialized[assistant_index - 1], dict)
             and materialized[assistant_index - 1].get("role") == "assistant"
-        ):
-            parsed = {
-                **parsed,
-                "ok": False,
-                "error": "consecutive_assistant_state_boundary",
-            }
+        )
         state_messages = []
         for item in materialized[:assistant_index]:
             if not isinstance(item, dict):
                 continue
-            state_message = {
-                key: deepcopy(item[key])
-                for key in ("role", "content", "name")
-                if key in item
+            state_messages.append(
+                {key: deepcopy(item[key]) for key in ("role", "content", "name") if key in item}
+            )
+        try:
+            segments = split_assistant_segments(str(message.get("content") or ""))
+        except ValueError:
+            segments = []
+        action_segments = [segment for segment in segments if segment["is_action"]]
+        prefix_parts: list[str] = []
+        action_index = 0
+        for segment in segments:
+            if not segment["is_action"]:
+                prefix_parts.append(segment["content"])
+                continue
+            parsed = parse_assistant_decision(segment["content"])
+            if consecutive_assistant:
+                parsed = {**parsed, "ok": False, "error": "consecutive_assistant_state_boundary"}
+            assistant_prefix = "\n".join(prefix_parts)
+            if assistant_prefix:
+                assistant_prefix += "\n"
+            yield {
+                "assistant_index": assistant_index,
+                "assistant_subturn_index": action_index,
+                "assistant_subturn_count": len(action_segments),
+                "assistant_prefix": assistant_prefix,
+                "state_messages": state_messages,
+                "target_assistant": {"role": "assistant", "content": segment["content"]},
+                "decision_type": parsed["decision_type"],
+                "tool_calls": parsed["tool_calls"],
+                "final_answer": parsed["final_answer"],
+                "parse": parsed,
             }
-            state_messages.append(state_message)
-        yield {
-            "assistant_index": assistant_index,
-            "state_messages": state_messages,
-            "target_assistant": {
-                "role": "assistant",
-                "content": message.get("content"),
-            },
-            "decision_type": parsed["decision_type"],
-            "tool_calls": parsed["tool_calls"],
-            "final_answer": parsed["final_answer"],
-            "parse": parsed,
-        }
+            prefix_parts.append(segment["content"])
+            action_index += 1

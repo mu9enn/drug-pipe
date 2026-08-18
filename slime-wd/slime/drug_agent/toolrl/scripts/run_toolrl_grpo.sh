@@ -109,8 +109,13 @@ MIN_LR=${MIN_LR:-0.0}
 LR_WARMUP_FRACTION=${LR_WARMUP_FRACTION:-}
 LR_WARMUP_INIT=${LR_WARMUP_INIT:-}
 USE_KL_LOSS=${USE_KL_LOSS:-0}
+KL_COEF=${KL_COEF:-0.0}
 KL_LOSS_COEF=${KL_LOSS_COEF:-0.0}
 KL_LOSS_TYPE=${KL_LOSS_TYPE:-low_var_kl}
+ENTROPY_COEF=${ENTROPY_COEF:-0.0}
+DISABLE_REWARDS_NORMALIZATION=${DISABLE_REWARDS_NORMALIZATION:-0}
+CUSTOM_ADVANTAGE_FUNCTION_PATH=${CUSTOM_ADVANTAGE_FUNCTION_PATH:-}
+CALCULATE_PER_TOKEN_LOSS=${CALCULATE_PER_TOKEN_LOSS:-0}
 MAX_TOKENS_PER_GPU=${MAX_TOKENS_PER_GPU:-8192}
 TENSOR_MODEL_PARALLEL_SIZE=${TENSOR_MODEL_PARALLEL_SIZE:-1}
 PIPELINE_MODEL_PARALLEL_SIZE=${PIPELINE_MODEL_PARALLEL_SIZE:-1}
@@ -178,8 +183,8 @@ if [[ "$ADVANTAGE_ESTIMATOR" =~ ^(grpo|gspo|reinforce_plus_plus_baseline)$ ]] &&
   echo "Group-baseline ToolRL requires N_SAMPLES_PER_PROMPT >= 2 for $ADVANTAGE_ESTIMATOR; got $N_SAMPLES_PER_PROMPT" >&2
   exit 2
 fi
-if [ "$TOOLRL_REWARD_MODE" != "official" ] && [ "$TOOLRL_REWARD_MODE" != "molclaw" ] && [ "$TOOLRL_REWARD_MODE" != "decision_aware" ] && [ "$TOOLRL_REWARD_MODE" != "hierarchical" ]; then
-  echo "TOOLRL_REWARD_MODE must be official, molclaw, decision_aware, or hierarchical; got $TOOLRL_REWARD_MODE" >&2
+if [ "$TOOLRL_REWARD_MODE" != "toolrl_official_8cee13e" ] && [ "$TOOLRL_REWARD_MODE" != "official" ] && [ "$TOOLRL_REWARD_MODE" != "molclaw" ] && [ "$TOOLRL_REWARD_MODE" != "decision_aware" ] && [ "$TOOLRL_REWARD_MODE" != "hierarchical" ]; then
+  echo "Unsupported TOOLRL_REWARD_MODE: $TOOLRL_REWARD_MODE" >&2
   exit 2
 fi
 if [ "$USE_ROLLOUT_LOGPROBS" != "0" ] && [ "$USE_ROLLOUT_LOGPROBS" != "1" ]; then
@@ -246,9 +251,9 @@ TOOLRL_ARGS=(
   --rollout-shuffle
 
   --advantage-estimator "$ADVANTAGE_ESTIMATOR"
-  --entropy-coef 0.00
-  --eps-clip 0.2
-  --eps-clip-high 0.28
+  --entropy-coef "$ENTROPY_COEF"
+  --eps-clip "${EPS_CLIP:-0.2}"
+  --eps-clip-high "${EPS_CLIP_HIGH:-0.28}"
 
   --num-rollout "$NUM_ROLLOUT"
   --rollout-batch-size "$ROLLOUT_BATCH_SIZE"
@@ -277,6 +282,12 @@ fi
 if [ "$NORMALIZE_ADVANTAGES" = "1" ]; then
   TOOLRL_ARGS+=(--normalize-advantages)
 fi
+if [ "$DISABLE_REWARDS_NORMALIZATION" = "1" ]; then
+  TOOLRL_ARGS+=(--disable-rewards-normalization)
+fi
+if [ -n "$CUSTOM_ADVANTAGE_FUNCTION_PATH" ]; then
+  TOOLRL_ARGS+=(--custom-advantage-function-path "$CUSTOM_ADVANTAGE_FUNCTION_PATH")
+fi
 if [ -n "$DYNAMIC_SAMPLING_FILTER_PATH" ]; then
   TOOLRL_ARGS+=(--dynamic-sampling-filter-path "$DYNAMIC_SAMPLING_FILTER_PATH")
 fi
@@ -295,6 +306,9 @@ if [ "$USE_ROLLOUT_LOGPROBS" = "1" ]; then
 fi
 if [ "$USE_KL_LOSS" = "1" ]; then
   TOOLRL_ARGS+=(--use-kl-loss --kl-loss-coef "$KL_LOSS_COEF" --kl-loss-type "$KL_LOSS_TYPE")
+fi
+if [[ "$KL_COEF" != "0" && "$KL_COEF" != "0.0" ]]; then
+  TOOLRL_ARGS+=(--kl-coef "$KL_COEF" --kl-loss-type "$KL_LOSS_TYPE")
 fi
 if [ -n "${SGLANG_KV_CACHE_DTYPE:-}" ]; then
   TOOLRL_ARGS+=(--sglang-kv-cache-dtype "$SGLANG_KV_CACHE_DTYPE")
@@ -330,6 +344,9 @@ PERF_ARGS=(
   --max-tokens-per-gpu "$MAX_TOKENS_PER_GPU"
   --log-probs-chunk-size "$LOG_PROBS_CHUNK_SIZE"
 )
+if [ "$CALCULATE_PER_TOKEN_LOSS" = "1" ]; then
+  PERF_ARGS+=(--calculate-per-token-loss)
+fi
 if [ -n "${PIPELINE_MODEL_PARALLEL_LAYOUT:-}" ]; then
   PERF_ARGS+=(--pipeline-model-parallel-layout "$PIPELINE_MODEL_PARALLEL_LAYOUT")
 else

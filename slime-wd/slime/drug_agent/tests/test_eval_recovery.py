@@ -66,6 +66,7 @@ class EvaluationTaskStoreTest(unittest.TestCase):
 
             task_files = list((Path(tmp) / "task_results").glob("*.json"))
             self.assertEqual(len(task_files), 1)
+            self.assertEqual(task_files[0].stat().st_mode & 0o777, 0o644)
             self.assertFalse(list((Path(tmp) / "task_results").glob("*.tmp")))
             progress = json.loads((Path(tmp) / "progress.json").read_text())
             self.assertEqual(progress["checkpointed_count"], 1)
@@ -177,6 +178,28 @@ class EvaluationTaskStoreTest(unittest.TestCase):
             self.assertEqual(progress["successful_final_count"], 1)
             self.assertEqual(progress["retryable_non_final_count"], 0)
             self.assertEqual(progress["remaining_to_success_count"], 0)
+
+    def test_resume_never_retries_terminal_protocol_failure(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ,
+            self._env(tmp, resume="1", expected="1"),
+            clear=False,
+        ):
+            failed = _sample("task-1", done_reason="invalid_react_format")
+            failed.metadata["drug_agent_trace"]["retryable"] = False
+            checkpoint_sample(failed, evaluation=True)
+
+            fresh = _sample("task-1")
+            fresh.status = Status.PENDING
+            fresh.metadata.pop("drug_agent_trace")
+            bind_task_identity(fresh)
+            with patch.dict(os.environ, {"DRUG_AGENT_EVAL_RETRY_NON_FINAL": "1"}, clear=False):
+                restored = restore_sample(fresh, evaluation=True)
+
+            self.assertIs(restored, fresh)
+            self.assertEqual(restored.status, Status.FAILED)
+            self.assertEqual(restored.metadata["drug_agent_trace"]["done_reason"], "invalid_react_format")
+            self.assertFalse(restored.metadata["drug_agent_trace"]["retryable"])
 
     def test_resumed_generation_skips_per_task_executor_and_model(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(

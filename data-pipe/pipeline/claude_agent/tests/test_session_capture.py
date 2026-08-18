@@ -7,7 +7,12 @@ import tempfile
 import unittest
 
 from pipeline.claude_agent.run_claude import _extract_result_text_from_stream_jsonl
-from pipeline.claude_agent.session_capture import run_stream_json, select_attempt
+from pipeline.claude_agent.session_capture import (
+    http_500_retry_delay,
+    run_stream_json,
+    select_attempt,
+    session_has_retryable_http_500,
+)
 
 
 class SessionCaptureTest(unittest.TestCase):
@@ -16,6 +21,30 @@ class SessionCaptureTest(unittest.TestCase):
         executable.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
         executable.chmod(0o755)
         return executable
+
+    def test_detects_only_terminal_api_http_500(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            retryable = root / "retryable.jsonl"
+            retryable.write_text(
+                json.dumps(
+                    {
+                        "type": "result",
+                        "is_error": True,
+                        "result": "API Error: ChatCompletionStreamResponse code': 500",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(session_has_retryable_http_500(retryable))
+            retryable.write_text(
+                json.dumps({"type": "result", "is_error": True, "result": "API Error: code 429"})
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertFalse(session_has_retryable_http_500(retryable))
+            self.assertEqual([http_500_retry_delay(i) for i in range(1, 7)], [30, 60, 120, 240, 300, 300])
 
     def test_combined_stream_is_archived_and_selected_byte_for_byte(self) -> None:
         with tempfile.TemporaryDirectory() as td:

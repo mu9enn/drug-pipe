@@ -24,7 +24,8 @@ MAX_WORKERS=${MAX_WORKERS:-2}
 MAX_STEPS=${MAX_STEPS:-0}
 TEMPERATURE=${TEMPERATURE:-0.0}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-16384}
-MAX_CONTEXT_LEN=${MAX_CONTEXT_LEN:-65536}
+MAX_PROMPT_LEN=${MAX_PROMPT_LEN:-245760}
+MAX_CONTEXT_LEN=${MAX_CONTEXT_LEN:-262144}
 TASK_TIMEOUT_SEC=${TASK_TIMEOUT_SEC:-10800}
 RUN_NAME=${RUN_NAME:-molbench_$(basename "$MODEL_CHECKPOINT")_$(date +%Y%m%d_%H%M%S)}
 DRUG_AGENT_EVAL_ROOT=${DRUG_AGENT_EVAL_ROOT:-${OUTPUTS_ROOT:-$WD/outputs}/slime_drug_agent_evals}
@@ -129,6 +130,7 @@ export DRUG_AGENT_TRAINING_OFFLINE=0
 export DRUG_AGENT_MAX_WORKERS="$MAX_WORKERS"
 export DRUG_AGENT_MAX_STEPS="$MAX_STEPS"
 export DRUG_AGENT_TASK_TIMEOUT_SEC="$TASK_TIMEOUT_SEC"
+export DRUG_AGENT_MAX_PROMPT_TOKENS="$MAX_PROMPT_LEN"
 export DRUG_AGENT_EVAL_RETRY_NON_FINAL="$RETRY_NON_FINAL"
 export DRUG_AGENT_EVAL_INFERENCE_ONLY="$INFERENCE_ONLY"
 export DRUG_AGENT_WORKSPACES_ROOT="$DRUG_AGENT_EVAL_RUN_DIR/workspaces"
@@ -157,6 +159,7 @@ python -m drug_agent.evaluation.preflight \
   --temperature "$TEMPERATURE" \
   --task-timeout-sec "$TASK_TIMEOUT_SEC" \
   --max-new-tokens "$MAX_NEW_TOKENS" \
+  --max-prompt-len "$MAX_PROMPT_LEN" \
   --max-context-len "$MAX_CONTEXT_LEN" \
   --hf-checkpoint "$HF_CHECKPOINT" \
   --model-args-file "$MODEL_ARGS_FILE" \
@@ -244,6 +247,7 @@ keys = [
     "DRUG_AGENT_EVAL_RUN_DIR", "MOLBENCH_ROOT", "DRUG_AGENT_L1_SKILLS_ROOT",
     "DRUG_AGENT_WORKSPACES_ROOT", "DRUG_AGENT_MAX_WORKERS", "DRUG_AGENT_MAX_STEPS",
     "DRUG_AGENT_TASK_TIMEOUT_SEC", "DRUG_AGENT_EXPECTED_TOOL_CATALOG",
+    "DRUG_AGENT_MAX_PROMPT_TOKENS",
     "DRUG_AGENT_EVAL_RUN_FINGERPRINT", "DRUG_AGENT_EVAL_RESUME",
     "DRUG_AGENT_EVAL_RETRY_NON_FINAL", "DRUG_AGENT_EVAL_EXPECTED_TASK_COUNT",
     "DRUG_AGENT_EVAL_INFERENCE_ONLY",
@@ -301,7 +305,7 @@ ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV_
   --rollout-num-gpus "$NUM_GPUS" --rollout-num-gpus-per-engine "$NUM_GPUS" \
   --sglang-server-concurrency "$MAX_WORKERS" --sglang-mem-fraction-static "${SGLANG_MEM_FRACTION_STATIC:-0.60}" \
   "${SGLANG_RUNTIME_ARGS[@]}" \
-  --eval-max-prompt-len "$MAX_CONTEXT_LEN" --eval-max-context-len "$MAX_CONTEXT_LEN" \
+  --eval-max-prompt-len "$MAX_PROMPT_LEN" --eval-max-context-len "$MAX_CONTEXT_LEN" \
   --attention-dropout 0.0 --hidden-dropout 0.0 --attention-backend flash \
   --optimizer adam --lr 1e-6 --lr-decay-style constant \
   "${PERF_ARGS[@]}" 2>&1 | tee "$RAY_SUBMIT_LOG"

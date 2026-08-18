@@ -108,6 +108,7 @@ def parse_tool_calls(
     role: str = "assistant",
     allowed_tool_names: set[str] | None = None,
     keep_non_molclaw: bool = False,
+    strict_toolrl_turn: bool = False,
 ) -> dict[str, Any]:
     """Parse ReAct content and extract one or more tool calls.
 
@@ -136,44 +137,68 @@ def parse_tool_calls(
     if not result["ok"]:
         return result
 
+    kinds = [block.get("kind") for block in result["blocks"] if isinstance(block, dict)]
+    tool_container_count = sum(kind == "tool_call" for kind in kinds)
+    final_count = sum(kind == "final_answer" for kind in kinds)
+    if strict_toolrl_turn:
+        valid_tool_shape = tool_container_count == 1 and final_count == 0 and kinds in (
+            ["tool_call"], ["thought", "tool_call"]
+        )
+        valid_final_shape = final_count == 1 and tool_container_count == 0 and kinds in (
+            ["final_answer"], ["thought", "final_answer"]
+        )
+        if not (valid_tool_shape or valid_final_shape):
+            result.update(
+                {
+                    "ok": False,
+                    "error_type": "ReactDecisionError",
+                    "error_message": "toolrl_turn_v1 requires optional thought followed by exactly one action container",
+                }
+            )
+            return result
+
     tool_calls: list[ParsedToolCall] = []
     for block_index, block in enumerate(result["blocks"]):
         if not isinstance(block, dict) or block.get("kind") != "tool_call":
             continue
-        payload = block.get("payload")
-        if not isinstance(payload, dict):
-            continue
-        tool_name_raw = str(payload.get("tool_name") or "")
-        tool_name = canonical_decision_tool_name(tool_name_raw or None)
-        arguments = payload.get("arguments")
-        if not isinstance(arguments, dict):
-            arguments = {}
-        keep = _is_molclaw_tool(tool_name_raw or tool_name, allowed_tool_names)
-        is_local = is_local_decision_name(tool_name_raw or tool_name)
-        item = ParsedToolCall(
-            index=block_index,
-            tool_name_raw=tool_name_raw,
-            tool_name=tool_name,
-            arguments=arguments,
-            keep=keep,
-            raw_payload=payload,
-            block=block,
-        )
-        tool_calls.append(item)
-        if keep:
-            result["molclaw_tool_calls"].append(item.to_dict())
-            result["supported_tool_calls"].append(item.to_dict())
-            if keep_non_molclaw:
-                result["tool_calls"].append(item.to_dict())
-        else:
-            result["non_molclaw_tool_calls"].append(item.to_dict())
-            if is_local:
-                result["local_tool_calls"].append(item.to_dict())
+        payloads = block.get("payloads")
+        if not isinstance(payloads, list):
+            payload = block.get("payload")
+            payloads = [payload] if isinstance(payload, dict) else []
+        for payload_index, payload in enumerate(payloads):
+            if not isinstance(payload, dict):
+                continue
+            tool_name_raw = str(payload.get("tool_name") or "")
+            tool_name = canonical_decision_tool_name(tool_name_raw or None)
+            arguments = payload.get("arguments")
+            if not isinstance(arguments, dict):
+                arguments = {}
+            keep = _is_molclaw_tool(tool_name_raw or tool_name, allowed_tool_names)
+            is_local = is_local_decision_name(tool_name_raw or tool_name)
+            item = ParsedToolCall(
+                index=len(tool_calls),
+                tool_name_raw=tool_name_raw,
+                tool_name=tool_name,
+                arguments=arguments,
+                keep=keep,
+                raw_payload=payload,
+                block={**block, "payload_index": payload_index},
+            )
+            tool_calls.append(item)
+            if keep:
+                result["molclaw_tool_calls"].append(item.to_dict())
                 result["supported_tool_calls"].append(item.to_dict())
+                if keep_non_molclaw:
+                    result["tool_calls"].append(item.to_dict())
             else:
-                result["unsupported_tool_calls"].append(item.to_dict())
-            if keep_non_molclaw:
-                result["tool_calls"].append(item.to_dict())
+                result["non_molclaw_tool_calls"].append(item.to_dict())
+                if is_local:
+                    result["local_tool_calls"].append(item.to_dict())
+                    result["supported_tool_calls"].append(item.to_dict())
+                else:
+                    result["unsupported_tool_calls"].append(item.to_dict())
+                if keep_non_molclaw:
+                    result["tool_calls"].append(item.to_dict())
 
     if not keep_non_molclaw:
         result["tool_calls"] = result["molclaw_tool_calls"]

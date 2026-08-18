@@ -68,6 +68,21 @@ class MolBenchAdapterTest(unittest.TestCase):
             })
             self.assertTrue(all([message["role"] for message in row["prompt"]] == ["system", "user"] for row in rows))
 
+    def test_propagates_runtime_step_cap_into_every_molbench_sample(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_molbench_dataset(
+                MOLBENCH_ROOT,
+                tmp,
+                selected_suites=["molbench_ms1", "molbench_ms2"],
+                limit_per_suite=2,
+                max_steps=17,
+            )
+            rows = [json.loads(line) for line in (Path(tmp) / "molbench_eval.jsonl").read_text().splitlines()]
+            self.assertEqual(len(rows), 4)
+            self.assertTrue(all(row["metadata"]["env_kwargs"]["max_steps"] == 17 for row in rows))
+            manifest = json.loads((Path(tmp) / "benchmark_manifest.json").read_text())
+            self.assertEqual(manifest["selection"]["max_steps"], 17)
+
     def test_selects_all_molecule_edit_tasks_without_molecule_optimization(self):
         with tempfile.TemporaryDirectory() as tmp:
             manifest = build_molbench_dataset(

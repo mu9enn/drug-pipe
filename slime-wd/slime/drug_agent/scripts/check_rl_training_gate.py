@@ -64,6 +64,7 @@ def check_log(
     minimum_updates: int,
     *,
     minimum_nonzero_group_ratio: float = 0.0,
+    allow_all_zero_gradients: bool = False,
 ) -> dict[str, object]:
     if not 0.0 <= minimum_nonzero_group_ratio <= 1.0:
         raise ValueError("minimum_nonzero_group_ratio must be within [0, 1]")
@@ -71,13 +72,15 @@ def check_log(
     gradients = _metric_values(text, "train/grad_norm")
     if len(gradients) < minimum_updates:
         raise ValueError(f"only {len(gradients)} grad_norm updates; expected at least {minimum_updates}")
-    if not all(math.isfinite(value) for value in gradients) or not any(abs(value) > 1e-12 for value in gradients):
-        raise ValueError(f"invalid or all-zero gradients: {gradients}")
+    if not all(math.isfinite(value) for value in gradients):
+        raise ValueError(f"non-finite gradients: {gradients}")
+    if not allow_all_zero_gradients and not any(abs(value) > 1e-12 for value in gradients):
+        raise ValueError(f"all-zero gradients: {gradients}")
 
     zero_run = 0
     for value in gradients:
         zero_run = zero_run + 1 if abs(value) <= 1e-12 else 0
-        if zero_run >= 6:
+        if not allow_all_zero_gradients and zero_run >= 6:
             raise ValueError(f"six consecutive zero-gradient updates: {gradients}")
 
     metrics: dict[str, list[float]] = {}
@@ -122,12 +125,14 @@ def main() -> None:
     parser.add_argument("log")
     parser.add_argument("minimum_updates", type=int)
     parser.add_argument("--minimum-nonzero-group-ratio", default=0.0, type=float)
+    parser.add_argument("--allow-all-zero-gradients", action="store_true")
     args = parser.parse_args()
     print(
         check_log(
             args.log,
             args.minimum_updates,
             minimum_nonzero_group_ratio=args.minimum_nonzero_group_ratio,
+            allow_all_zero_gradients=args.allow_all_zero_gradients,
         )
     )
 

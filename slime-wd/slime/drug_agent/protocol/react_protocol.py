@@ -50,6 +50,29 @@ def _json_object(text: str) -> tuple[dict[str, Any] | None, str | None, str | No
     return payload, None, None
 
 
+def _json_objects(text: str) -> tuple[list[dict[str, Any]] | None, str | None, str | None]:
+    """Decode whitespace-separated JSON objects without accepting arrays or commas."""
+    decoder = json.JSONDecoder()
+    payloads: list[dict[str, Any]] = []
+    cursor = 0
+    while cursor < len(text):
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor >= len(text):
+            break
+        try:
+            payload, end = decoder.raw_decode(text, cursor)
+        except json.JSONDecodeError as exc:
+            return None, "ReactJSONDecodeError", f"invalid JSON object sequence: {exc.msg}"
+        if not isinstance(payload, dict):
+            return None, "ReactSchemaError", "each tool_call entry must be a JSON object"
+        payloads.append(payload)
+        cursor = end
+    if not payloads:
+        return None, "ReactSchemaError", "tool_call container must contain at least one JSON object"
+    return payloads, None, None
+
+
 def _validate_tool_call(payload: dict[str, Any]) -> tuple[bool, str | None, str | None]:
     tool_name = payload.get("tool_name")
     arguments = payload.get("arguments")
@@ -249,8 +272,8 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
                 }
             block["text"] = clean_body
         elif kind == "tool_call":
-            payload, error_type, error_message = _json_object(clean_body.strip())
-            if payload is None:
+            payloads, error_type, error_message = _json_objects(clean_body.strip())
+            if payloads is None:
                 return {
                     "ok": False,
                     "error_type": error_type,
@@ -260,20 +283,24 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
                     "fence_wrappers_stripped": fence_wrappers_stripped,
                     "fence_inner_content_preserved": fence_inner_content_preserved,
                 }
-            ok, error_type, error_message = _validate_tool_call(payload)
-            if not ok:
-                return {
-                    "ok": False,
-                    "error_type": error_type,
-                    "error_message": error_message,
-                    "blocks": blocks,
-                    "errors": errors + [block],
-                    "fence_wrappers_stripped": fence_wrappers_stripped,
-                    "fence_inner_content_preserved": fence_inner_content_preserved,
-                }
-            block["payload"] = payload
-            block["tool_name"] = payload.get("tool_name")
-            block["arguments"] = payload.get("arguments")
+            for payload in payloads:
+                ok, error_type, error_message = _validate_tool_call(payload)
+                if not ok:
+                    return {
+                        "ok": False,
+                        "error_type": error_type,
+                        "error_message": error_message,
+                        "blocks": blocks,
+                        "errors": errors + [block],
+                        "fence_wrappers_stripped": fence_wrappers_stripped,
+                        "fence_inner_content_preserved": fence_inner_content_preserved,
+                    }
+            block["payloads"] = payloads
+            # Preserve the legacy single-call block shape for downstream code.
+            if len(payloads) == 1:
+                block["payload"] = payloads[0]
+                block["tool_name"] = payloads[0].get("tool_name")
+                block["arguments"] = payloads[0].get("arguments")
         elif kind == "final_answer":
             payload, error_type, error_message = _json_object(clean_body.strip())
             if payload is None:
@@ -369,7 +396,7 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
     }
 
 
-def parse_runtime_decision(text: str) -> dict[str, Any]:
+def parse_runtime_decision(text: str, *, strict_toolrl_turn: bool = False) -> dict[str, Any]:
     """Parse one model generation into the canonical runtime decision shape."""
     parsed = parse_react_sequence(text, role="assistant")
     if not parsed.get("ok"):
@@ -386,20 +413,37 @@ def parse_runtime_decision(text: str) -> dict[str, Any]:
 
     blocks = parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else []
     thoughts = [str(block.get("body") or "") for block in blocks if block.get("kind") == "thought"]
-    tool_calls = [
-        {
-            "tool_name": str(block.get("tool_name") or ""),
-            "arguments": block.get("arguments") if isinstance(block.get("arguments"), dict) else {},
-            "raw_payload": block.get("payload") if isinstance(block.get("payload"), dict) else {},
-        }
-        for block in blocks
-        if block.get("kind") == "tool_call"
-    ]
+    tool_calls = []
+    for block in blocks:
+        if block.get("kind") != "tool_call":
+            continue
+        payloads = block.get("payloads")
+        if not isinstance(payloads, list):
+            payload = block.get("payload")
+            payloads = [payload] if isinstance(payload, dict) else []
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            tool_calls.append(
+                {
+                    "tool_name": str(payload.get("tool_name") or ""),
+                    "arguments": payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {},
+                    "raw_payload": payload,
+                }
+            )
     finals = [block.get("payload") for block in blocks if block.get("kind") == "final_answer"]
     unsupported = [block.get("kind") for block in blocks if block.get("kind") not in {"thought", "tool_call", "final_answer"}]
     error = None
+    kinds = [block.get("kind") for block in blocks]
+    tool_containers = sum(kind == "tool_call" for kind in kinds)
     if unsupported:
         error = f"unsupported assistant block(s): {unsupported}"
+    elif strict_toolrl_turn and tool_containers > 1:
+        error = "toolrl_turn_v1 requires exactly one tool_call container"
+    elif strict_toolrl_turn and tool_calls and kinds not in (["tool_call"], ["thought", "tool_call"]):
+        error = "toolrl_turn_v1 tool decision must be optional thought followed by one tool_call container"
+    elif strict_toolrl_turn and finals and kinds not in (["final_answer"], ["thought", "final_answer"]):
+        error = "toolrl_turn_v1 final decision must be optional thought followed by one final_answer"
     elif tool_calls and finals:
         error = "tool_call and final_answer cannot appear in the same assistant generation"
     elif len(finals) > 1:

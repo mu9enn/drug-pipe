@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 PIPELINE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PIPELINE_DIR))
@@ -294,6 +295,39 @@ class ClaudePatchCaptureTest(unittest.TestCase):
                 [editable[0]],
             )
             self.assertFalse((canonical.parent / "repair_hints.json").exists())
+
+    def test_http_500_retries_without_consuming_failure_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / "flaky-claude"
+            executable.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                "from pathlib import Path\n"
+                f"state=Path({str(root / 'state')!r})\n"
+                "count=int(state.read_text()) if state.exists() else 0\n"
+                "state.write_text(str(count+1))\n"
+                "if count == 0:\n"
+                " print(json.dumps({'type':'result','is_error':True,'result':\"API Error: ChatCompletionStreamResponse code': 500\"}), flush=True)\n"
+                " sys.exit(1)\n"
+                "source=json.loads(Path('source_trajectory.json').read_text())\n"
+                "patch={'schema_version':'llm_clean_patch_v2','sample_id':source['id'],'planning_action':{'assistant_index':2,'operation':'prepend_planning_thought','planning_text':'Establish the input state, gather evidence, and report the supported result.','reason':'existing_thought_is_step_local'},'edits':[]}\n"
+                "Path('llm_clean_patch.json').write_text(json.dumps(patch))\n"
+                "print(json.dumps({'type':'result','is_error':False,'result':'patch written'}), flush=True)\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            provider = build_claude_patch_provider(
+                claude_bin=str(executable), debug_root=root / "debug", timeout_sec=5, max_attempts=1
+            )
+            module = sys.modules[build_claude_patch_provider.__module__]
+            with mock.patch.object(module, "_sleep_before_http_500_retry") as sleeper:
+                patch, metadata = provider(sample_record(), {"only_molclaw_tool": False})
+            self.assertIsNotNone(patch)
+            self.assertEqual(metadata["status"], "patch_received")
+            self.assertEqual(metadata["http_500_retry_count"], 1)
+            self.assertEqual(len(metadata["claude_attempts"]), 2)
+            sleeper.assert_called_once_with(30)
 
     def test_invalid_raw_stream_falls_back_even_if_patch_exists(self) -> None:
         with tempfile.TemporaryDirectory() as td:

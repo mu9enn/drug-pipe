@@ -26,7 +26,7 @@ from drug_agent.scripts.compact_rl_context import COMPACTION_SCHEMA, compact_pro
 from drug_agent.context_summary import ClaudeContextSummarizer
 
 
-VIEW_SCHEMA = "toolrl_policy_boundary_candidate_view_v1"
+VIEW_SCHEMA = "toolrl_static_curated_view_v2"
 
 
 def _sha256(path: Path) -> str:
@@ -48,6 +48,15 @@ def _without_summary(value: Any) -> Any:
 def _canonical_target(row: dict[str, Any]) -> str:
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     label = row.get("label") if isinstance(row.get("label"), dict) else {}
+    protocol = str(label.get("protocol") or metadata.get("protocol") or "")
+    if protocol == "toolrl_turn_v1":
+        assistant_content = label.get("assistant_content")
+        if not isinstance(assistant_content, str) or not assistant_content.strip():
+            target = label.get("target_assistant", metadata.get("target_assistant"))
+            assistant_content = target.get("content") if isinstance(target, dict) else None
+        if not isinstance(assistant_content, str) or not assistant_content.strip():
+            raise ValueError("toolrl_turn_v1 row has no canonical assistant content")
+        return assistant_content
     decision_type = str(label.get("decision_type") or metadata.get("decision_type") or "")
     if decision_type == "final_answer":
         target = _without_summary(label.get("target_final_answer", metadata.get("target_final_answer")))
@@ -70,7 +79,21 @@ def _canonical_target(row: dict[str, Any]) -> str:
 
 
 def _decision_key(metadata: dict[str, Any]) -> str:
-    return f"{metadata.get('source_id') or metadata.get('task_id')}:{metadata.get('assistant_index')}:{metadata.get('decision_type')}"
+    return (
+        f"{metadata.get('source_id') or metadata.get('task_id')}:"
+        f"{metadata.get('assistant_index')}:{metadata.get('assistant_subturn_index', 0)}:"
+        f"{metadata.get('decision_type')}"
+    )
+
+
+def _render_prompt(tokenizer: Any, prompt: list[dict[str, Any]], assistant_prefix: str) -> str:
+    rendered = tokenizer.apply_chat_template(
+        prompt,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+    return rendered + assistant_prefix
 
 
 def _approximate_length_bin(row: dict[str, Any]) -> str:
@@ -138,7 +161,13 @@ def select_decisions(
     llm_timeout_sec: float = 600.0,
     llm_max_attempts: int = 3,
     max_context_tokens: int = 262144,
+    batch_multiple: int = 4,
+    selection_mode: str = "curated_static",
 ) -> dict[str, Any]:
+    if batch_multiple <= 0:
+        raise ValueError("batch_multiple must be positive")
+    if selection_mode not in {"curated_static", "all_static"}:
+        raise ValueError(f"unsupported selection_mode: {selection_mode}")
     # First pass: create a diversity-constrained candidate pool without a
     # fixed record budget.  Initial/final actions remain candidates, while
     # equivalent middle decisions contribute one deterministic representative.
@@ -146,18 +175,23 @@ def select_decisions(
     middle_entries: list[tuple[int, str, tuple[Any, ...], str]] = []
     stratum_winner: dict[tuple[Any, ...], tuple[str, int]] = {}
     pre_excluded: list[dict[str, Any]] = []
+    rows_by_line: dict[int, dict[str, Any]] = {}
     for line_number, line in enumerate(input_path.open(encoding="utf-8"), 1):
         if not line.strip():
             continue
         row = json.loads(line)
+        rows_by_line[line_number] = row
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         key = _decision_key(metadata)
-        if metadata.get("is_no_progress_repeat"):
+        if selection_mode == "curated_static" and metadata.get("is_no_progress_repeat"):
             pre_excluded.append({"line": line_number, "decision_key": key, "reason": "no_progress_repeat"})
             continue
         role = str(metadata.get("decision_role") or "")
         if role not in {"tool_step", "final"}:
             raise ValueError(f"invalid v2 ToolRL role at line {line_number}: {role!r}")
+        if selection_mode == "all_static":
+            selected_lines.add(line_number)
+            continue
         if role == "final" or metadata.get("is_initial_step"):
             selected_lines.add(line_number)
             continue
@@ -168,10 +202,9 @@ def select_decisions(
         if current is None or rank < current[0]:
             stratum_winner[stratum] = (rank, line_number)
     selected_lines.update(line_number for _, line_number in stratum_winner.values())
-    pre_excluded.extend(
-        {"line": line_number, "decision_key": key, "reason": "diversity_equivalent_middle_decision"}
-        for line_number, key, _, _ in middle_entries
-        if line_number not in selected_lines
+    alignment_pool = sorted(
+        (entry for entry in middle_entries if entry[0] not in selected_lines),
+        key=lambda entry: (entry[3], entry[1], entry[0]),
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
@@ -193,46 +226,69 @@ def select_decisions(
     compacted = 0
     max_prompt = max_target = 0
     seen_keys: set[str] = set()
+    considered_lines: set[int] = set()
+    alignment_added: list[dict[str, Any]] = []
 
-    for line_number, line in enumerate(input_path.open(encoding="utf-8"), 1):
-        if not line.strip():
-            continue
-        if line_number not in selected_lines:
-            continue
-        row = json.loads(line)
+    def materialize_candidate(line_number: int, selection_reason: str) -> bool:
+        nonlocal compacted, max_prompt, max_target
+        considered_lines.add(line_number)
+        row = rows_by_line[line_number]
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         key = _decision_key(metadata)
         if key in seen_keys:
             excluded.append({"line": line_number, "decision_key": key, "reason": "duplicate_decision_key"})
-            continue
+            return False
         seen_keys.add(key)
-        if metadata.get("is_no_progress_repeat"):
+        if selection_mode == "curated_static" and metadata.get("is_no_progress_repeat"):
             excluded.append({"line": line_number, "decision_key": key, "reason": "no_progress_repeat"})
-            continue
+            return False
         role = str(metadata.get("decision_role") or "")
         if role not in {"tool_step", "final"}:
             raise ValueError(f"invalid v2 ToolRL role at line {line_number}: {role!r}")
         target_tokens = len(tokenizer.encode(_canonical_target(row), add_special_tokens=False))
         if target_tokens > max_response_tokens:
             excluded.append(
-                {"line": line_number, "decision_key": key, "reason": "target_exceeds_response_limit", "target_tokens": target_tokens}
+                {
+                    "line": line_number,
+                    "decision_key": key,
+                    "reason": "target_action_exceeds_runtime_response_limit",
+                    "target_tokens": target_tokens,
+                    "runtime_response_limit": max_response_tokens,
+                }
             )
-            continue
+            return False
         prompt = row.get("prompt")
         if not isinstance(prompt, list) or not prompt:
             raise ValueError(f"missing prompt at line {line_number}")
+        assistant_prefix = str(metadata.get("assistant_prefix") or "")
+        prefix_tokens = len(tokenizer.encode(assistant_prefix, add_special_tokens=False))
+        compaction_budget = max(1, max_prompt_tokens - prefix_tokens)
         try:
-            final_prompt, audit = compact_prompt_with_audit(
-                tokenizer,
-                prompt,
-                max_prompt_tokens,
-                summary_max_tokens=summary_max_tokens,
-                semantic_summarizer=(
-                    lambda messages: summarizer.summarize(
-                        messages, tokenizer=tokenizer, max_tokens=max(1, summary_max_tokens - 128)
+            for _ in range(3):
+                final_prompt, audit = compact_prompt_with_audit(
+                    tokenizer,
+                    prompt,
+                    compaction_budget,
+                    summary_max_tokens=summary_max_tokens,
+                    semantic_summarizer=(
+                        lambda messages: summarizer.summarize(
+                            messages, tokenizer=tokenizer, max_tokens=max(1, summary_max_tokens - 128)
+                        )
+                    ) if summarizer is not None else None,
+                )
+                prompt_tokens = len(
+                    tokenizer.encode(
+                        _render_prompt(tokenizer, final_prompt, assistant_prefix),
+                        add_special_tokens=False,
                     )
-                ) if summarizer is not None else None,
-            )
+                )
+                if prompt_tokens <= max_prompt_tokens:
+                    break
+                compaction_budget -= prompt_tokens - max_prompt_tokens + 16
+                if compaction_budget < 1:
+                    raise ValueError("assistant prefix alone exceeds prompt budget")
+            else:
+                raise ValueError("prefix-conditioned prompt did not fit after compaction retries")
         except Exception as exc:
             excluded.append(
                 {
@@ -243,10 +299,7 @@ def select_decisions(
                     "error": str(exc),
                 }
             )
-            continue
-        # The compactor already verifies the final chat-template length.  Do
-        # not tokenize every overlapping trajectory prefix a second time.
-        prompt_tokens = int(audit["output_tokens"])
+            return False
         if prompt_tokens > max_prompt_tokens:
             raise ValueError(f"compactor exceeded prompt contract for {key}: {prompt_tokens}")
         if prompt_tokens + target_tokens > max_context_tokens:
@@ -259,19 +312,21 @@ def select_decisions(
                     "target_tokens": target_tokens,
                 }
             )
-            continue
+            return False
         out = copy.deepcopy(row)
         out["prompt"] = final_prompt
         out_metadata = copy.deepcopy(metadata)
         out_metadata.update(
             {
                 "selection_schema": VIEW_SCHEMA,
-                "selection_stage": "coverage_candidate_pool",
-                "learnability_selector": "online_reward_variance_n4",
+                "selection_stage": selection_reason,
+                "learnability_selector": "none_static_fixed_view",
                 "sampling_copy_index": 0,
                 "prompt_tokens_original": int(audit["original_tokens"]),
                 "prompt_tokens_final": prompt_tokens,
                 "canonical_target_tokens": target_tokens,
+                "assistant_prefix_tokens": prefix_tokens,
+                "prompt_rendering": "qwen_chat_template_plus_exact_assistant_prefix",
                 "context_compaction": audit,
             }
         )
@@ -283,6 +338,48 @@ def select_decisions(
         compacted += bool(audit.get("compacted"))
         max_prompt = max(max_prompt, prompt_tokens)
         max_target = max(max_target, target_tokens)
+        return True
+
+    for line_number in sorted(selected_lines):
+        materialize_candidate(line_number, "static_coverage")
+
+    for line_number, key, stratum, rank in alignment_pool:
+        if kept and len(kept) % batch_multiple == 0:
+            break
+        if materialize_candidate(line_number, "rbs_alignment_coverage_fill"):
+            alignment_added.append(
+                {
+                    "line": line_number,
+                    "decision_key": key,
+                    "rank": rank,
+                    "reason": "rbs_alignment_coverage_fill",
+                }
+            )
+    if selection_mode == "all_static" and kept:
+        drop_count = len(kept) % batch_multiple
+        for _ in range(drop_count):
+            dropped = kept.pop()
+            metadata = dropped.get("metadata") if isinstance(dropped.get("metadata"), dict) else {}
+            excluded.append(
+                {
+                    "decision_key": _decision_key(metadata),
+                    "reason": "rbs_alignment_deterministic_drop",
+                }
+            )
+            roles[str(metadata.get("decision_role") or "")] -= 1
+    if not kept or len(kept) % batch_multiple:
+        raise ValueError(
+            f"could not align {len(kept)} eligible decisions to batch multiple {batch_multiple}"
+        )
+
+    alignment_lines = {item["line"] for item in alignment_added}
+    excluded.extend(
+        {"line": line_number, "decision_key": key, "reason": "diversity_equivalent_middle_decision"}
+        for line_number, key, _, _ in middle_entries
+        if line_number not in selected_lines
+        and line_number not in alignment_lines
+        and line_number not in considered_lines
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
@@ -294,17 +391,20 @@ def select_decisions(
         "source_sha256": _sha256(input_path),
         "output_path": str(output_path.resolve()),
         "candidate_records": len(kept),
-        "eligible_before_diversity_constraint": len(selected_lines) + len(middle_entries) - len(stratum_winner),
+        "eligible_before_diversity_constraint": len(rows_by_line) - len(pre_excluded),
         "middle_diversity_strata": len(stratum_winner),
         "copies_added": 0,
+        "batch_multiple": batch_multiple,
+        "rbs_alignment_records": alignment_added,
         "role_counts": dict(roles),
         "coverage": {"task_types": sorted(task_types), "tool_names": sorted(tools), "task_type_count": len(task_types), "tool_count": len(tools)},
         "selection": {
-            "primary": "current_policy_reward_variance",
-            "rollouts_per_prompt": 4,
-            "runtime_filter": "drug_agent.toolrl.policy_boundary.policy_boundary_filter",
-            "diversity_role": "candidate_pool_constraint_and_audit",
-            "zero_variance_groups_are_not_trained": True,
+            "primary": "all_eligible_fixed_traversal" if selection_mode == "all_static" else "deterministic_static_coverage",
+            "n_samples_per_decision": 4,
+            "runtime_filter": None,
+            "diversity_role": "none" if selection_mode == "all_static" else "fixed_view_constraint_and_audit",
+            "zero_variance_groups_are_trained": True,
+            "epoch_semantics": "one_unique_decision_group_per_epoch",
         },
         "context": {
             "compaction_schema": COMPACTION_SCHEMA,
@@ -336,6 +436,8 @@ def main() -> None:
     parser.add_argument("--max-response-tokens", type=int, default=16384)
     parser.add_argument("--summary-max-tokens", type=int, default=32768)
     parser.add_argument("--max-context-tokens", type=int, default=262144)
+    parser.add_argument("--batch-multiple", type=int, default=4)
+    parser.add_argument("--selection-mode", choices=("curated_static", "all_static"), default="curated_static")
     parser.add_argument("--semantic-summarizer", choices=("none", "claude"), default="none")
     parser.add_argument("--summary-cache-root", type=Path)
     parser.add_argument("--claude-bin", default="claude")
@@ -351,6 +453,8 @@ def main() -> None:
         llm_timeout_sec=args.llm_timeout_sec,
         llm_max_attempts=args.llm_max_attempts,
         max_context_tokens=args.max_context_tokens,
+        batch_multiple=args.batch_multiple,
+        selection_mode=args.selection_mode,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
