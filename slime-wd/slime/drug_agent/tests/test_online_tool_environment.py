@@ -108,8 +108,8 @@ class ArtifactRegistryTest(unittest.TestCase):
             workspace = Path(tmp) / "task"
             registry = ArtifactRegistry(workspace)
             ref = registry.canonicalize({"path": "run_log.md"}, local_result=True)["path"]
-            self.assertEqual(ref, "<artifact:local/run_log.md>")
-            self.assertEqual(Path(registry.resolve(ref)), workspace / "run_log.md")
+            self.assertEqual(ref, "workspace/run_log.md")
+            self.assertEqual(registry.resolve(ref), ref)
             skills = Path(tmp) / "skills"
             skills.mkdir()
             local = LocalToolExecutor(workspace, skills)
@@ -132,8 +132,8 @@ class ArtifactRegistryTest(unittest.TestCase):
                 register_unknown_paths=False,
             )
             self.assertEqual(final["known"], known)
-            self.assertEqual(final["unknown_ref"], "<artifact:unavailable/other.pdb>")
-            self.assertEqual(final["raw"], "<artifact:unavailable/fake.pdb>")
+            self.assertEqual(final["unknown_ref"], "resource://unavailable/other.pdb")
+            self.assertEqual(final["raw"], "resource://unavailable/fake.pdb")
 
     def test_task_registries_do_not_share_raw_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,12 +177,12 @@ class ServerFileMaterializerTest(unittest.TestCase):
                 result["result"],
                 {
                     "status": "success",
-                    "artifact": "<artifact:local/result.pdb>",
+                    "path": "workspace/artifacts/result.pdb",
                     "bytes_written": len(payload),
                     "sha256": expected_sha256,
                 },
             )
-            self.assertEqual((registry.workspace / "result.pdb").read_bytes(), payload)
+            self.assertEqual((registry.workspace / "artifacts" / "result.pdb").read_bytes(), payload)
             self.assertNotIn("base64", json.dumps(result))
             self.assertFalse(list(registry.workspace.glob("*.tmp")))
 
@@ -207,8 +207,8 @@ class ServerFileMaterializerTest(unittest.TestCase):
                 artifact_registry=registry,
             )
             self.assertTrue(result["ok"])
-            self.assertEqual(result["result"]["artifact"], "<artifact:local/outside.pdb>")
-            self.assertEqual((registry.workspace / "outside.pdb").read_bytes(), payload)
+            self.assertEqual(result["result"]["path"], "workspace/artifacts/outside.pdb")
+            self.assertEqual((registry.workspace / "artifacts" / "outside.pdb").read_bytes(), payload)
             self.assertFalse((Path(tmp) / "outside.pdb").exists())
 
     def test_invalid_base64_returns_compact_error_without_creating_a_file(self):
@@ -249,7 +249,7 @@ class FakeOnlineLoopSmokeTest(unittest.TestCase):
             observation = artifact_registry.canonicalize(
                 {"result": result["result"], "output_file": "/server/task/result.sdf"}
             )
-            self.assertTrue(observation["output_file"].startswith("<artifact:"))
+            self.assertTrue(observation["output_file"].startswith("resource://"))
 
             terminal = parse_runtime_decision(
                 '<thought>The observation is sufficient.</thought>'

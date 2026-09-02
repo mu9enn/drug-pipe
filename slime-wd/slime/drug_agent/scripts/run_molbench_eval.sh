@@ -9,6 +9,16 @@ fi
 cd "$SLIME"
 
 : "${MODEL_CHECKPOINT:?Set MODEL_CHECKPOINT to a Slime torch-distributed checkpoint directory}"
+DRUG_AGENT_EVAL_PROFILE=${DRUG_AGENT_EVAL_PROFILE:-canonical_react_strict}
+case "$DRUG_AGENT_EVAL_PROFILE" in
+  canonical_react_strict)
+    CUSTOM_GENERATE_FUNCTION=drug_agent.rollout.generate_with_drug_agent.generate
+    ;;
+  slime-raw)
+    CUSTOM_GENERATE_FUNCTION=drug_agent.rollout.generate_with_slime_raw.generate
+    ;;
+  *) echo "Unsupported DRUG_AGENT_EVAL_PROFILE=$DRUG_AGENT_EVAL_PROFILE" >&2; exit 2 ;;
+esac
 EVAL_MODE=${EVAL_MODE:-molbench}
 MOLBENCH_ROOT=${MOLBENCH_ROOT:-$WD/molbench}
 MOLBENCH_SUITES=${MOLBENCH_SUITES:-}
@@ -71,7 +81,10 @@ EXPERT_MODEL_PARALLEL_SIZE=${EXPERT_MODEL_PARALLEL_SIZE:-1}
 EXPERT_TENSOR_PARALLEL_SIZE=${EXPERT_TENSOR_PARALLEL_SIZE:-1}
 REAL_CPU=${REAL_CPU:-$(nproc)}
 
-REQUIRED_PATHS=("$MODEL_CHECKPOINT" "$HF_CHECKPOINT" "$REF_LOAD" "$DRUG_AGENT_L1_SKILLS_ROOT")
+REQUIRED_PATHS=("$MODEL_CHECKPOINT" "$HF_CHECKPOINT" "$REF_LOAD")
+if [[ "$DRUG_AGENT_EVAL_PROFILE" != "slime-raw" ]]; then
+  REQUIRED_PATHS+=("$DRUG_AGENT_L1_SKILLS_ROOT")
+fi
 case "$EVAL_MODE" in
   molbench) REQUIRED_PATHS+=("$MOLBENCH_ROOT") ;;
   single_prompt)
@@ -135,6 +148,7 @@ export DRUG_AGENT_EVAL_RETRY_NON_FINAL="$RETRY_NON_FINAL"
 export DRUG_AGENT_EVAL_INFERENCE_ONLY="$INFERENCE_ONLY"
 export DRUG_AGENT_WORKSPACES_ROOT="$DRUG_AGENT_EVAL_RUN_DIR/workspaces"
 export DRUG_AGENT_EVAL_RUN_DIR MOLBENCH_ROOT DRUG_AGENT_L1_SKILLS_ROOT DRUG_AGENT_WORKSPACES_ROOT
+export DRUG_AGENT_EVAL_PROFILE
 
 PREFLIGHT_INPUT_ARGS=()
 if [[ "$EVAL_MODE" == "molbench" ]]; then
@@ -166,6 +180,7 @@ python -m drug_agent.evaluation.preflight \
   --num-gpus "$NUM_GPUS" \
   --tensor-model-parallel-size "$TENSOR_MODEL_PARALLEL_SIZE" \
   --pipeline-model-parallel-size "$PIPELINE_MODEL_PARALLEL_SIZE" \
+  --eval-profile "$DRUG_AGENT_EVAL_PROFILE" \
   "${PREFLIGHT_RESUME_ARGS[@]}" \
   "${PREFLIGHT_INPUT_ARGS[@]}" \
   "${ENV_FILE_ARGS[@]}"
@@ -194,10 +209,10 @@ export DRUG_AGENT_EVAL_RUN_FINGERPRINT
 export DRUG_AGENT_EVAL_RESUME="$RESUME_EVAL"
 export DRUG_AGENT_EVAL_RETRY_NON_FINAL="$RETRY_NON_FINAL"
 export DRUG_AGENT_EVAL_EXPECTED_TASK_COUNT="$EVAL_TASK_COUNT"
-python - "$EVAL_CONFIG" "$EVAL_DATASET" "$TEMPERATURE" "$MAX_NEW_TOKENS" <<'PY'
+python - "$EVAL_CONFIG" "$EVAL_DATASET" "$TEMPERATURE" "$MAX_NEW_TOKENS" "$CUSTOM_GENERATE_FUNCTION" <<'PY'
 import sys
 from pathlib import Path
-path, dataset, temperature, max_tokens = sys.argv[1:]
+path, dataset, temperature, max_tokens, custom_generate = sys.argv[1:]
 Path(path).write_text(
     "eval:\n"
     "  defaults:\n"
@@ -212,7 +227,7 @@ Path(path).write_text(
     "    - name: drug_agent_online_eval\n"
     f"      path: {dataset}\n"
     "      rm_type: drug_agent_eval\n"
-    "      custom_generate_function_path: drug_agent.rollout.generate_with_drug_agent.generate\n",
+    f"      custom_generate_function_path: {custom_generate}\n",
     encoding="utf-8",
 )
 PY
@@ -251,6 +266,7 @@ keys = [
     "DRUG_AGENT_EVAL_RUN_FINGERPRINT", "DRUG_AGENT_EVAL_RESUME",
     "DRUG_AGENT_EVAL_RETRY_NON_FINAL", "DRUG_AGENT_EVAL_EXPECTED_TASK_COUNT",
     "DRUG_AGENT_EVAL_INFERENCE_ONLY",
+    "DRUG_AGENT_EVAL_PROFILE",
 ]
 env = {key: value for key in keys if (value := os.environ.get(key))}
 env.update({
@@ -290,7 +306,7 @@ if [[ "$RESUME_EVAL" == "1" ]]; then
 else
   RAY_SUBMIT_LOG="$DRUG_AGENT_EVAL_RUN_DIR/ray_submit.log"
 fi
-echo "[drug-agent eval] mode=$EVAL_MODE checkpoint=$MODEL_CHECKPOINT run_dir=$DRUG_AGENT_EVAL_RUN_DIR tasks=$EVAL_TASK_COUNT workers=$MAX_WORKERS resume=$RESUME_EVAL retry_non_final=$RETRY_NON_FINAL"
+echo "[drug-agent eval] profile=$DRUG_AGENT_EVAL_PROFILE mode=$EVAL_MODE checkpoint=$MODEL_CHECKPOINT run_dir=$DRUG_AGENT_EVAL_RUN_DIR tasks=$EVAL_TASK_COUNT workers=$MAX_WORKERS resume=$RESUME_EVAL retry_non_final=$RETRY_NON_FINAL"
 set +e
 ray job submit --address=http://127.0.0.1:8265 --runtime-env-json="$RUNTIME_ENV_JSON" -- \
   python3 train.py \

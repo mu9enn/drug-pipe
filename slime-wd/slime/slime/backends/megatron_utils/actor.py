@@ -14,6 +14,7 @@ from transformers import AutoConfig, AutoTokenizer
 
 from slime.ray.train_actor import TrainRayActor
 from slime.utils import train_dump_utils
+from slime.utils.checkpoint_progress import write_checkpoint_progress
 from slime.utils.data import process_rollout_data
 from slime.utils.distributed_utils import get_gloo_group
 from slime.utils.logging_utils import init_tracking
@@ -81,6 +82,27 @@ class MegatronTrainRayActor(TrainRayActor):
         self.model, self.optimizer, self.opt_param_scheduler, loaded_rollout_id = initialize_model_and_optimizer(
             args, role
         )
+        progress = getattr(args, "slime_loaded_checkpoint_progress", None)
+        if args.finetune and args.no_load_optim:
+            # A new SFT/RL stage starts its own optimizer-step namespace even
+            # when its weights come from a prior-stage Slime checkpoint.
+            self.optimizer_step = 0
+        elif progress is not None:
+            self.optimizer_step = int(progress["optimizer_step"])
+        else:
+            # Compatibility for checkpoints written before progress metadata
+            # existed. The scheduler counts consumed samples; with the fixed
+            # GBS used by these launchers this recovers SFT's 183 updates from
+            # its legacy iter_0000000 checkpoint and RL's N updates from
+            # legacy zero-based rollout names.
+            scheduler_samples = int(getattr(self.opt_param_scheduler, "num_steps", 0) or 0)
+            scheduler_updates = scheduler_samples // max(1, int(args.global_batch_size))
+            checkpoint_iteration = getattr(args, "slime_loaded_checkpoint_iteration", None)
+            if getattr(args, "slime_loaded_checkpoint_is_release", False):
+                legacy_rollout_updates = 0
+            else:
+                legacy_rollout_updates = int(checkpoint_iteration) + 1 if checkpoint_iteration is not None else 0
+            self.optimizer_step = max(scheduler_updates, legacy_rollout_updates)
 
         vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
         if vpp_size > 1:
@@ -445,7 +467,7 @@ class MegatronTrainRayActor(TrainRayActor):
         compute_advantages_and_returns(self.args, rollout_data)
 
         self.args.loss_type = "value_loss"
-        train(
+        completed_updates = train(
             rollout_id,
             self.model,
             self.optimizer,
@@ -454,6 +476,7 @@ class MegatronTrainRayActor(TrainRayActor):
             num_microbatches,
             global_batch_sizes,
         )
+        self.optimizer_step += completed_updates
 
         if mpu.is_pipeline_last_stage() and "values" in rollout_data:
             from slime.backends.megatron_utils.data import tensors_to_cpu
@@ -572,7 +595,7 @@ class MegatronTrainRayActor(TrainRayActor):
             if self.args.use_routing_replay:
                 os.environ["ROUTING_REPLAY_STAGE"] = "replay_backward"
             with timer("actor_train"):
-                train(
+                completed_updates = train(
                     rollout_id,
                     self.model,
                     self.optimizer,
@@ -581,6 +604,7 @@ class MegatronTrainRayActor(TrainRayActor):
                     num_microbatches,
                     global_batch_sizes,
                 )
+                self.optimizer_step += completed_updates
 
             self.prof.step(rollout_id=rollout_id)
 
@@ -606,9 +630,9 @@ class MegatronTrainRayActor(TrainRayActor):
         log_perf_data(rollout_id, self.args, extra_metrics=self.weight_updater.pop_metrics())
 
     @timer
-    def save_model(self, rollout_id: int, force_sync: bool = False) -> None:
+    def save_model(self, rollout_id: int, force_sync: bool = False) -> int | None:
         if self.args.debug_rollout_only:
-            return
+            return None
 
         # torch dist may trigger nccl communication during saving.
         if self.args.offload_train:
@@ -619,18 +643,30 @@ class MegatronTrainRayActor(TrainRayActor):
 
             maybe_finalize_async_save(blocking=True)
 
-        save(rollout_id, self.model, self.optimizer, self.opt_param_scheduler)
+        checkpoint_iteration = self.optimizer_step
+        save(checkpoint_iteration, self.model, self.optimizer, self.opt_param_scheduler)
 
         if force_sync and self.args.async_save:
             maybe_finalize_async_save(blocking=True)
 
+        if is_megatron_main_rank():
+            write_checkpoint_progress(
+                self.args.save,
+                checkpoint_iteration=checkpoint_iteration,
+                optimizer_step=self.optimizer_step,
+                rollout_id=rollout_id,
+            )
+        dist.barrier(group=get_gloo_group())
+
         if self.args.save_hf is not None and self.role == "actor":
             from slime.backends.megatron_utils.model import save_hf_model
 
-            save_hf_model(self.args, rollout_id, self.model)
+            save_hf_model(self.args, checkpoint_iteration, self.model)
 
         if self.args.offload_train:
             self.sleep()
+
+        return checkpoint_iteration
 
     @timer
     def update_weights(self) -> None:

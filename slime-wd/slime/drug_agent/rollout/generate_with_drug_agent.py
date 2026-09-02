@@ -13,12 +13,16 @@ from slime.utils.http_utils import post
 from slime.utils.types import Sample
 
 from drug_agent.evaluation.task_store import bind_task_identity, checkpoint_sample, restore_sample
-from drug_agent.rollout.context_budget import bounded_step_limit, fit_context, make_turn
+from drug_agent.rollout.context_budget import ContextBudgetError, bounded_step_limit, fit_context, make_turn
 from drug_agent.protocol.react_protocol import final_answer_matches_task, parse_runtime_decision, project_final_answer
 from drug_agent.protocol.prompts import format_final_contract, format_tool_catalog, fresh_task_messages
+from drug_agent.protocol.slime_raw import PROFILE_NAME as SLIME_RAW_PROFILE
+from drug_agent.protocol.slime_raw import parse_decision as parse_slime_raw_decision
+from drug_agent.protocol.slime_raw import render_prompt as render_slime_raw_prompt
 from drug_agent.constants import DRUG_AGENT_L1_SKILLS_ROOT, DRUG_AGENT_WORKSPACES_ROOT
 from drug_agent.tools.artifact_registry import ArtifactRegistry
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES, LocalToolExecutor
+from drug_agent.tools.slime_raw_local_tools import SlimeRawLocalToolExecutor, workspace_only_tool_specs
 from drug_agent.tools.server_file_materializer import (
     SERVER_FILE_TO_BASE64,
     materialize_server_file_result,
@@ -30,6 +34,7 @@ from drug_agent.utils import normalize_tool_name, to_jsonable
 
 _RUNTIME_LOCK = threading.Lock()
 _RUNTIME: dict[str, Any] | None = None
+CANONICAL_PROFILE = "canonical_react_strict"
 
 ROLLOUT_FORMAT_REMINDER = (
     "/no_think\n"
@@ -214,6 +219,23 @@ def _append_observation(
     return list(obs_token_ids)
 
 
+def _with_forbidden_observation_stop(sampling_params: dict[str, Any]) -> dict[str, Any]:
+    """Stop before an assistant can claim the environment-owned observation role."""
+    out = dict(sampling_params)
+    existing = out.get("stop")
+    if isinstance(existing, str):
+        stops = [existing]
+    elif isinstance(existing, list):
+        stops = [str(value) for value in existing]
+    else:
+        stops = []
+    if "<observation" not in stops:
+        stops.append("<observation")
+    out["stop"] = stops
+    out["no_stop_trim"] = True
+    return out
+
+
 async def _execute_tool(
     registry: ToolRegistry,
     tool_name: str,
@@ -258,8 +280,13 @@ async def _generate_impl(
     *,
     task_executor: MCPToolExecutor,
     evaluation: bool = False,
+    rollout_profile: str = CANONICAL_PROFILE,
 ) -> Sample:
     assert not args.partial_rollout, "Partial rollout is not supported for drug_agent custom generate."
+
+    if rollout_profile not in {CANONICAL_PROFILE, SLIME_RAW_PROFILE}:
+        raise ValueError(f"unsupported drug-agent rollout profile: {rollout_profile}")
+    slime_raw = rollout_profile == SLIME_RAW_PROFILE
 
     state = GenerateState(args)
     runtime = _get_runtime()
@@ -272,6 +299,8 @@ async def _generate_impl(
     live_tool_specs = await asyncio.to_thread(authority_registry.list_tools)
     if not live_tool_specs:
         raise RuntimeError("molclaw-scp list_tools returned an empty catalog")
+    if slime_raw:
+        live_tool_specs = workspace_only_tool_specs(live_tool_specs)
     tool_catalog_hash = _verify_run_catalog(live_tool_specs)
     if context["explicit_tool_policy"]:
         allowed_tools = context["allowed_tools"]
@@ -290,33 +319,44 @@ async def _generate_impl(
     workspace = None
     if context["local_tools_enabled"]:
         workspace = DRUG_AGENT_WORKSPACES_ROOT / _workspace_name(task_id, sample.index)
-        local_executor = LocalToolExecutor(workspace, DRUG_AGENT_L1_SKILLS_ROOT)
+        executor_class = SlimeRawLocalToolExecutor if slime_raw else LocalToolExecutor
+        local_executor = executor_class(workspace, DRUG_AGENT_L1_SKILLS_ROOT)
     artifact_registry = ArtifactRegistry(workspace or (DRUG_AGENT_WORKSPACES_ROOT / _workspace_name(task_id, sample.index)))
-    rollout_mode = "canonical_react_strict"
+    rollout_mode = rollout_profile
     parse_recovery_enabled = False
     allow_parse_recovery_override = False
 
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
+    if not slime_raw:
+        sampling_params = _with_forbidden_observation_stop(sampling_params)
     source_prompt = sample.prompt
     if not isinstance(sample.metadata, dict):
         sample.metadata = {}
-    if evaluation and isinstance(source_prompt, list):
+    if evaluation and not slime_raw and isinstance(source_prompt, list):
         source_prompt = fresh_task_messages(source_prompt)
         if not any(item.get("role") == "user" for item in source_prompt):
             raise ValueError("evaluation sample has no fresh user question")
-    prompt_text = _to_prompt_text(
-        state,
-        source_prompt,
-        local_tools_enabled=context["local_tools_enabled"],
-        tool_catalog=tool_catalog,
-        final_contract=final_contract,
-        assistant_prefix=str(sample.metadata.get("assistant_prefix") or ""),
-        prompt_already_rendered=(
-            sample.metadata.get("prompt_rendering")
-            == "qwen_chat_template_plus_exact_assistant_prefix"
-        ),
-    )
+    if slime_raw:
+        prompt_text = render_slime_raw_prompt(
+            state,
+            source_prompt,
+            tool_catalog=tool_catalog,
+            final_contract=final_contract,
+        )
+    else:
+        prompt_text = _to_prompt_text(
+            state,
+            source_prompt,
+            local_tools_enabled=context["local_tools_enabled"],
+            tool_catalog=tool_catalog,
+            final_contract=final_contract,
+            assistant_prefix=str(sample.metadata.get("assistant_prefix") or ""),
+            prompt_already_rendered=(
+                sample.metadata.get("prompt_rendering")
+                == "qwen_chat_template_plus_exact_assistant_prefix"
+            ),
+        )
     prompt_token_ids = state.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
     if prompt_token_ids and isinstance(prompt_token_ids[0], list):
         prompt_token_ids = prompt_token_ids[0]
@@ -359,7 +399,7 @@ async def _generate_impl(
     try:
         step_iterator = range(max_steps) if max_steps > 0 else itertools.count()
         for step in step_iterator:
-            if evaluation:
+            if evaluation and not slime_raw:
                 current_token_ids, context_audit = fit_context(
                     state.tokenizer,
                     prefix_ids=prompt_token_ids,
@@ -382,6 +422,11 @@ async def _generate_impl(
                         context_compactions.append({**context_audit, "_signature": signature})
             else:
                 current_token_ids = prompt_token_ids + response_token_ids
+                if slime_raw and len(current_token_ids) > max_prompt_tokens:
+                    raise ContextBudgetError(
+                        "slime-raw preserves the full interaction history and does not compact it: "
+                        f"{len(current_token_ids)} > {max_prompt_tokens} tokens"
+                    )
 
             payload = {
                 "input_ids": current_token_ids,
@@ -425,17 +470,31 @@ async def _generate_impl(
                 "finish_type": finish_type,
             }
 
+            if "<observation" in cur_response:
+                action_record["protocol_violation"] = "assistant_emitted_observation"
+                action_record["model_output"] = cur_response
+                actions.append(action_record)
+                num_invalid += 1
+                sample.status = Sample.Status.FAILED
+                done_reason = "assistant_emitted_observation"
+                fatal_error = "assistant generation attempted to emit an environment-owned observation"
+                break
+
             if finish_type == "length":
                 sample.status = Sample.Status.TRUNCATED
                 done_reason = "length"
                 actions.append(action_record)
                 break
 
-            parsed = parse_runtime_decision(cur_response, strict_toolrl_turn=True)
+            parsed = (
+                parse_slime_raw_decision(cur_response)
+                if slime_raw
+                else parse_runtime_decision(cur_response, strict_toolrl_turn=True)
+            )
             action_record["parsed"] = to_jsonable(parsed)
             action_record["model_output"] = cur_response
             action_record["parse_recovery"] = None
-            action_record["parse_source"] = "canonical_react_strict"
+            action_record["parse_source"] = rollout_profile
             actions.append(action_record)
 
             if not parsed.get("ok"):
@@ -449,14 +508,24 @@ async def _generate_impl(
             if parsed.get("decision_type") == "tool_call":
                 step_observations: list[dict[str, Any]] = []
                 for parsed_call in parsed.get("tool_calls") or []:
-                    tool_name = normalize_tool_name(parsed_call.get("tool_name"))
+                    emitted_tool_name = str(parsed_call.get("tool_name") or "")
+                    tool_name = emitted_tool_name if slime_raw else normalize_tool_name(emitted_tool_name)
                     tool_args = parsed_call.get("arguments") if isinstance(parsed_call.get("arguments"), dict) else {}
 
-                    tool_ok, tool_reason = registry.validate_tool_name(tool_name, allowed_tools=allowed_tools)
+                    if slime_raw and (
+                        tool_name != normalize_tool_name(tool_name)
+                        or tool_name not in allowed_tools
+                    ):
+                        tool_ok, tool_reason = False, "non_canonical_tool_name"
+                    else:
+                        tool_ok, tool_reason = registry.validate_tool_name(tool_name, allowed_tools=allowed_tools)
                     args_ok, args_reason = registry.validate_arguments(tool_name, tool_args)
 
                     if tool_ok and args_ok:
-                        execution_args = artifact_registry.resolve(tool_args)
+                        execution_args = artifact_registry.resolve_for_execution(
+                            tool_args,
+                            filesystem_only=tool_name in LOCAL_TOOL_NAMES,
+                        )
                         tool_result = await _execute_tool(registry, tool_name, execution_args, local_executor)
                         if tool_name == SERVER_FILE_TO_BASE64:
                             tool_result = materialize_server_file_result(
@@ -549,6 +618,13 @@ async def _generate_impl(
                 payload_task_type = str((parsed.get("final_answer") or {}).get("task_type") or "").lower()
                 if not final_answer_matches_task(parsed.get("final_answer"), task_type):
                     num_invalid += 1
+                    if slime_raw:
+                        sample.status = Sample.Status.FAILED
+                        done_reason = "invalid_final_answer"
+                        fatal_error = (
+                            f"final_answer.task_type must be {task_type!r}, got {payload_task_type!r}"
+                        )
+                        break
                     obs_payload = {
                         "tool_name": "runtime",
                         "status": "error",
@@ -632,6 +708,14 @@ async def _generate_impl(
         "workspace": "<artifact:local/>" if workspace is not None else None,
         "max_steps": max_steps,
         "rollout_mode": rollout_mode,
+        **(
+            {
+                "model_specific_compatibility": False,
+                "context_policy": "full_history_no_compaction",
+            }
+            if slime_raw
+            else {}
+        ),
         "parse_recovery_enabled": parse_recovery_enabled,
         "allow_parse_recovery_override": allow_parse_recovery_override,
         "actions": actions,
@@ -678,7 +762,14 @@ async def _generate_impl(
     return sample
 
 
-async def generate(args, sample: Sample, sampling_params, evaluation: bool = False) -> Sample:
+async def generate_profile(
+    args,
+    sample: Sample,
+    sampling_params,
+    *,
+    evaluation: bool = False,
+    rollout_profile: str = CANONICAL_PROFILE,
+) -> Sample:
     """Bound complete agent tasks; SGLang token concurrency remains separate."""
     runtime = _get_runtime()
     loop = asyncio.get_running_loop()
@@ -707,6 +798,7 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                         sampling_params,
                         task_executor=task_executor,
                         evaluation=evaluation,
+                        rollout_profile=rollout_profile,
                     ),
                     timeout=timeout if timeout > 0 else None,
                 )
@@ -725,6 +817,7 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
                     "task_type": context["task_type"],
                     "data_source": context["data_source"],
                     "evaluation": bool(evaluation),
+                    "rollout_mode": rollout_profile,
                     "done_reason": "task_timeout",
                     "error": f"task timeout after {timeout}s",
                     "actions": to_jsonable(actions or []),
@@ -750,3 +843,13 @@ async def generate(args, sample: Sample, sampling_params, evaluation: bool = Fal
             return result
         finally:
             _close_task_executor(task_executor, sample)
+
+
+async def generate(args, sample: Sample, sampling_params, evaluation: bool = False) -> Sample:
+    return await generate_profile(
+        args,
+        sample,
+        sampling_params,
+        evaluation=evaluation,
+        rollout_profile=CANONICAL_PROFILE,
+    )

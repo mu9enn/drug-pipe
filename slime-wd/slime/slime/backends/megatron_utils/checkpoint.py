@@ -10,6 +10,7 @@ from megatron.training.checkpointing import save_checkpoint
 from megatron.training.global_vars import get_args
 
 from slime.utils import megatron_bridge_utils
+from slime.utils.checkpoint_progress import read_checkpoint_progress
 
 try:
     # Here we patch out the `validate_non_overlapping_shards_metadata` in both functions
@@ -106,14 +107,27 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, checkpointing_con
 
     if _is_megatron_checkpoint(load_path):
         with _allow_missing_lora_factory_keys(getattr(args, "megatron_lora", False)):
-            return _load_checkpoint_megatron(
+            result = _load_checkpoint_megatron(
                 ddp_model=ddp_model,
                 optimizer=optimizer,
                 opt_param_scheduler=opt_param_scheduler,
                 checkpointing_context=checkpointing_context,
                 skip_load_to_model_and_opt=skip_load_to_model_and_opt,
             )
+        checkpoint_iteration = int(result[0])
+        progress = read_checkpoint_progress(load_path, checkpoint_iteration=checkpoint_iteration)
+        args.slime_loaded_checkpoint_progress = progress
+        args.slime_loaded_checkpoint_iteration = checkpoint_iteration
+        args.slime_loaded_checkpoint_is_release = _is_release_checkpoint(load_path)
+        if progress is None:
+            return result
+        # Megatron's iteration now names completed optimizer updates. Slime's
+        # outer loop must resume from the separately persisted rollout cursor.
+        return (int(progress["rollout_id"]), *result[1:])
     else:
+        args.slime_loaded_checkpoint_progress = None
+        args.slime_loaded_checkpoint_iteration = None
+        args.slime_loaded_checkpoint_is_release = False
         return _load_checkpoint_hf(
             ddp_model=ddp_model,
             optimizer=optimizer,
@@ -208,6 +222,16 @@ def _is_megatron_checkpoint(path: str | Path) -> bool:
     return (Path(path) / "latest_checkpointed_iteration.txt").is_file() or bool(
         re.fullmatch(r"iter_\d{7}", Path(path).name)
     )
+
+
+def _is_release_checkpoint(path: str | Path) -> bool:
+    """Return whether a checkpoint root points at Megatron's base ``release`` checkpoint."""
+
+    candidate = Path(path)
+    marker = candidate / "latest_checkpointed_iteration.txt"
+    if not marker.is_file():
+        return False
+    return marker.read_text(encoding="utf-8").strip().lower() == "release"
 
 
 def _load_checkpoint_hf(ddp_model, optimizer, args, load_path: str):

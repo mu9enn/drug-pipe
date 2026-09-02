@@ -60,6 +60,7 @@ TOOLRL_SAVE_INTERVAL="${TOOLRL_SAVE_INTERVAL:-25}"
 TOOLRL_CHECKPOINT_KEEP_LAST="${TOOLRL_CHECKPOINT_KEEP_LAST:-4}"
 TOOLRL_LONG_BATCH_GATE_UPDATES="${TOOLRL_LONG_BATCH_GATE_UPDATES:-2}"
 TOOLRL_RETAIN_GATE_CHECKPOINTS="${TOOLRL_RETAIN_GATE_CHECKPOINTS:-0}"
+TOOLRL_SKIP_GATES="${TOOLRL_SKIP_GATES:-0}"
 TOOLRL_REWARD_MODE="${TOOLRL_REWARD_MODE:-hierarchical}"
 TOOLRL_USE_KL_LOSS="${TOOLRL_USE_KL_LOSS:-1}"
 TOOLRL_KL_COEF="${TOOLRL_KL_COEF:-0.0}"
@@ -250,6 +251,7 @@ else
   TOOLRL_COMMON+=(DYNAMIC_SAMPLING_FILTER_PATH= DYNAMIC_SAMPLING_MAX_DROPPED_GROUPS= DYNAMIC_SAMPLING_STRICT_MAX_DROPS=0)
 fi
 
+if [[ "$TOOLRL_SKIP_GATES" != 1 ]]; then
 for tier in shortest p50 p95 near_limit; do
   stage="toolrl_gate_${tier}"
   if [[ ! -f "$RUN_ROOT/$stage.complete" ]]; then
@@ -309,6 +311,7 @@ if [[ ! -f "$RUN_ROOT/toolrl_multi_update.complete" ]]; then
     bash drug_agent/toolrl/scripts/run_toolrl_grpo.sh
   python -m drug_agent.scripts.check_rl_training_gate "$LOG_ROOT/toolrl_multi_update.log" 10 --minimum-nonzero-group-ratio "$TOOLRL_MIN_NONZERO_GROUP_RATIO"
   mark_complete toolrl_multi_update
+fi
 fi
 
 if [[ ! -f "$RUN_ROOT/toolrl.complete" ]]; then

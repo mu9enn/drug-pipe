@@ -519,7 +519,7 @@ def train_one_step(
     num_microbatches: int,
     step_global_batch_size: int,
     microbatch_pbar=None,
-) -> tuple[dict[str, float], float]:
+) -> tuple[dict[str, float], float, bool]:
     """Execute a single pipeline-parallel training step.
 
     Runs forward/backward over ``num_microbatches``, applies optimizer step and
@@ -543,8 +543,9 @@ def train_one_step(
             equals the per-step sample count, so behavior is unchanged.
 
     Returns:
-        tuple[dict[str, float], float]: Reduced loss dictionary (last stage only)
-        and gradient norm for logging.
+        tuple[dict[str, float], float, bool]: Reduced loss dictionary (last
+        stage only), gradient norm for logging, and whether an optimizer update
+        was applied.
     """
     args = get_args()
 
@@ -685,6 +686,7 @@ def train_one_step(
     )
 
     valid_step = True
+    optimizer_update_applied = False
     grad_norm = float("nan")
     if not getattr(args, "check_for_nan_in_loss_and_grad", True):
         found_inf_flag = optimizer.prepare_grads()
@@ -743,6 +745,7 @@ def train_one_step(
         # Update learning rate. Use the per-step global_batch_size when dynamic
         # batching is on so the scheduler's samples-seen counter tracks reality.
         assert update_successful
+        optimizer_update_applied = True
         opt_param_scheduler.step(increment=step_global_batch_size)
 
         # Keep the steady state small for colocated training. The next
@@ -772,8 +775,8 @@ def train_one_step(
             cp_size=mpu.get_context_parallel_world_size(),
             dp_with_cp_group=mpu.get_data_parallel_group(with_context_parallel=True),
         )
-        return loss_reduced, grad_norm
-    return {}, grad_norm
+        return loss_reduced, grad_norm, optimizer_update_applied
+    return {}, grad_norm, optimizer_update_applied
 
 
 def should_disable_forward_pre_hook(args: Namespace) -> bool:
@@ -789,7 +792,7 @@ def train(
     data_iterator: Sequence[DataIterator],
     num_microbatches: Sequence[int],
     global_batch_sizes: Sequence[int],
-) -> None:
+) -> int:
     """Run training over a rollout consisting of multiple steps.
 
     The model is switched to train mode, training hooks are configured, and
@@ -938,11 +941,13 @@ def train(
         disable=_disable_tqdm_for_non_main_rank(),
     )
 
+    completed_optimizer_updates = 0
+
     # Run training iterations till done.
     for step_id in range(num_steps_per_rollout):
 
         # Run training step.
-        loss_dict, grad_norm = train_one_step(
+        loss_dict, grad_norm, optimizer_update_applied = train_one_step(
             args,
             rollout_id,
             step_id,
@@ -954,6 +959,7 @@ def train(
             global_batch_sizes[step_id],
             microbatch_pbar=microbatch_pbar,
         )
+        completed_optimizer_updates += int(optimizer_update_applied)
 
         if step_id == 0:
             # Enable forward pre-hook after training step has successfully run. All subsequent
@@ -1046,6 +1052,7 @@ def train(
     # Close out pre-hooks if using distributed optimizer and overlapped param gather.
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
+    return completed_optimizer_updates
 
 
 def save(

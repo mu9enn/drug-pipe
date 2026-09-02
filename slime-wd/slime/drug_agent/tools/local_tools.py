@@ -18,7 +18,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path": {"type": "string"},
+                "file_path": {"type": "string", "description": "A workspace/... filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."},
                 "offset": {"type": "integer"},
                 "limit": {"type": "integer"},
             },
@@ -30,7 +30,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "description": "Write a UTF-8 file inside the task workspace.",
         "input_schema": {
             "type": "object",
-            "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}},
+            "properties": {"file_path": {"type": "string", "description": "A workspace/... filesystem path; resource handles are not accepted."}, "content": {"type": "string"}},
             "required": ["file_path", "content"],
         },
     },
@@ -40,7 +40,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path": {"type": "string"},
+                "file_path": {"type": "string", "description": "A workspace/... filesystem path; resource handles are not accepted."},
                 "old_string": {"type": "string"},
                 "new_string": {"type": "string"},
                 "replace_all": {"type": "boolean"},
@@ -55,7 +55,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "pattern": {"type": "string"},
-                "path": {"type": "string"},
+                "path": {"type": "string", "description": "A workspace/... filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."},
                 "glob": {"type": "string"},
                 "case_insensitive": {"type": "boolean"},
             },
@@ -67,7 +67,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "description": "List files matching a glob in the task workspace or read-only L1 skill catalog.",
         "input_schema": {
             "type": "object",
-            "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
+            "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "A workspace/... filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."}},
             "required": ["pattern"],
         },
     },
@@ -76,7 +76,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "description": "Run a restricted file-oriented command in the task workspace.",
         "input_schema": {
             "type": "object",
-            "properties": {"command": {"type": "string"}},
+            "properties": {"command": {"type": "string", "description": "A restricted command using workspace/... filesystem paths; resource handles are not accepted."}},
             "required": ["command"],
         },
     },
@@ -123,7 +123,8 @@ _BASH_FORBIDDEN = {
     "conda",
 }
 _BASH_UNSAFE_TEXT = re.compile(r"(?:`|\$\(|\$\{|;|&&|\|\||\n|\r)")
-_ARTIFACT_REF = re.compile(r"^<artifact:(.+)>$")
+_ARTIFACT_REF = re.compile(r"<artifact:[^>]+>")
+_RESOURCE_REF = re.compile(r"resource://[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+")
 
 
 class LocalToolError(ValueError):
@@ -188,11 +189,15 @@ class LocalToolExecutor:
         return value
 
     def _path(self, raw: str, *, write: bool = False) -> Path:
-        artifact_match = _ARTIFACT_REF.fullmatch(raw.strip())
-        if artifact_match:
-            raw = artifact_match.group(1)
-            if raw.startswith("local/"):
-                raw = raw[len("local/") :]
+        if _ARTIFACT_REF.search(raw) or _RESOURCE_REF.search(raw):
+            raise LocalToolError(
+                "path/reference contract error: filesystem tools require workspace/... paths, "
+                "not artifact/resource handles"
+            )
+        if raw == "workspace":
+            raw = "."
+        elif raw.startswith("workspace/"):
+            raw = raw[len("workspace/") :]
 
         normalized = raw.replace("\\", "/")
         skill_prefix = "skills/L1_tools/"
@@ -229,7 +234,8 @@ class LocalToolExecutor:
 
     def _display(self, path: Path) -> str:
         try:
-            return str(path.relative_to(self.workspace))
+            relative = path.relative_to(self.workspace)
+            return "workspace" if relative == Path(".") else f"workspace/{relative}"
         except ValueError:
             return f"skills/L1_tools/{path.relative_to(self.l1_skills_root)}"
 
@@ -328,6 +334,11 @@ class LocalToolExecutor:
 
     def _run_bash(self, arguments: dict[str, Any]) -> dict[str, Any]:
         command = self._require_string(arguments, "command").strip()
+        if _ARTIFACT_REF.search(command) or _RESOURCE_REF.search(command):
+            raise LocalToolError(
+                "path/reference contract error: Bash requires workspace/... paths; "
+                "resource handles must be materialized first"
+            )
         if _BASH_UNSAFE_TEXT.search(command):
             raise LocalToolError("shell expansion, chaining, and command substitution are forbidden")
         lexer = shlex.shlex(command, posix=True, punctuation_chars="|><&;")
@@ -450,7 +461,7 @@ class LocalToolExecutor:
 
     def _sanitize_output(self, text: str) -> str:
         return text.replace(str(self.l1_skills_root), "skills/L1_tools").replace(
-            str(self.workspace), "."
+            str(self.workspace), "workspace"
         )
 
     @staticmethod

@@ -54,6 +54,10 @@ def _runtime_failure_lines(text: str) -> list[str]:
         stripped = line.lstrip()
         if stripped.startswith("+") or any(marker in line for marker in payload_markers):
             continue
+        # ``ray stop --force`` reports each daemon it deliberately terminates
+        # as a SIGKILL. This is expected stage cleanup, not a training failure.
+        if "scripts.py:1313 -- Killed" in line and "(via SIGKILL)" in line:
+            continue
         if any(pattern.search(line) for pattern in patterns):
             failures.append(line[-1000:])
     return failures

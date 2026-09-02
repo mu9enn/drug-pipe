@@ -139,7 +139,13 @@ class RayTrainGroup:
 
     def save_model(self, rollout_id, force_sync=False):
         """Save actor model"""
-        return ray.get([actor.save_model.remote(rollout_id, force_sync=force_sync) for actor in self._actor_handlers])
+        iterations = ray.get(
+            [actor.save_model.remote(rollout_id, force_sync=force_sync) for actor in self._actor_handlers]
+        )
+        non_null = {value for value in iterations if value is not None}
+        if len(non_null) > 1:
+            raise RuntimeError(f"training ranks disagree on checkpoint optimizer step: {sorted(non_null)}")
+        return next(iter(non_null), None)
 
     def update_weights(self):
         """Broadcast weights from rank 0 to all other ranks."""

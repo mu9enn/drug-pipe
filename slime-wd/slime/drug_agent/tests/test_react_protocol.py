@@ -26,7 +26,7 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
             {
                 "task_type": "vs",
                 "ranked_smiles": ["CCO"],
-                "selected_smiles": "CCO",
+                "selected_smiles": ["CCO"],
                 "summary": "ranked",
                 "evidence": [],
             },
@@ -74,7 +74,7 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
 
     def test_rejects_incomplete_task_specific_final(self) -> None:
         parsed = self._parse(
-            {"task_type": "vs", "selected_smiles": "CCO", "summary": "ranked", "evidence": []}
+            {"task_type": "vs", "selected_smiles": ["CCO"], "summary": "ranked", "evidence": []}
         )
         self.assertFalse(parsed["ok"])
         self.assertIn("ranked_smiles", str(parsed["error_message"]))

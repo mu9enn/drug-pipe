@@ -67,6 +67,8 @@ def _sft_records_for_trajectory(record: dict[str, Any]) -> list[dict[str, Any]]:
     for message_index, message in enumerate(messages):
         if not isinstance(message, dict) or message.get("role") != "assistant":
             continue
+        if message.get("path_contract_supervision_masked") is True:
+            continue
         segments = split_assistant_segments(str(message.get("content") or ""))
         if len(segments) <= 1:
             continue
@@ -284,10 +286,6 @@ def materialize_release(
         "extensions": {
             "frozen_sft_reference": {"default": False, "switch": "TOOLRL_REF_LOAD/BASE_SFT_DIR"},
             "hierarchical_reward": {"default": False, "switch": "TOOLRL_REWARD_MODE=hierarchical"},
-            "structured_final_exact": {
-                "default": False,
-                "switch": "TOOLRL_STRUCTURED_FINAL_EXACT=1",
-            },
             "drug_pipe_skill_discovery": {"default": False, "switch": "TOOLRL_PROMPT_STRATEGY=drug_pipe_skill_discovery"},
             "static_curated_selector": {"default": False, "switch": "TOOLRL_VIEW=production"},
             "sft_warm_start": {"default": False, "switch": "V6_PROFILE=drug_pipe_production"},

@@ -1,0 +1,4 @@
+interface:
+  display_name: "H-Cluster RJob Submit"
+  short_description: "Queue real workloads with validated H-cluster RJob settings"
+  default_prompt: "Use $h-rjob-submit to prepare and validate an RJob command that queues this concrete training workload on the H cluster."

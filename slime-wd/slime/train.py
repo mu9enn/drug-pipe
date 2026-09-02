@@ -60,8 +60,9 @@ def train(args):
     def save(rollout_id):
         actor_trains_this_step = (not args.use_critic) or rollout_id >= args.num_critic_only_steps
         force_sync = rollout_id == args.num_rollout - 1 or args.save_retain_last is not None
+        checkpoint_iteration = None
         if actor_trains_this_step:
-            actor_model.save_model(
+            checkpoint_iteration = actor_model.save_model(
                 rollout_id,
                 force_sync=force_sync,
             )
@@ -73,7 +74,9 @@ def train(args):
         if args.rollout_global_dataset:
             ray.get(rollout_manager.save.remote(rollout_id))
         if actor_trains_this_step and args.save_retain_last is not None:
-            prune_checkpoint_root(args.save, args.save_retain_last, expected_iteration=rollout_id)
+            if checkpoint_iteration is None:
+                raise RuntimeError("actor checkpoint save did not report an optimizer-step iteration")
+            prune_checkpoint_root(args.save, args.save_retain_last, expected_iteration=checkpoint_iteration)
 
     # train loop.
     for rollout_id in range(args.start_rollout_id, args.num_rollout):

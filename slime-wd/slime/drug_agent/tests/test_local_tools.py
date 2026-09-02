@@ -68,9 +68,9 @@ class LocalToolExecutorTest(unittest.TestCase):
         read = self.executor.execute("Read", {"file_path": "run_log.md"})
         self.assertEqual(read["result"]["content"], "step: retrieve structure\n")
         grep = self.executor.execute("Grep", {"pattern": "structure", "path": "."})
-        self.assertEqual(grep["result"]["matches"][0]["path"], "run_log.md")
+        self.assertEqual(grep["result"]["matches"][0]["path"], "workspace/run_log.md")
         glob = self.executor.execute("Glob", {"pattern": "*.md"})
-        self.assertEqual(glob["result"]["matches"], ["run_log.md"])
+        self.assertEqual(glob["result"]["matches"], ["workspace/run_log.md"])
 
     def test_l1_skill_document_is_read_only_and_l2_is_unavailable(self) -> None:
         result = self.executor.execute(

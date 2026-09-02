@@ -16,7 +16,7 @@ REACT_FORMAT_DOC = (
 )
 
 _FINAL_FIELDS = {
-    "vs": {"task_type": "vs", "ranked_smiles": ["full candidate ranking"], "selected_smiles": "top-ranked SMILES", "evidence": []},
+    "vs": {"task_type": "vs", "ranked_smiles": ["full candidate ranking"], "selected_smiles": ["top-ranked SMILES"], "evidence": []},
     "ac": {"task_type": "ac", "answer_smiles": "selected SMILES", "evidence": []},
     "pf": {"task_type": "pf", "selected_smiles": ["selected SMILES"], "evidence": []},
     "kg": {"task_type": "kg", "result": "task result", "evidence": []},

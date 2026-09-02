@@ -20,11 +20,11 @@ case "$V6_VARIANT" in
     RUN_PREFIX="Qwen3.5-9B_v6_turn_full_sft_toolrl"
     ;;
   mol)
-    LIVE_DATA_ROOT="${LIVE_DATA_ROOT:-$DATA_ROOT/live_tool_catalog_v6-final-mol-sftnrl}"
-    EXPECTED_DATASET_VERSION="live_tool_catalog_v6-final-mol-sftnrl"
+    LIVE_DATA_ROOT="${LIVE_DATA_ROOT:-$DATA_ROOT/live_tool_catalog_v7-release-mol-sftnrl}"
+    EXPECTED_DATASET_VERSION="live_tool_catalog_v7-release-mol-sftnrl"
     EXPECTED_CANONICAL_RECORDS=365
-    EXPECTED_EXCLUDED_RECORDS=240
-    RUN_PREFIX="Qwen3.5-9B_v6_turn_mol_sft_toolrl"
+    EXPECTED_EXCLUDED_RECORDS=0
+    RUN_PREFIX="Qwen3.5-9B_v7_release_mol_sft_toolrl"
     ;;
   *) echo "V6_VARIANT must be full or mol, got: $V6_VARIANT" >&2; exit 2 ;;
 esac
@@ -74,7 +74,7 @@ COMMON_ENV=(
   EXPECTED_EXCLUDED_RECORDS="$EXPECTED_EXCLUDED_RECORDS" \
   EXPECTED_CANONICAL_SHA256="$EXPECTED_CANONICAL_SHA256" RUN_ID="$RUN_ID" \
   DRUG_AGENT_TOOL_CATALOG="$LIVE_DATA_ROOT/tool_catalog.json"
-  TOOLRL_ENABLE_DYNAMIC_FILTER=0 TOOLRL_REQUIRE_EXACT_EPOCH=1
+  TOOLRL_ENABLE_DYNAMIC_FILTER=0 TOOLRL_REQUIRE_EXACT_EPOCH="${TOOLRL_REQUIRE_EXACT_EPOCH:-1}"
   TOOLRL_MIN_NONZERO_GROUP_RATIO=0.0 TOOLRL_ALLOW_ZERO_VARIANCE_PROBES=1 EPS_CLIP=0.2 EPS_CLIP_HIGH=0.2
 )
 
@@ -87,7 +87,6 @@ case "$V6_PROFILE" in
       TOOLRL_MANIFEST_OVERRIDE="$LIVE_DATA_ROOT/toolrl/context_manifest.official_baseline.json" \
       TOOLRL_NUM_ROLLOUT="$(( BASELINE_RECORDS / 4 ))" \
       TOOLRL_REWARD_MODE=toolrl_official_8cee13e TOOLRL_TRAINING_PIPELINE=TOOLRL_OFFICIAL_BASELINE \
-      TOOLRL_STRUCTURED_FINAL_EXACT=0 \
       TOOLRL_USE_KL_LOSS=0 TOOLRL_KL_COEF=0.001 TOOLRL_KL_LOSS_COEF=0 \
       TOOLRL_KL_LOSS_TYPE=k1 TOOLRL_DISABLE_REWARDS_NORMALIZATION=1 \
       TOOLRL_CUSTOM_ADVANTAGE_FUNCTION_PATH=drug_agent.toolrl.official_grpo.compute_official_8cee13e_advantages \
@@ -97,9 +96,8 @@ case "$V6_PROFILE" in
     ;;
   drug_pipe_production)
     exec "${COMMON_ENV[@]}" \
-      TOOLRL_NUM_ROLLOUT="$(( PRODUCTION_RECORDS / 4 ))" \
-      TOOLRL_REWARD_MODE=hierarchical TOOLRL_USE_KL_LOSS=1 TOOLRL_KL_COEF=0 \
-      TOOLRL_STRUCTURED_FINAL_EXACT=1 \
+      TOOLRL_NUM_ROLLOUT="${TOOLRL_NUM_ROLLOUT:-$(( PRODUCTION_RECORDS / 4 ))}" \
+      TOOLRL_REWARD_MODE="${TOOLRL_REWARD_MODE:-hierarchical}" TOOLRL_USE_KL_LOSS=1 TOOLRL_KL_COEF=0 \
       TOOLRL_KL_LOSS_COEF=0.001 TOOLRL_KL_LOSS_TYPE=low_var_kl \
       bash "$SCRIPT_DIR/run_qwen3_5_9b_v4_mol_sft_toolrl_v2.sh"
     ;;

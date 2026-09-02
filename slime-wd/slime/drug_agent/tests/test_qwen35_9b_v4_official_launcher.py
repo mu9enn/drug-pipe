@@ -49,6 +49,24 @@ step 0: {'train/loss': 1e-8, 'train/grad_norm': 0.7}
         check_log(log, 1)
 
 
+def test_rl_gate_ignores_ray_force_stop_sigkill_but_rejects_uncontrolled_sigkill(tmp_path):
+    successful = (
+        "rollout 0: {'rollout/raw_reward': 0.5, 'rollout/truncated': 0.0}\n"
+        "step 0: {'train/loss': 0.1, 'train/grad_norm': 0.7}\n"
+    )
+    log = tmp_path / "ray_teardown.log"
+    log.write_text(
+        successful
+        + "VINFO scripts.py:1313 -- Killed `/usr/bin/raylet --head` (via SIGKILL)\n",
+        encoding="utf-8",
+    )
+    assert check_log(log, 1)["gate"] == "PASS"
+
+    log.write_text(successful + "worker exited via SIGKILL\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="runtime failure"):
+        check_log(log, 1)
+
+
 def test_rl_gate_requires_a_minimum_fraction_of_reward_variance_groups(tmp_path):
     log = tmp_path / "variance.log"
     log.write_text(

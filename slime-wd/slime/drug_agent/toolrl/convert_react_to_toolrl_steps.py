@@ -147,6 +147,7 @@ def _decision_annotations(messages: list[dict[str, Any]]) -> dict[tuple[int, int
         item
         for item in iter_react_decisions(messages)
         if item["parse"].get("ok") and item.get("decision_type") in {"tool_call", "final_answer"}
+        and not bool(messages[int(item["assistant_index"])].get("path_contract_supervision_masked"))
     ]
     seen_calls: dict[str, tuple[tuple[int, int], int]] = {}
     annotations: dict[tuple[int, int], dict[str, Any]] = {}
@@ -345,6 +346,21 @@ def convert_react_to_toolrl_steps(
             assistant_subturn_index = int(decision.get("assistant_subturn_index") or 0)
             message = decision["target_assistant"]
             parsed = decision["parse"]
+            source_message = messages[message_index]
+            if source_message.get("path_contract_supervision_masked") is True:
+                counts["skip_path_contract_masked_action"] += 1
+                skipped_rows.append(
+                    {
+                        "source": str(input_path),
+                        "record_index": record_idx,
+                        "source_id": record.get("id"),
+                        "assistant_index": message_index,
+                        "assistant_subturn_index": assistant_subturn_index,
+                        "skip_reason": "path_contract_masked_action",
+                        "details": {},
+                    }
+                )
+                continue
             if not parsed.get("ok"):
                 counts["skip_parse_failed"] += 1
                 skipped_rows.append(

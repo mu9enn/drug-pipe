@@ -18,8 +18,12 @@ from drug_agent.tools.runtime_env import (
 )
 from drug_agent.tools.tool_executor import MCPToolExecutor
 from drug_agent.tools.tool_registry import ToolRegistry, catalog_sha256
+from drug_agent.tools.slime_raw_local_tools import workspace_only_tool_specs
 from drug_agent.evaluation.task_store import load_records
 from drug_agent.utils import read_jsonl, utc_now_iso, write_json
+
+
+SUPPORTED_EVAL_PROFILES = {"canonical_react_strict", "slime-raw"}
 
 
 def _hash_tree(root: Path) -> str:
@@ -132,6 +136,11 @@ def main() -> int:
     parser.add_argument("--num-gpus", type=int, required=True)
     parser.add_argument("--tensor-model-parallel-size", type=int, required=True)
     parser.add_argument("--pipeline-model-parallel-size", type=int, required=True)
+    parser.add_argument(
+        "--eval-profile",
+        choices=sorted(SUPPORTED_EVAL_PROFILES),
+        default="canonical_react_strict",
+    )
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if args.max_workers < 1 or args.max_steps < 0 or args.task_timeout_sec <= 0:
@@ -230,9 +239,12 @@ def main() -> int:
     if duplicates:
         raise ValueError(f"evaluation task ids must be unique: {duplicates}")
     input_sha256 = _hash_file(input_dataset_path)
-    if not DRUG_AGENT_L1_SKILLS_ROOT.is_dir():
-        raise FileNotFoundError(f"L1 skills root not found: {DRUG_AGENT_L1_SKILLS_ROOT}")
-    l1_snapshot = _l1_snapshot_info(DRUG_AGENT_L1_SKILLS_ROOT)
+    if args.eval_profile == "slime-raw":
+        l1_snapshot = {"root": None, "sha256": None, "skill_count": 0, "file_count": 0}
+    else:
+        if not DRUG_AGENT_L1_SKILLS_ROOT.is_dir():
+            raise FileNotFoundError(f"L1 skills root not found: {DRUG_AGENT_L1_SKILLS_ROOT}")
+        l1_snapshot = _l1_snapshot_info(DRUG_AGENT_L1_SKILLS_ROOT)
 
     executor = MCPToolExecutor(connect_on_init=False)
     try:
@@ -240,6 +252,8 @@ def main() -> int:
         catalog = registry.list_tools(force_refresh=True)
     finally:
         executor.close()
+    if args.eval_profile == "slime-raw":
+        catalog = workspace_only_tool_specs(catalog)
     mcp_catalog = [item for item in catalog if item.get("executor") != "local_sandbox"]
     if not mcp_catalog:
         raise RuntimeError("molclaw-scp list_tools returned no MCP tools")
@@ -267,6 +281,13 @@ def main() -> int:
         "molbench_suites": args.molbench_suite,
         "molbench_limit_per_suite": args.molbench_limit_per_suite,
     }
+    if args.eval_profile == "slime-raw":
+        settings.update({
+            "eval_profile": "slime-raw",
+            "protocol": "canonical_react_xml_exact",
+            "model_specific_compatibility": False,
+            "context_policy": "full_history_no_compaction",
+        })
     resume_identity = {
         "schema_version": "drug_agent_eval_resume_identity_v1",
         "evaluation_mode": evaluation_mode,
@@ -310,7 +331,7 @@ def main() -> int:
         "tool_catalog_sha256": catalog_hash,
         "mcp_tool_count": len(mcp_catalog),
         "local_tool_count": len(catalog) - len(mcp_catalog),
-        "l1_skills_root": str(DRUG_AGENT_L1_SKILLS_ROOT),
+        "l1_skills_root": l1_snapshot["root"],
         "l1_skills_sha256": l1_snapshot["sha256"],
         "l1_skills_snapshot": l1_snapshot,
         "settings": settings,

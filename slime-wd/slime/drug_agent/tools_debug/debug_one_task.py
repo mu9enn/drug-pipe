@@ -580,7 +580,10 @@ def main() -> int:
                         else:
                             current_result = registry.execute(
                                 tool_name,
-                                artifact_registry.resolve(tool_args),
+                                artifact_registry.resolve_for_execution(
+                                    tool_args,
+                                    filesystem_only=tool_name in LOCAL_TOOL_NAMES,
+                                ),
                                 local_executor=local_executor,
                             )
                     transport_ok = bool(current_result.get("transport_ok"))

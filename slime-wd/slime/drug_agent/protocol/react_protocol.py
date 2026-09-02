@@ -94,8 +94,8 @@ def _validate_final_answer(payload: dict[str, Any]) -> tuple[bool, str | None, s
     if task_type == "vs":
         if not isinstance(payload.get("ranked_smiles"), list):
             return False, "ReactSchemaError", "VS `final_answer.ranked_smiles` must be a list"
-        if not isinstance(payload.get("selected_smiles"), str):
-            return False, "ReactSchemaError", "VS `final_answer.selected_smiles` must be a string"
+        if not isinstance(payload.get("selected_smiles"), list):
+            return False, "ReactSchemaError", "VS `final_answer.selected_smiles` must be a list"
     elif task_type == "ac":
         if not isinstance(payload.get("answer_smiles"), str):
             return False, "ReactSchemaError", "AC `final_answer.answer_smiles` must be a string"

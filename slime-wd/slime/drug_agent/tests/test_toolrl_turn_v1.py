@@ -19,6 +19,7 @@ from drug_agent.scripts.validate_fixed_toolrl_traversal import validate as valid
 from drug_agent.toolrl.convert_react_to_toolrl_steps import convert_react_to_toolrl_steps
 from drug_agent.toolrl.molclaw_reward import reward_func
 from drug_agent.toolrl.official_grpo import compute_official_8cee13e_advantages
+from slime.backends.megatron_utils.loss import _record_zero_policy_advantage_group_metrics
 from drug_agent.toolrl.prompt_strategy import apply_prompt_strategy
 
 
@@ -286,7 +287,7 @@ def test_official_final_is_format_only_tag_rename():
     assert out["components"]["correctness"] == 0.0
 
 
-def test_structured_final_exact_is_an_independent_extension(monkeypatch):
+def test_hierarchical_final_stays_format_only_when_legacy_exact_flag_is_set(monkeypatch):
     sample = SimpleNamespace(
         prompt=[{"role": "user", "content": "task"}],
         response=(
@@ -301,7 +302,9 @@ def test_structured_final_exact_is_an_independent_extension(monkeypatch):
         metadata={"protocol": "toolrl_turn_v1", "decision_role": "final"},
     )
     monkeypatch.setenv("TOOLRL_STRUCTURED_FINAL_EXACT", "1")
-    assert _reward_mode(sample, "hierarchical")["score"] == -0.5
+    out = _reward_mode(sample, "hierarchical")
+    assert out["score"] == 1.0
+    assert out["diagnostics"]["structured_final_exact_enabled"] is False
     monkeypatch.setenv("TOOLRL_STRUCTURED_FINAL_EXACT", "0")
     out = _reward_mode(sample, "hierarchical")
     assert out["score"] == 1.0
@@ -320,6 +323,15 @@ def test_official_kl_is_applied_before_group_normalization():
     assert torch.isfinite(values).all()
     assert values.std() > 0
     assert abs(float(values.mean())) < 1e-3
+
+
+def test_zero_policy_advantage_group_metrics_count_post_advantage_zeros():
+    args = SimpleNamespace(advantage_estimator="grpo", n_samples_per_prompt=4)
+    data = {}
+    advantages = [torch.zeros(3) for _ in range(4)] + [torch.ones(3) for _ in range(4)]
+    _record_zero_policy_advantage_group_metrics(args, data, advantages)
+    assert data["zero_policy_advantage_group_count"].item() == 1.0
+    assert data["zero_policy_advantage_group_rate"].item() == 0.5
 
 
 def test_prompt_strategy_separates_official_catalog_from_skill_discovery():

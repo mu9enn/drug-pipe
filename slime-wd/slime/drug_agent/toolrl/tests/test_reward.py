@@ -386,5 +386,7 @@ def test_hierarchical_final_and_truncation_contract():
         {"decision_role": "final"},
     )
     assert _reward(sample, mode="hierarchical")["score"] == 1.0
+    sample.response = '<final_answer>{"task_type":"kg","result":"different","evidence":[]}</final_answer>'
+    assert _reward(sample, mode="hierarchical")["score"] == 1.0
     sample.status = SimpleNamespace(value="truncated")
     assert _reward(sample, mode="hierarchical")["score"] == 0.0

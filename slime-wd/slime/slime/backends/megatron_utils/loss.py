@@ -576,6 +576,32 @@ def apply_opd_kl_to_advantages(
     rollout_data["opd_reverse_kl"] = reverse_kls
 
 
+def _record_zero_policy_advantage_group_metrics(
+    args: Namespace,
+    rollout_data: RolloutBatch,
+    advantages: list[torch.Tensor],
+) -> None:
+    """Record GRPO groups whose policy-gradient coefficient is identically zero."""
+    if args.advantage_estimator not in {"grpo", "gspo"}:
+        return
+    group_size = int(getattr(args, "n_samples_per_prompt", 0) or 0)
+    if group_size <= 0 or not advantages or len(advantages) % group_size:
+        return
+    zero_groups = 0
+    group_count = len(advantages) // group_size
+    for start in range(0, len(advantages), group_size):
+        group = advantages[start : start + group_size]
+        if all(item.numel() == 0 or torch.count_nonzero(item.detach()).item() == 0 for item in group):
+            zero_groups += 1
+    device = advantages[0].device
+    rollout_data["zero_policy_advantage_group_count"] = torch.tensor(
+        float(zero_groups), dtype=torch.float32, device=device
+    )
+    rollout_data["zero_policy_advantage_group_rate"] = torch.tensor(
+        float(zero_groups) / float(group_count), dtype=torch.float32, device=device
+    )
+
+
 def compute_advantages_and_returns(args: Namespace, rollout_data: RolloutBatch) -> None:
     """Compute advantages and returns in-place based on `args.advantage_estimator`.
 
@@ -748,6 +774,7 @@ def compute_advantages_and_returns(args: Namespace, rollout_data: RolloutBatch) 
             chunk_lengths = [chunk.size(0) for chunk in advantages]
             advantages = list(torch.split(whitened_advs_flat, chunk_lengths))
 
+    _record_zero_policy_advantage_group_metrics(args, rollout_data, advantages)
     rollout_data["advantages"] = advantages
     rollout_data["returns"] = returns
 

@@ -8,6 +8,8 @@ import re
 import shutil
 from pathlib import Path
 
+from slime.utils.checkpoint_progress import PROGRESS_DIR_NAME, progress_path
+
 
 ITERATION_DIR_RE = re.compile(r"^iter_(\d{7})$")
 
@@ -92,7 +94,12 @@ def prune_checkpoint_root(
     for path in remove:
         if path.parent != root:
             raise CheckpointRetentionError(f"refusing to remove checkpoint outside save root: {path}")
+        iteration = int(ITERATION_DIR_RE.fullmatch(path.name).group(1))
         shutil.rmtree(path)
+        progress_path(root, iteration).unlink(missing_ok=True)
+    progress_dir = root / PROGRESS_DIR_NAME
+    if progress_dir.is_dir() and not any(progress_dir.iterdir()):
+        progress_dir.rmdir()
     return remove
 
 

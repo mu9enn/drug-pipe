@@ -7,6 +7,7 @@ from slime.utils.checkpoint_retention import (
     prune_checkpoint_root,
     validate_latest_checkpoint,
 )
+from slime.utils.checkpoint_progress import write_checkpoint_progress
 
 
 def _checkpoint(root: Path, iteration: int, *, complete: bool = True) -> Path:
@@ -29,6 +30,12 @@ class CheckpointRetentionTest(unittest.TestCase):
     def test_prune_keeps_only_newest_iterations(self) -> None:
         for iteration in range(5):
             _checkpoint(self.root, iteration)
+            write_checkpoint_progress(
+                self.root,
+                checkpoint_iteration=iteration,
+                optimizer_step=iteration,
+                rollout_id=iteration,
+            )
         (self.root / "latest_checkpointed_iteration.txt").write_text("4\n")
         unrelated = self.root / "model_export"
         unrelated.mkdir()
@@ -38,6 +45,10 @@ class CheckpointRetentionTest(unittest.TestCase):
         self.assertEqual([path.name for path in removed], ["iter_0000000", "iter_0000001", "iter_0000002"])
         self.assertEqual(sorted(path.name for path in self.root.glob("iter_*")), ["iter_0000003", "iter_0000004"])
         self.assertTrue(unrelated.is_dir())
+        self.assertEqual(
+            sorted(path.name for path in (self.root / "slime_checkpoint_progress").glob("*.json")),
+            ["iter_0000003.json", "iter_0000004.json"],
+        )
 
     def test_final_retention_keeps_latest_only(self) -> None:
         for iteration in (199, 399, 599):

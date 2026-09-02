@@ -156,7 +156,7 @@ def materialize_server_file_result(
         encoded, server_name = found
         payload = _decode_base64(encoded, max_bytes=_max_download_bytes())
         file_name = _safe_file_name(server_name, execution_args.get("file_path"))
-        target = (artifact_registry.workspace / file_name).resolve(strict=False)
+        target = (artifact_registry.workspace / "artifacts" / file_name).resolve(strict=False)
         try:
             relative = target.relative_to(artifact_registry.workspace)
         except ValueError as exc:
@@ -165,7 +165,7 @@ def materialize_server_file_result(
         digest = hashlib.sha256(payload).hexdigest()
         result = {
             "status": "success",
-            "artifact": artifact_registry.register_local(relative.as_posix()),
+            "path": artifact_registry.register_local(relative.as_posix()),
             "bytes_written": len(payload),
             "sha256": digest,
         }

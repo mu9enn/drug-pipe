@@ -7,8 +7,13 @@ from typing import Any
 
 
 ARTIFACT_RE = re.compile(r"^<artifact:([A-Za-z0-9._/-]+)>$")
+RESOURCE_RE = re.compile(r"^resource://([A-Za-z0-9._-]+)/([A-Za-z0-9._/-]+)$")
 ABSOLUTE_PATH_RE = re.compile(r"(?<![\w<:/])/(?!/)(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+")
 _TRAILING = ".,;:"
+
+
+class ArtifactReferenceContractError(ValueError):
+    """Raised when a resource reference is used as a filesystem path."""
 
 
 def _namespace(path: str) -> str:
@@ -45,10 +50,9 @@ class ArtifactRegistry:
         if normalized in self._raw_to_ref:
             return self._raw_to_ref[normalized]
         name = PurePosixPath(normalized).name or "result"
-        ref = f"<artifact:{namespace or _namespace(normalized)}/{name}>"
+        ref = f"resource://{namespace or _namespace(normalized)}/{name}"
         if ref in self._ref_to_raw and self._ref_to_raw[ref] != normalized:
-            stem = ref[:-1]
-            ref = f"{stem}-{hashlib.sha256(normalized.encode()).hexdigest()[:8]}>"
+            ref = f"{ref}-{hashlib.sha256(normalized.encode()).hexdigest()[:8]}"
         self._raw_to_ref[normalized] = ref
         self._ref_to_raw[ref] = normalized
         return ref
@@ -56,9 +60,9 @@ class ArtifactRegistry:
     def register_local(self, relative_path: str) -> str:
         normalized = relative_path.strip().replace("\\", "/").lstrip("./")
         raw = str((self.workspace / normalized).resolve(strict=False))
-        ref = f"<artifact:local/{normalized}>"
+        ref = f"workspace/{normalized}"
         self._raw_to_ref[raw] = ref
-        self._ref_to_raw[ref] = normalized
+        self._ref_to_raw[ref] = raw
         return ref
 
     def canonicalize(
@@ -69,12 +73,21 @@ class ArtifactRegistry:
         register_unknown_paths: bool = True,
     ) -> Any:
         if isinstance(value, str):
-            exact = ARTIFACT_RE.fullmatch(value.strip())
+            exact = RESOURCE_RE.fullmatch(value.strip())
             if exact:
                 if register_unknown_paths or exact.group(0) in self._ref_to_raw:
                     return value
-                name = PurePosixPath(exact.group(1)).name or "result"
-                return f"<artifact:unavailable/{name}>"
+                name = PurePosixPath(exact.group(2)).name or "result"
+                return f"resource://unavailable/{name}"
+            legacy = ARTIFACT_RE.fullmatch(value.strip())
+            if legacy:
+                logical = legacy.group(1)
+                namespace, _, name = logical.partition("/")
+                if not register_unknown_paths:
+                    return f"resource://unavailable/{PurePosixPath(name or logical).name or 'result'}"
+                if namespace == "local" and name:
+                    return self.register_local(name)
+                return f"resource://{namespace}/{name or 'result'}"
             if local_result and value and not value.startswith("/") and not value.startswith("skills/"):
                 return self.register_local(value)
 
@@ -86,7 +99,7 @@ class ArtifactRegistry:
                 elif register_unknown_paths:
                     ref = self.register(core)
                 else:
-                    ref = f"<artifact:unavailable/{PurePosixPath(core).name or 'result'}>"
+                    ref = f"resource://unavailable/{PurePosixPath(core).name or 'result'}"
                 return ref + raw[len(core) :]
 
             return ABSOLUTE_PATH_RE.sub(replace, value)
@@ -108,25 +121,11 @@ class ArtifactRegistry:
 
     def resolve(self, value: Any) -> Any:
         if isinstance(value, str):
-            exact = ARTIFACT_RE.fullmatch(value.strip())
+            exact = RESOURCE_RE.fullmatch(value.strip())
             if exact:
                 ref = exact.group(0)
                 if ref in self._ref_to_raw:
-                    raw = self._ref_to_raw[ref]
-                    if raw.startswith("/"):
-                        return raw
-                    return str((self.workspace / raw).resolve(strict=False))
-                logical = exact.group(1)
-                if logical.startswith("local/"):
-                    relative = PurePosixPath(logical[len("local/") :])
-                    if relative.is_absolute() or ".." in relative.parts:
-                        return value
-                    candidate = (self.workspace / Path(*relative.parts)).resolve(strict=False)
-                    try:
-                        candidate.relative_to(self.workspace)
-                    except ValueError:
-                        return value
-                    return str(candidate)
+                    return self._ref_to_raw[ref]
             return value
         if isinstance(value, list):
             return [self.resolve(item) for item in value]
@@ -134,6 +133,29 @@ class ArtifactRegistry:
             return [self.resolve(item) for item in value]
         if isinstance(value, dict):
             return {str(key): self.resolve(item) for key, item in value.items()}
+        return value
+
+    def resolve_for_execution(self, value: Any, *, filesystem_only: bool = False) -> Any:
+        """Resolve registered resources and fail closed on contract violations."""
+        if isinstance(value, str):
+            if "<artifact:" in value:
+                raise ArtifactReferenceContractError(
+                    "path/reference contract error: legacy <artifact:...> placeholders are not executable"
+                )
+            if filesystem_only and "resource://" in value:
+                raise ArtifactReferenceContractError(
+                    "path/reference contract error: filesystem tools require workspace/... paths"
+                )
+            return self.resolve(value)
+        if isinstance(value, list):
+            return [self.resolve_for_execution(item, filesystem_only=filesystem_only) for item in value]
+        if isinstance(value, tuple):
+            return [self.resolve_for_execution(item, filesystem_only=filesystem_only) for item in value]
+        if isinstance(value, dict):
+            return {
+                str(key): self.resolve_for_execution(item, filesystem_only=filesystem_only)
+                for key, item in value.items()
+            }
         return value
 
     def audit_snapshot(self) -> dict[str, Any]:

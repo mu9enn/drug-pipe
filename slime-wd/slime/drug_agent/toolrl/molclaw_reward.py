@@ -129,6 +129,19 @@ def _without_summary(value: Any) -> Any:
     return value
 
 
+def _without_nonanswer_fields(value: Any) -> Any:
+    """Keep trajectory answer fields while ignoring explanatory provenance."""
+    if isinstance(value, dict):
+        return {
+            key: _without_nonanswer_fields(item)
+            for key, item in value.items()
+            if key not in {"evidence", "summary"}
+        }
+    if isinstance(value, list):
+        return [_without_nonanswer_fields(item) for item in value]
+    return value
+
+
 def _official_match_score(left: list[Any], right: list[Any]) -> float:
     if left == right:
         return 1.0
@@ -365,19 +378,8 @@ def _molclaw_final_answer_reward(sample: Any, parsed: dict[str, Any]) -> dict[st
 
 
 def _drug_pipe_final_reward(sample: Any, parsed: dict[str, Any]) -> dict[str, Any]:
-    """Apply the structured-final extension only when explicitly enabled.
-
-    Turning it off preserves the Drug-Pipe envelope while reducing the final
-    objective to format-only response semantics.  The exact ToolRL baseline
-    still goes through ``_official_8cee13e_reward`` and is unaffected here.
-    """
-    exact_enabled = os.environ.get("TOOLRL_STRUCTURED_FINAL_EXACT", "1").strip().lower() not in {
-        "0", "false", "no", "off",
-    }
+    """Keep the Drug-Pipe envelope while applying official format-only semantics."""
     out = _molclaw_final_answer_reward(sample, parsed)
-    out["diagnostics"]["structured_final_exact_enabled"] = exact_enabled
-    if exact_enabled:
-        return out
     valid = bool(
         parsed.get("ok")
         and parsed.get("has_final_answer")
@@ -385,10 +387,48 @@ def _drug_pipe_final_reward(sample: Any, parsed: dict[str, Any]) -> dict[str, An
     )
     out["score"] = 1.0 if valid else -0.5
     out["components"]["terminal_correctness"] = 0.0
+    out["diagnostics"]["structured_final_exact_enabled"] = False
     out["diagnostics"]["terminal_exact_match"] = None
     if valid:
         out["errors"] = []
     return out
+
+
+def _v8_baseline_final_reward(sample: Any, parsed: dict[str, Any]) -> dict[str, Any]:
+    """Score the task answer against trajectory ground truth, not its prose/evidence."""
+    has_only_final = bool(
+        parsed.get("ok")
+        and parsed.get("has_final_answer")
+        and not parsed.get("has_tool_call")
+    )
+    target = _without_nonanswer_fields(_target_final_answer(sample))
+    predicted = _without_nonanswer_fields(parsed.get("final_answer"))
+    exact = bool(has_only_final and predicted == target)
+    error_type = "FinalAnswerMismatch" if has_only_final else "TerminalDecisionFormatMismatch"
+    return {
+        "score": 1.0 if exact else -0.5,
+        "format": 1.0 if has_only_final else 0.0,
+        "tool_name": 0.0,
+        "param_name": 0.0,
+        "param_value": 0.0,
+        "matched_calls": 0.0,
+        "components": {
+            "format": 1.0 if has_only_final else 0.0,
+            "terminal_correctness": 1.0 if exact else 0.0,
+        },
+        "diagnostics": {
+            "reward_mode": "v8_baseline",
+            "decision_role": _decision_role(sample),
+            "expected_decision_type": "final_answer",
+            "predicted_decision_type": "final_answer" if has_only_final else "invalid",
+            "parse_ok": bool(parsed.get("ok")),
+            "answer_comparison": "trajectory_ground_truth_excluding_evidence_and_summary",
+            "terminal_exact_match": exact,
+            "structured_final_exact_enabled": True,
+        },
+        "errors": [] if exact else [{"type": error_type, "message": "terminal answer does not match trajectory ground truth"}],
+        "warnings": [],
+    }
 
 
 def _pair_tool_calls(pred: list[dict[str, Any]], gold: list[dict[str, Any]], config: dict[str, Any]) -> list[ToolCallScore]:
@@ -967,7 +1007,14 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     gold_calls = [item for item in gold_calls if isinstance(item, dict)]
 
     reward_mode = os.environ.get("TOOLRL_REWARD_MODE", "official").strip().lower()
-    if reward_mode not in {"toolrl_official_8cee13e", "official", "molclaw", "decision_aware", "hierarchical"}:
+    if reward_mode not in {
+        "toolrl_official_8cee13e",
+        "official",
+        "molclaw",
+        "decision_aware",
+        "hierarchical",
+        "v8_baseline",
+    }:
         raise ValueError(f"unsupported TOOLRL_REWARD_MODE: {reward_mode}")
     if reward_mode == "toolrl_official_8cee13e":
         out = _official_8cee13e_reward(sample, response_text, parsed, pred_calls, gold_calls)
@@ -1004,6 +1051,19 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
             out["diagnostics"]["decision_role"] = _decision_role(sample)
         else:
             out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config)
+        out = _attach_protocol_diagnostics(out, parsed)
+        out = _apply_truncation_guard(sample, out)
+        if not isinstance(sample.metadata, dict):
+            sample.metadata = {}
+        sample.metadata["toolrl_reward"] = to_jsonable(out)
+        return out
+
+    if reward_mode == "v8_baseline":
+        if _decision_type(sample) == "final_answer":
+            out = _v8_baseline_final_reward(sample, parsed)
+        else:
+            out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config)
+            out["diagnostics"]["reward_mode"] = "v8_baseline"
         out = _attach_protocol_diagnostics(out, parsed)
         out = _apply_truncation_guard(sample, out)
         if not isinstance(sample.metadata, dict):
