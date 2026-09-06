@@ -158,11 +158,74 @@ class BridgeTests(unittest.TestCase):
     def test_repetition_guard_stops_third_identical_decision(self):
         raw = '<thought>x</thought><tool_call>{"tool_name":"Read","arguments":{}}</tool_call>'
         instance = FakeBridge([(raw, "stop"), (raw, "stop"), (raw, "stop")])
-        self.assertEqual(instance.complete(request())["choices"][0]["finish_reason"], "tool_calls")
-        self.assertEqual(instance.complete(request())["choices"][0]["finish_reason"], "tool_calls")
-        third = instance.complete(request())["choices"][0]
+        marker = request()["messages"][0]
+        first_messages = [marker]
+        second_messages = first_messages + [
+            {
+                "role": "assistant",
+                "content": "<thought>x</thought>",
+                "tool_calls": [{
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "read", "arguments": "{}"},
+                }],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "first"},
+        ]
+        third_messages = second_messages + [
+            {
+                "role": "assistant",
+                "content": "<thought>x</thought>",
+                "tool_calls": [{
+                    "id": "call-2",
+                    "type": "function",
+                    "function": {"name": "read", "arguments": "{}"},
+                }],
+            },
+            {"role": "tool", "tool_call_id": "call-2", "content": "second"},
+        ]
+        self.assertEqual(
+            instance.complete(request(first_messages))["choices"][0]["finish_reason"],
+            "tool_calls",
+        )
+        self.assertEqual(
+            instance.complete(request(second_messages))["choices"][0]["finish_reason"],
+            "tool_calls",
+        )
+        third = instance.complete(request(third_messages))["choices"][0]
         self.assertEqual(third["finish_reason"], "stop")
         self.assertNotIn("tool_calls", third["message"])
+
+    def test_fresh_conversation_resets_repetition_state_for_same_task_id(self):
+        raw = '<thought>x</thought><tool_call>{"tool_name":"Read","arguments":{}}</tool_call>'
+        instance = FakeBridge([(raw, "stop"), (raw, "stop")])
+        first = instance.complete(request())["choices"][0]
+        fresh = instance.complete(request())["choices"][0]
+        self.assertEqual(first["finish_reason"], "tool_calls")
+        self.assertEqual(fresh["finish_reason"], "tool_calls")
+
+    def test_native_thinking_leak_is_not_silently_recovered(self):
+        raw = (
+            "native reasoning</think>"
+            '<thought>x</thought><tool_call>{"tool_name":"Read","arguments":{}}</tool_call>'
+        )
+        choice = FakeBridge([(raw, "stop")]).complete(request())["choices"][0]
+        self.assertEqual(choice["finish_reason"], "stop")
+        self.assertNotIn("tool_calls", choice["message"])
+        self.assertEqual(choice["message"]["content"], raw)
+
+    def test_interactive_user_question_tool_is_forbidden_for_benchmark(self):
+        body = request()
+        body["tools"] = body["tools"] + [{
+            "type": "function",
+            "function": {
+                "name": "ask_user_question",
+                "description": "pause for human input",
+                "parameters": {"type": "object"},
+            },
+        }]
+        with self.assertRaisesRegex(RuntimeError, "forbidden interactive tools"):
+            FakeBridge([]).complete(body)
 
 
 if __name__ == "__main__":

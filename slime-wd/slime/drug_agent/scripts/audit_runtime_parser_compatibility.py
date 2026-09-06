@@ -16,7 +16,7 @@ def _call(name: str) -> str:
     return json.dumps({"tool_name": name, "arguments": {"value": name}}, separators=(",", ":"))
 
 
-def audit() -> dict[str, Any]:
+def audit(*, native_qwen_thinking: bool = False) -> dict[str, Any]:
     a, b, c = (_call(name) for name in ("A", "B", "C"))
     cases = {
         "whitespace_separated_objects": f"<tool_call>\n{a}\n{b}\n{c}\n</tool_call>",
@@ -32,8 +32,18 @@ def audit() -> dict[str, Any]:
     }
     results = {}
     for name, text in cases.items():
-        runtime = parse_runtime_decision(text, strict_toolrl_turn=True)
-        reward = parse_tool_calls(text, keep_non_molclaw=True, strict_toolrl_turn=True)
+        response = f"audited reasoning\n</think>\n\n{text}" if native_qwen_thinking else text
+        runtime = parse_runtime_decision(
+            response,
+            strict_toolrl_turn=True,
+            native_qwen_thinking=native_qwen_thinking,
+        )
+        reward = parse_tool_calls(
+            response,
+            keep_non_molclaw=True,
+            strict_toolrl_turn=True,
+            native_qwen_thinking=native_qwen_thinking,
+        )
         runtime_count = len(runtime.get("tool_calls") or []) if runtime.get("ok") else 0
         reward_count = len(reward.get("tool_calls") or []) if reward.get("ok") else 0
         want_valid, want_count = expected[name]
@@ -49,9 +59,14 @@ def audit() -> dict[str, Any]:
             "reward_invocation_count": reward_count,
         }
     return {
-        "schema_version": "toolrl_runtime_parser_compatibility_v1",
+        "schema_version": "toolrl_runtime_parser_compatibility_v2",
         "ok": True,
-        "production_runtime_call": "parse_runtime_decision(..., strict_toolrl_turn=True)",
+        "native_qwen_thinking": native_qwen_thinking,
+        "production_runtime_call": (
+            "parse_runtime_decision(..., strict_toolrl_turn=True, native_qwen_thinking=True)"
+            if native_qwen_thinking
+            else "parse_runtime_decision(..., strict_toolrl_turn=True)"
+        ),
         "cases": results,
     }
 
@@ -59,8 +74,9 @@ def audit() -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--native-qwen-thinking", action="store_true")
     args = parser.parse_args()
-    report = audit()
+    report = audit(native_qwen_thinking=args.native_qwen_thinking)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))

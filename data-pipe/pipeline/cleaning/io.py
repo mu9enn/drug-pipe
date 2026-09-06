@@ -36,6 +36,14 @@ def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
     return count
 
 
+def write_pretty_json(path: Path, rows: Iterable[dict[str, Any]]) -> int:
+    """Write a human-readable companion for a JSONL dataset as one JSON array."""
+    values = list(rows)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(values, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return len(values)
+
+
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

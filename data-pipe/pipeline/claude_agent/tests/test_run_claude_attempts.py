@@ -14,11 +14,43 @@ from pipeline.claude_agent.run_claude import (
     Sample,
     _check_session_mcp_ready,
     _load_mcp_tool_timeout_ms,
+    _prepare_claude_workdir,
     _run_single_rollout,
 )
 
 
 class RolloutAttemptCaptureTest(unittest.TestCase):
+    def test_execution_cwd_contains_only_scene_runtime_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scene = root / "scene"
+            (scene / ".claude").mkdir(parents=True)
+            (scene / ".claude/skill.md").write_text("skill")
+            (scene / "CLAUDE.md").write_text("runtime")
+            (scene / "runtime_asset.txt").write_text("asset")
+            (scene / "system_prompt.md").write_text("passed on CLI")
+            (scene / "user_prompt.md").write_text("passed on CLI")
+            target = root / "attempt/workdir"
+            _prepare_claude_workdir(target, source_scene_dir=scene)
+            self.assertEqual(
+                sorted(path.name for path in target.iterdir()),
+                [".claude", "CLAUDE.md", "runtime_asset.txt"],
+            )
+            self.assertFalse((target / "question.json").exists())
+            self.assertFalse((target / "prompt.txt").exists())
+
+    def test_execution_cwd_must_be_empty_before_scene_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scene = root / "scene"
+            scene.mkdir()
+            (scene / "runtime.txt").write_text("runtime")
+            target = root / "attempt/workdir"
+            target.mkdir(parents=True)
+            (target / "stale.txt").write_text("stale")
+            with self.assertRaises(RuntimeError):
+                _prepare_claude_workdir(target, source_scene_dir=scene)
+
     def test_reads_numeric_molclaw_server_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             config = Path(td) / "mcp.json"
@@ -89,8 +121,9 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
             fake = root / "fake-claude"
             fake.write_text(
                 "#!/usr/bin/env python3\n"
-                "import fcntl, json, os, time\n"
+                "import fcntl, json, os, sys, time\n"
                 "from pathlib import Path\n"
+                "if any(Path(name).exists() for name in ('question.json','prompt.txt','run_meta.json','complete_session.jsonl','attempts')): sys.exit(11)\n"
                 "state = Path(os.environ['FAKE_CLAUDE_STATE'])\n"
                 "with state.open('r+') as handle:\n"
                 " fcntl.flock(handle, fcntl.LOCK_EX); data=json.load(handle); data['active']+=1; data['peak']=max(data['peak'],data['active']); handle.seek(0); json.dump(data,handle); handle.truncate(); fcntl.flock(handle, fcntl.LOCK_UN)\n"
@@ -125,11 +158,23 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
             config = json.loads((run_dir / "run_config.json").read_text())
             self.assertEqual(config["max_workers"], 2)
             self.assertEqual(config["mcp_tool_timeout_ms"], 14_400_000)
+            self.assertEqual(
+                config["source_dataset_sha256"],
+                hashlib.sha256(dataset.read_bytes()).hexdigest(),
+            )
             row_meta_files = sorted(run_dir.glob("row*/run_meta.json"))
             self.assertEqual(len(row_meta_files), 3)
             for row_meta_file in row_meta_files:
                 row_meta = json.loads(row_meta_file.read_text())
                 self.assertEqual(row_meta["mcp_tool_timeout_ms"], 14_400_000)
+                self.assertEqual(row_meta["source_dataset_sha256"], config["source_dataset_sha256"])
+                self.assertEqual(row_meta["system_prompt_sha256"], config["system_prompt_sha256"])
+                selected = json.loads((row_meta_file.parent / "selected_attempt_artifacts.json").read_text())
+                for key in (
+                    "question_sha256", "user_prompt_sha256", "system_prompt_sha256",
+                    "selected_session_sha256", "source_dataset_sha256",
+                ):
+                    self.assertEqual(selected[key], row_meta[key])
 
     def test_mcp_ready_retry_keeps_every_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -200,11 +245,13 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     num_rollouts=1,
                     prompt="prompt",
                     system_prompt="Invoke /execute-molclaw-trajectory.",
-                    source_claude_dir=skills,
+                    source_scene_dir=skills,
                     provider="test",
                     claude_bin=str(fake),
                     mcp_config_file=mcp_config,
                     strict_mcp_config=True,
+                    source_dataset_sha256="dataset-sha",
+                    system_prompt_sha256="system-sha",
                 )
 
             self.assertEqual(result.return_code, 0)
@@ -222,6 +269,25 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                 metadata["selected_session_sha256"],
                 hashlib.sha256(canonical.read_bytes()).hexdigest(),
             )
+            self.assertEqual(metadata["source_dataset_sha256"], "dataset-sha")
+            self.assertEqual(metadata["system_prompt_sha256"], "system-sha")
+            self.assertEqual(
+                metadata["question_sha256"],
+                hashlib.sha256((workdir / "question.json").read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                metadata["user_prompt_sha256"],
+                hashlib.sha256((workdir / "prompt.txt").read_bytes()).hexdigest(),
+            )
+            binding = json.loads((workdir / "selected_attempt_artifacts.json").read_text())
+            for key in (
+                "question_sha256",
+                "user_prompt_sha256",
+                "system_prompt_sha256",
+                "selected_session_sha256",
+                "source_dataset_sha256",
+            ):
+                self.assertEqual(binding[key], metadata[key])
             attempt_one_workdir = attempts[0].parent / "workdir"
             attempt_two_workdir = attempts[1].parent / "workdir"
             self.assertTrue((attempt_one_workdir / "stale_result.md").is_file())
@@ -291,11 +357,13 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     num_rollouts=1,
                     prompt="prompt",
                     system_prompt="Invoke /execute-molclaw-trajectory.",
-                    source_claude_dir=skills,
+                    source_scene_dir=skills,
                     provider="test",
                     claude_bin=str(fake),
                     mcp_config_file=mcp_config,
                     strict_mcp_config=True,
+                    source_dataset_sha256="dataset-sha",
+                    system_prompt_sha256="system-sha",
                 )
 
             self.assertEqual(result.return_code, 0)
@@ -385,11 +453,13 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     num_rollouts=1,
                     prompt="prompt",
                     system_prompt="Invoke /execute-molclaw-trajectory.",
-                    source_claude_dir=skills,
+                    source_scene_dir=skills,
                     provider="test",
                     claude_bin=str(fake),
                     mcp_config_file=None,
                     strict_mcp_config=False,
+                    source_dataset_sha256="dataset-sha",
+                    system_prompt_sha256="system-sha",
                 )
 
             with patch.dict(os.environ, {"FAKE_CLAUDE_COUNTER": str(counter)}):

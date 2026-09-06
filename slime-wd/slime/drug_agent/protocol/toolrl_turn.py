@@ -10,7 +10,9 @@ from drug_agent.protocol.react_protocol import parse_react_sequence, parse_runti
 
 
 TOOLRL_TURN_PROTOCOL = "toolrl_turn_v1"
+TOOLRL_TURN_PROTOCOL_NATIVE_THINK = "toolrl_turn_v2_qwen_native_think"
 SFT_SCHEMA = "drug_agent_sft_toolrl_turn_v1"
+SFT_SCHEMA_NATIVE_THINK = "drug_agent_sft_toolrl_turn_v2_qwen_native_think"
 SYSTEM_CONTRACT = (
     "Within each reasoning/action segment, put all tool calls inside exactly one "
     "<tool_call>...</tool_call> container as newline-separated JSON objects without commas or a JSON array."
@@ -43,11 +45,14 @@ def serialize_decision(
     thoughts: list[str] | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
     final_answer: Any = None,
+    reasoning_tag: str = "thought",
 ) -> str:
+    if reasoning_tag not in {"thought", "think"}:
+        raise ValueError(f"unsupported reasoning tag: {reasoning_tag}")
     normalized_thoughts = [str(item).strip() for item in (thoughts or []) if str(item).strip()]
     blocks = []
     if normalized_thoughts:
-        blocks.append("<thought>" + "\n\n".join(normalized_thoughts) + "</thought>")
+        blocks.append(f"<{reasoning_tag}>" + "\n\n".join(normalized_thoughts) + f"</{reasoning_tag}>")
     if tool_calls:
         if final_answer is not None:
             raise ValueError("tool calls and final answer cannot coexist")
@@ -65,13 +70,23 @@ def split_assistant_segments(content: str) -> list[dict[str, Any]]:
     if not parsed.get("ok"):
         raise ValueError(str(parsed.get("error_message") or "invalid assistant content"))
     segments: list[dict[str, Any]] = []
-    current: dict[str, Any] = {"thoughts": [], "tool_calls": [], "final_answer": None}
+    current: dict[str, Any] = {
+        "thoughts": [],
+        "tool_calls": [],
+        "final_answer": None,
+        "reasoning_tag": str(parsed.get("reasoning_tag") or "thought"),
+    }
 
     def flush() -> None:
         nonlocal current
         if current["thoughts"] or current["tool_calls"] or current["final_answer"] is not None:
             segments.append(current)
-        current = {"thoughts": [], "tool_calls": [], "final_answer": None}
+        current = {
+            "thoughts": [],
+            "tool_calls": [],
+            "final_answer": None,
+            "reasoning_tag": str(parsed.get("reasoning_tag") or "thought"),
+        }
 
     for block in parsed.get("blocks") or []:
         kind = block.get("kind")
@@ -104,9 +119,12 @@ def split_assistant_segments(content: str) -> list[dict[str, Any]]:
                 thoughts=segment["thoughts"],
                 tool_calls=segment["tool_calls"],
                 final_answer=segment["final_answer"],
+                reasoning_tag=segment["reasoning_tag"],
             )
             if segment["is_action"]
-            else "<thought>" + "\n\n".join(segment["thoughts"]) + "</thought>"
+            else f"<{segment['reasoning_tag']}>"
+            + "\n\n".join(segment["thoughts"])
+            + f"</{segment['reasoning_tag']}>"
         )
     return segments
 
@@ -148,7 +166,12 @@ def normalize_trajectory(record: dict[str, Any]) -> tuple[dict[str, Any], dict[s
     if not isinstance(messages, list) or not messages:
         raise ValueError("trajectory must contain messages")
     out = copy.deepcopy(record)
-    out["schema_version"] = SFT_SCHEMA
+    source_metadata = out.get("metadata") if isinstance(out.get("metadata"), dict) else {}
+    native_think = (
+        str(out.get("schema_version") or "") == SFT_SCHEMA_NATIVE_THINK
+        or str(source_metadata.get("protocol") or "") == TOOLRL_TURN_PROTOCOL_NATIVE_THINK
+    )
+    out["schema_version"] = SFT_SCHEMA_NATIVE_THINK if native_think else SFT_SCHEMA
     out_messages = out["messages"]
     assistant_message_count = assistant_turns = actionless_assistant_messages = 0
     multi_call_turns = thoughtless_turns = merged_thought_blocks = 0
@@ -194,7 +217,7 @@ def normalize_trajectory(record: dict[str, Any]) -> tuple[dict[str, Any], dict[s
         thoughtless_turns += sum(not segment["thoughts"] for segment in action_segments)
         merged_thought_blocks += max(0, thought_count - 1)
     audit = {
-        "protocol": TOOLRL_TURN_PROTOCOL,
+        "protocol": TOOLRL_TURN_PROTOCOL_NATIVE_THINK if native_think else TOOLRL_TURN_PROTOCOL,
         "assistant_message_count": assistant_message_count,
         "assistant_turns": assistant_turns,
         "expanded_decisions": expanded_decisions,

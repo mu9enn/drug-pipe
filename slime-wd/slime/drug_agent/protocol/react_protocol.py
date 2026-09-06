@@ -18,6 +18,7 @@ _BLOCK_RE = re.compile(
     r"""
     \s*(?:
         <thought>(?P<thought>.*?)</thought>
+      | <think>(?P<think>.*?)</think>
       | <tool_call>(?P<tool_call>.*?)</tool_call>
       | <final_answer>(?P<final_answer>.*?)</final_answer>
       | <observation\s+tool_name=(?:"(?P<observation_tool_name_dq>[^"]+)"|'(?P<observation_tool_name_sq>[^']+)')>(?P<observation>.*?)</observation>
@@ -194,6 +195,7 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
 
     blocks: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    reasoning_tags: set[str] = set()
     fence_wrappers_stripped = 0
     fence_inner_content_preserved = 0
 
@@ -243,7 +245,19 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
             raw_body = match.group("observation") or ""
             tool_name = match.group("observation_tool_name_dq") or match.group("observation_tool_name_sq")
         else:
-            raw_body = match.group("thought") or ""
+            reasoning_tag = "think" if match.group("think") is not None else "thought"
+            reasoning_tags.add(reasoning_tag)
+            if len(reasoning_tags) > 1:
+                return {
+                    "ok": False,
+                    "error_type": "ReactFormatError",
+                    "error_message": "assistant message must not mix <thought> and <think> reasoning tags",
+                    "blocks": blocks,
+                    "errors": errors,
+                    "fence_wrappers_stripped": fence_wrappers_stripped,
+                    "fence_inner_content_preserved": fence_inner_content_preserved,
+                }
+            raw_body = match.group(reasoning_tag) or ""
 
         clean_body, fence_wrapped, fence_inner_preserved = _strip_markdown_fence(raw_body)
         if fence_wrapped:
@@ -271,6 +285,7 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
                     "fence_inner_content_preserved": fence_inner_content_preserved,
                 }
             block["text"] = clean_body
+            block["reasoning_tag"] = next(iter(reasoning_tags))
         elif kind == "tool_call":
             payloads, error_type, error_message = _json_objects(clean_body.strip())
             if payloads is None:
@@ -391,14 +406,45 @@ def parse_react_sequence(text: str, *, role: str | None = None) -> dict[str, Any
         "ok": True,
         "mode": "tagged",
         "blocks": blocks,
+        "reasoning_tag": next(iter(reasoning_tags)) if reasoning_tags else None,
         "fence_wrappers_stripped": fence_wrappers_stripped,
         "fence_inner_content_preserved": fence_inner_content_preserved,
     }
 
 
-def parse_runtime_decision(text: str, *, strict_toolrl_turn: bool = False) -> dict[str, Any]:
+def restore_qwen_native_thinking_continuation(text: str) -> str:
+    """Restore the opening ``<think>`` supplied by Qwen's generation prompt.
+
+    With native thinking enabled, Qwen3.5 receives ``<think>\n`` in the prompt,
+    so the sampled continuation starts with reasoning text and ends that span
+    with ``</think>``.  Stored SFT/ToolRL targets contain the complete block.
+    This opt-in adapter makes those two representations parser-equivalent
+    without accepting legacy ``<thought>`` mixed into a native continuation.
+    """
+
+    if not isinstance(text, str) or "</think>" not in text:
+        return text
+    if any(tag in text for tag in ("<think>", "<thought>", "</thought>")):
+        return text
+    reasoning, action = text.split("</think>", 1)
+    action = action.lstrip()
+    if not action.startswith(("<tool_call>", "<final_answer>")):
+        return text
+    reasoning = reasoning.strip()
+    if not reasoning:
+        return action
+    return f"<think>{reasoning}</think>\n{action}"
+
+
+def parse_runtime_decision(
+    text: str,
+    *,
+    strict_toolrl_turn: bool = False,
+    native_qwen_thinking: bool = False,
+) -> dict[str, Any]:
     """Parse one model generation into the canonical runtime decision shape."""
-    parsed = parse_react_sequence(text, role="assistant")
+    parser_text = restore_qwen_native_thinking_continuation(text) if native_qwen_thinking else text
+    parsed = parse_react_sequence(parser_text, role="assistant")
     if not parsed.get("ok"):
         return {
             "ok": False,
@@ -470,6 +516,7 @@ def parse_runtime_decision(text: str, *, strict_toolrl_turn: bool = False) -> di
         "error_type": None,
         "error_message": None,
         "raw_text": text,
+        "reasoning_tag": parsed.get("reasoning_tag"),
     }
 
 
@@ -517,6 +564,6 @@ def detect_sft_protocol(record: dict[str, Any]) -> str:
             if not isinstance(content, str):
                 continue
             stripped = content.strip()
-            if any(tag in stripped for tag in ("<thought>", "<tool_call>", "<final_answer>", "<observation")):
+            if any(tag in stripped for tag in ("<thought>", "<think>", "<tool_call>", "<final_answer>", "<observation")):
                 return PROTOCOL_REACT_JSON
     return PROTOCOL_REACT_JSON

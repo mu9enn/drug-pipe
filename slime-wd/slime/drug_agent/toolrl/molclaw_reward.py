@@ -18,7 +18,7 @@ from drug_agent.toolrl.normalization import (
     load_tool_schema_config,
     normalize_value,
 )
-from drug_agent.toolrl.parse_tool_calls import parse_tool_calls
+from drug_agent.toolrl.qwen_native_parser import parse_qwen_native_completion
 from drug_agent.utils import clamp, to_jsonable
 
 
@@ -228,68 +228,6 @@ def _official_reward(sample: Any, parsed: dict[str, Any], pred_calls: list[dict[
     }
 
 
-def _official_8cee13e_reward(
-    sample: Any,
-    response_text: str,
-    parsed: dict[str, Any],
-    pred_calls: list[dict[str, Any]],
-    gold_calls: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """ToolRL commit 8cee13e reward, with final_answer as a response tag rename.
-
-    The official response branch scores format only; it does not compare the
-    response text with the teacher. Tool-call matching is invocation-level,
-    order-insensitive, and multiplicity-preserving via ``used_pred``.
-    """
-    expected = _decision_type(sample)
-    official_pred_calls: list[dict[str, Any]] = []
-    if expected == "final_answer":
-        match = re.fullmatch(r"<thought>.*?</thought>\n<final_answer>.*?</final_answer>", response_text, re.DOTALL)
-        valid = bool(match and response_text.count("<final_answer>") == response_text.count("</final_answer>") == 1)
-        predicted = "final_answer" if valid else "invalid"
-    else:
-        match = re.fullmatch(r"<thought>.*?</thought>\n<tool_call>\n(.*?)\n</tool_call>", response_text, re.DOTALL)
-        valid = bool(match and response_text.count("<tool_call>") == response_text.count("</tool_call>") == 1)
-        if valid:
-            try:
-                payloads = [json.loads(line) for line in match.group(1).splitlines() if line.strip()]
-                if not payloads or not all(isinstance(item, dict) for item in payloads):
-                    raise ValueError("empty/non-object tool payload")
-                official_pred_calls = [
-                    {
-                        "tool_name": item.get("tool_name", item.get("name")),
-                        "arguments": item.get("arguments", item.get("parameters", {})),
-                    }
-                    for item in payloads
-                ]
-                valid = all(call["tool_name"] and isinstance(call["arguments"], dict) for call in official_pred_calls)
-            except Exception:
-                valid = False
-        predicted = "tool_call" if valid else "invalid"
-    format_score = 1.0 if valid else 0.0
-    if expected == "final_answer":
-        correctness = 0.0
-    else:
-        correctness = _official_tool_correctness(official_pred_calls, gold_calls) if format_score else -3.0
-    return {
-        "score": format_score + correctness,
-        "format": format_score,
-        "components": {"format": format_score, "correctness": correctness},
-        "diagnostics": {
-            "reward_mode": "toolrl_official_8cee13e",
-            "canonical_commit": "8cee13ec0ca72f0461da372a93a6fd8140dbb840",
-            "expected_decision_type": expected,
-            "predicted_decision_type": predicted,
-            "final_answer_is_response_tag_rename": expected == "final_answer",
-            "thought_tag_required": True,
-            "pred_call_count": len(official_pred_calls),
-            "gold_call_count": len(gold_calls),
-        },
-        "errors": [] if format_score else [{"type": "OfficialFormatMismatch", "message": f"expected thought + {expected}"}],
-        "warnings": [],
-    }
-
-
 def _format_reward(parsed: dict[str, Any]) -> float:
     if not parsed.get("ok"):
         return -0.3
@@ -317,8 +255,8 @@ def _molclaw_final_answer_reward(sample: Any, parsed: dict[str, Any]) -> dict[st
     ``target_final_answer`` instead.  Applying the tool scorer to those rows
     lets malformed text with no final-answer block receive a positive reward.
     Keep terminal decisions on the same [-0.5, 1.0] MolClaw scale while
-    requiring both canonical ReAct format and exact structured output (with
-    the duplicated human-readable summary ignored, as in official ToolRL).
+    requiring both a valid native final decision and exact structured output
+    (with duplicated human-readable summary ignored, as in official ToolRL).
     """
     has_only_final = bool(
         parsed.get("ok")
@@ -438,12 +376,12 @@ def _pair_tool_calls(pred: list[dict[str, Any]], gold: list[dict[str, Any]], con
     score_matrix: list[list[float]] = []
     detail_matrix: list[list[dict[str, Any]]] = []
     for pred_idx, pred_call in enumerate(pred):
-        pred_name = canonical_tool_name(pred_call.get("tool_name"), config)
+        pred_name = canonical_tool_name(pred_call.get("tool_name") or pred_call.get("name"), config)
         pred_args = canonical_argument_map(pred_call.get("arguments") or {}, tool_name=pred_name, config=config)
         row = []
         details_row = []
         for gold_idx, gold_call in enumerate(gold):
-            gold_name = canonical_tool_name(gold_call.get("tool_name"), config)
+            gold_name = canonical_tool_name(gold_call.get("tool_name") or gold_call.get("name"), config)
             gold_args = canonical_argument_map(gold_call.get("arguments") or {}, tool_name=gold_name, config=config)
             name_score = 1.0 if pred_name == gold_name else 0.0
             pred_keys = set(pred_args.keys())
@@ -682,7 +620,7 @@ def _decision_aware_tool_reward(
     gate_reason = None
     if not valid_envelope:
         score = -0.5
-        gate_reason = "invalid_react_tool_envelope"
+        gate_reason = "invalid_native_tool_decision"
     elif matched == 0:
         score = -0.5
         gate_reason = "no_correct_tool_name"
@@ -739,24 +677,15 @@ _CRITICAL_ARGUMENT_PATTERN = re.compile(
 )
 
 
-@lru_cache(maxsize=4)
-def _tool_catalog_schemas(path: str) -> dict[str, dict[str, Any]]:
-    if not path or not Path(path).is_file():
-        return {}
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    tools = payload.get("tools") if isinstance(payload, dict) else None
-    if not isinstance(tools, list):
-        return {}
-    return {
-        canonical_tool_name(str(tool.get("name") or "")): tool.get("input_schema")
-        for tool in tools
-        if isinstance(tool, dict) and isinstance(tool.get("input_schema"), dict)
-    }
-
-
-def _argument_schema(tool_name: str) -> dict[str, Any]:
-    path = os.environ.get("DRUG_AGENT_TOOL_CATALOG", "")
-    return _tool_catalog_schemas(path).get(canonical_tool_name(tool_name), {})
+def _tool_schemas(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    schemas: dict[str, dict[str, Any]] = {}
+    for tool in tools:
+        function = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+        name = canonical_tool_name(str(function.get("name") or ""))
+        schema = function.get("parameters")
+        if name and isinstance(schema, dict):
+            schemas[name] = schema
+    return schemas
 
 
 def _schema_value_valid(value: Any, schema: dict[str, Any]) -> bool:
@@ -811,12 +740,15 @@ def _is_critical_argument(name: str, schema: dict[str, Any]) -> bool:
 
 
 def _hierarchical_argument_metrics(
-    pred_call: dict[str, Any], gold_call: dict[str, Any], config: dict[str, Any]
+    pred_call: dict[str, Any],
+    gold_call: dict[str, Any],
+    config: dict[str, Any],
+    schemas: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     tool_name = canonical_tool_name(gold_call.get("tool_name") or gold_call.get("name"), config)
     pred_args = canonical_argument_map(pred_call.get("arguments") or {}, tool_name=tool_name, config=config)
     gold_args = canonical_argument_map(gold_call.get("arguments") or {}, tool_name=tool_name, config=config)
-    schema = _argument_schema(tool_name)
+    schema = schemas.get(tool_name, {})
     properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
     required = {
         canonical_param_name(str(name), config)
@@ -867,6 +799,7 @@ def _hierarchical_tool_reward(
     pred_calls: list[dict[str, Any]],
     gold_calls: list[dict[str, Any]],
     config: dict[str, Any],
+    tools_schema: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Stage-gated reward: envelope -> tool set -> required args -> validity."""
     valid_envelope = bool(parsed.get("ok") and parsed.get("has_tool_call") and not parsed.get("has_final_answer"))
@@ -879,7 +812,7 @@ def _hierarchical_tool_reward(
 
     if not valid_envelope:
         score = -0.5
-        gate = "invalid_react_tool_envelope"
+        gate = "invalid_native_tool_decision"
     elif not pairs:
         score = -0.4
         gate = "wrong_tool"
@@ -888,7 +821,14 @@ def _hierarchical_tool_reward(
         gate = "partial_tool_set"
     else:
         for pair in pairs:
-            argument_metrics.append(_hierarchical_argument_metrics(pred_calls[pair.pred_index], gold_calls[pair.gold_index], config))
+            argument_metrics.append(
+                _hierarchical_argument_metrics(
+                    pred_calls[pair.pred_index],
+                    gold_calls[pair.gold_index],
+                    config,
+                    _tool_schemas(tools_schema),
+                )
+            )
         required_coverage = min(item["required_coverage"] for item in argument_metrics) if argument_metrics else 1.0
         critical_exact = min(item["critical_exact"] for item in argument_metrics) if argument_metrics else 1.0
         configurable_validity = min(item["configurable_validity"] for item in argument_metrics) if argument_metrics else 1.0
@@ -993,12 +933,12 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     config = load_tool_schema_config()
     response_text = _extract_response_text(sample)
     metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
-    strict_toolrl_turn = str(metadata.get("protocol") or "") == "toolrl_turn_v1"
-    parsed = parse_tool_calls(
+    tools_schema = metadata.get("tools")
+    if not isinstance(tools_schema, list) or not tools_schema:
+        raise ValueError("structured ToolRL reward requires deployment-visible tools in sample.metadata")
+    parsed = parse_qwen_native_completion(
         response_text,
-        allowed_tool_names=None,
-        keep_non_molclaw=True,
-        strict_toolrl_turn=strict_toolrl_turn,
+        tools_schema=tools_schema,
     )
     gold_calls = _extract_gold_tool_calls(sample)
 
@@ -1008,7 +948,6 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
 
     reward_mode = os.environ.get("TOOLRL_REWARD_MODE", "official").strip().lower()
     if reward_mode not in {
-        "toolrl_official_8cee13e",
         "official",
         "molclaw",
         "decision_aware",
@@ -1016,13 +955,6 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         "v8_baseline",
     }:
         raise ValueError(f"unsupported TOOLRL_REWARD_MODE: {reward_mode}")
-    if reward_mode == "toolrl_official_8cee13e":
-        out = _official_8cee13e_reward(sample, response_text, parsed, pred_calls, gold_calls)
-        out = _attach_protocol_diagnostics(out, parsed)
-        if not isinstance(sample.metadata, dict):
-            sample.metadata = {}
-        sample.metadata["toolrl_reward"] = to_jsonable(out)
-        return out
     if reward_mode == "official":
         out = _official_reward(sample, parsed, pred_calls, gold_calls)
         out = _attach_protocol_diagnostics(out, parsed)
@@ -1050,7 +982,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
             out["diagnostics"]["reward_mode"] = "hierarchical"
             out["diagnostics"]["decision_role"] = _decision_role(sample)
         else:
-            out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config)
+            out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config, tools_schema)
         out = _attach_protocol_diagnostics(out, parsed)
         out = _apply_truncation_guard(sample, out)
         if not isinstance(sample.metadata, dict):
@@ -1062,7 +994,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         if _decision_type(sample) == "final_answer":
             out = _v8_baseline_final_reward(sample, parsed)
         else:
-            out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config)
+            out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config, tools_schema)
             out["diagnostics"]["reward_mode"] = "v8_baseline"
         out = _attach_protocol_diagnostics(out, parsed)
         out = _apply_truncation_guard(sample, out)
@@ -1112,8 +1044,8 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
     if parsed.get("unsupported_tool_calls"):
         score -= min(0.10, 0.02 * len(parsed.get("unsupported_tool_calls") or []))
     if not parsed.get("ok"):
-        # Dense partial-call credit is useful only inside a valid ReAct
-        # envelope.  Extra free text or malformed tags must never turn into a
+        # Dense partial-call credit is useful only inside a valid native tool
+        # decision. Extra free text or malformed calls must never turn into a
         # positive training target even if a recoverable call happened to
         # match the gold call.
         score = min(score, -0.3)

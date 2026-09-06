@@ -42,30 +42,26 @@ DRUG_AGENT_DATA_ROOT=${DRUG_AGENT_DATA_ROOT:-$OUTPUTS_ROOT/slime_drug_agent_data
 DRUG_AGENT_RUNS_ROOT=${DRUG_AGENT_RUNS_ROOT:-$OUTPUTS_ROOT/slime_drug_agent_runs}
 mkdir -p "$DRUG_AGENT_DATA_ROOT" "$DRUG_AGENT_RUNS_ROOT"
 
-DEFAULT_REACT_DATA=${DEFAULT_REACT_DATA:-$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl}
-REACT_DATA_SOURCE=${PROMPT_DATA:-${REACT_DATA_SOURCE:-$DEFAULT_REACT_DATA}}
+DEFAULT_SFT_DATA=${DEFAULT_SFT_DATA:-$DRUG_AGENT_DATA_ROOT/qwen35_sft.jsonl}
+SFT_DATA_SOURCE=${PROMPT_DATA:-${SFT_DATA_SOURCE:-$DEFAULT_SFT_DATA}}
+HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-0.8B}
 
-if [ -d "$REACT_DATA_SOURCE" ]; then
-  MATERIALIZED_REACT_PATH=${MATERIALIZED_REACT_PATH:-${REACT_DATA_SOURCE%/}.jsonl}
-  MATERIALIZED_REACT_MANIFEST=${MATERIALIZED_REACT_MANIFEST:-${MATERIALIZED_REACT_PATH%.jsonl}.manifest.json}
-  mkdir -p "$(dirname "$MATERIALIZED_REACT_PATH")"
-  PROMPT_DATA="$MATERIALIZED_REACT_PATH"
-  python drug_agent/data/materialize_sft_jsonl.py \
-    --input "$REACT_DATA_SOURCE" \
-    --output "$PROMPT_DATA" \
-    --manifest "$MATERIALIZED_REACT_MANIFEST"
-else
-  PROMPT_DATA="$REACT_DATA_SOURCE"
-fi
+PROMPT_DATA="$SFT_DATA_SOURCE"
 
 if [ ! -f "$PROMPT_DATA" ]; then
-  echo "PROMPT_DATA not found: $PROMPT_DATA"
+  echo "PROMPT_DATA must be a structured JSONL or Parquet file: $PROMPT_DATA"
   exit 2
 fi
+case "$PROMPT_DATA" in
+  *.jsonl|*.parquet) ;;
+  *) echo "PROMPT_DATA must end in .jsonl or .parquet: $PROMPT_DATA" >&2; exit 2 ;;
+esac
 
-python drug_agent/data/validate_sft_messages.py \
-  --input "$PROMPT_DATA" \
-  --protocol "${SFT_DATA_PROTOCOL:-react_json}"
+if [[ "$PROMPT_DATA" == *.jsonl ]]; then
+  python drug_agent/data/validate_sft_messages.py \
+    --input "$PROMPT_DATA" \
+    --model "$HF_CHECKPOINT"
+fi
 
 NUM_ROLLOUT=${NUM_ROLLOUT:-2}
 ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-8}
@@ -128,7 +124,6 @@ echo "[drug_agent] SFT parallel/batch config: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODE
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-0.8B_drug_sft_smoke}
 SAVE_INTERVAL=${SAVE_INTERVAL:-1}
 CHECKPOINT_KEEP_LAST=${CHECKPOINT_KEEP_LAST:-2}
-HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-0.8B}
 REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-0.8B_torch_dist}
 LOAD=${LOAD:-}
 
@@ -164,6 +159,7 @@ SFT_ARGS=(
   --rollout-function-path slime.rollout.sft_rollout.generate_rollout
   --prompt-data "$PROMPT_DATA"
   --input-key messages
+  --tool-key tools
   --metadata-key metadata
   --rollout-shuffle
 

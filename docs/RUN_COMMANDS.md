@@ -6,11 +6,14 @@
 
 ```text
 <workdir>/attempts/attempt_NNNN/complete_session.jsonl
+<workdir>/attempts/attempt_NNNN/complete_session.pretty.json
 ```
 
 MCP-ready retry 会递增 `NNNN`，不会覆盖旧流；顶层
 `<workdir>/complete_session.jsonl` 是最终采用 attempt 的字节级副本，供现有 parser
-继续读取。不要编辑 attempt 文件或向其中追加 runner 诊断。该布局仅对新运行生效。
+继续读取；同目录 `complete_session.pretty.json` 只用于人工阅读。raw 中的非 JSON Claude runtime
+diagnostic 会在 pretty 文件中变成带原始行号的显式 diagnostic record。不要编辑 attempt 文件或向
+其中追加 runner 诊断。该布局仅对新运行生效。
 
 ## Tool-KG
 
@@ -111,58 +114,68 @@ CLI 的 `--max-workers`。Stage 3 支持 1–4 并发：主线程顺序规划 gr
 和重复配额，各 Claude worker 使用独立 runtime/workdir，最后按 attempt 序号归并。不要对同一
 run directory 同时启动多个 sampler。
 
-三段逻辑清洗与 canonical ReAct（前两段由同一个 Python 命令完成）：
+Raw → pre-clean native audit projection → semantic/Python clean → mandatory reasoning clean → Qwen3.5 SFT：
 
 ```bash
-PYTHONPATH=. python -m pipeline.cleaning.python_clean \
-  --results-root results/<run_dir> \
-  --output-root results/cleaning_work
+cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/data-pipe
 
-PYTHONPATH=. python -m pipeline.cleaning.llm_clean \
-  --input results/cleaning_work/python_drafts.jsonl \
-  --python-audit results/cleaning_work/python_audit.jsonl \
-  --output-root results/cleaned
+DEPLOYMENT_TOOLS=/path/to/the/exact/student-visible-tool-manifest.json
+bash scripts/run_cleaning.sh \
+  --results-root results/<run_dir> \
+  --output-root results/cleaned \
+  --deployment-tool-set "$DEPLOYMENT_TOOLS" \
+  --tool-visibility all
 ```
 
-默认 Python 结构化保留 MolClaw 和受支持的本地文件工具。仅需要 MolClaw 轨迹时，给
-`python_clean` 或 `run_cleaning.sh` 显式增加 `--only-molclaw-tool`；该参数不改变
-A/B/C gate 的 accepted/rejected 数量。
+`DEPLOYMENT_TOOLS` 必须等于未来 rollout/deployment 真正可提供给 student 的工具集合。可改用
+`--tool-visibility trajectory-plus-distractors`：保留六个本地工具、全部已用 MolClaw 工具及等量的
+deterministic distractors。Semantic 构建不读取这个 manifest，因此更换 visibility/manifest 只需重新
+materialize SFT，不必回到 raw。
 
-也可用 `bash scripts/run_cleaning.sh` 连续执行同样三段逻辑。每条 Python-valid draft
-都会由 LLM 自行检查 prose；LLM 只写 `llm_clean_patch.json`，Python 只允许修改已有
-thought/final summary 并用 immutable/schema checks 保护执行事实；stdout 不作为数据接口。
+默认输出：
 
-输出训练接口为 `results/cleaned/react_trajectories.jsonl`；审计为同目录
-`curation_audit.jsonl`，A/B/C gate 拒绝记录为 `rejected.jsonl`。LLM 失败时回退
-Python draft，不产生 quarantine。
+```text
+results/qwen35_native_raw/
+├── qwen35_native_raw.jsonl                 # 未清洗 Qwen message 投影，仅供审计
+├── qwen35_native_raw.pretty.json
+└── projection_audit.jsonl
+results/semantic_work/
+├── semantic_trajectories.jsonl             # 永久母数据
+├── semantic_trajectories.pretty.json
+├── python_audit.jsonl
+└── rejected.jsonl
+results/cleaned/
+├── semantic_trajectories.jsonl             # 仅成功 immutable patch
+├── semantic_trajectories.pretty.json
+├── llm_pending.jsonl                       # provider/patch 失败，母数据仍有效
+├── qwen35_sft.jsonl
+├── qwen35_sft.pretty.json
+└── materialization_manifest.json
+```
 
-## Slime 数据派生
+所有 `.jsonl` 仍是一行一个 record；同目录 `.pretty.json` 是等价的缩进 JSON array，只供人工阅读，
+不作为任何 loader 或下游转换输入。`qwen35_native_raw` 保留未过滤调用、未匿名化路径和未压缩
+observation，并明确不是 semantic mother dataset。
+
+正式脚本没有 `--skip-llm-clean` 或 `--no-high-level-plan`。失败样本只进入 pending；不会把 Python-only
+semantic 冒充完成清洗的 SFT 数据。
+
+## Slime 数据验证与派生
 
 ```bash
 cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime
 source /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
 
-REACT_SOURCE=/path/to/data-pipe/results/postprocess_candidates/react_trajectories.jsonl
-OUT=$DRUG_AGENT_DATA_ROOT
-mkdir -p "$OUT"
-cp "$REACT_SOURCE" "$OUT/react_trajectories.jsonl"
-REACT=$OUT/react_trajectories.jsonl
+SFT=/path/to/data-pipe/results/cleaned/qwen35_sft.jsonl
+MODEL=$DATA/Qwen3.5-9B
 
 PYTHONPATH=. python drug_agent/data/validate_sft_messages.py \
-  --input "$REACT" --protocol react_json
+  --input "$SFT" --model "$MODEL"
 
-PYTHONPATH=. python -m drug_agent.toolrl.convert_react_to_toolrl_steps \
-  --input "$REACT" \
-  --output "$OUT/toolrl/react_trajectories.toolrl_steps.jsonl" \
-  --skipped-report "$OUT/toolrl/react_trajectories.skipped.jsonl" \
-  --report "$OUT/toolrl/react_trajectories.report.json"
-
-PYTHONPATH=. python -m drug_agent.gad.data \
-  --input "$REACT" \
-  --output "$OUT/gad/gad_steps.jsonl" \
-  --skipped-report "$OUT/gad/gad_steps.skipped.jsonl" \
-  --report "$OUT/gad/gad_steps.report.json"
 ```
+
+SFT launcher 直接读取 structured `messages/tools`，不再接受目录、单个 JSON 或旧 ReAct flatten
+入口。ToolRL materialization/rollout 不属于本轮 SFT 主线，待 ToolRL 专项统一处理。
 
 ## Formal offline training
 
@@ -170,61 +183,15 @@ PYTHONPATH=. python -m drug_agent.gad.data \
 4-GPU worker 的 4B 实跑经验、当前 token 长度统计和 8×H200 的 27B 参数决策见
 [`SLIME_TRAINING_SETTINGS.md`](SLIME_TRAINING_SETTINGS.md)。
 
-在一台干净的 4-GPU worker 上，使用当前 373 条数据依次运行 SFT、ToolRL 和 pure GAD：
+当前 structured SFT 入口：
 
 ```bash
-cd /root/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime
-bash drug_agent/scripts/run_qwen3_5_4b_sft_toolrl_gad_serial.sh
-```
-
-总控脚本会重新确定性派生 3028 条 ToolRL steps 和 3234 条 GAD steps。算法权重关系是
-`SFT -> ToolRL` 与 `SFT -> GAD` 两个分支；“串行运行”不表示 GAD 从 ToolRL checkpoint 初始化。
-Pure GAD 阶段使用 3 张卡训练 TP1/DP3 generator，并保留第 4 张卡运行同源 4B discriminator。
-任一阶段失败都会停止后续阶段，日志和 checkpoint 统一写入
-`outputs/slime_drug_agent_runs/Qwen3.5-4B_current373_serial_<timestamp>/`。
-
-SFT 4B full：
-
-```bash
-PROMPT_DATA="$REACT" \
+PROMPT_DATA="$SFT" \
 bash drug_agent/scripts/run_qwen3_5_4b_drug_sft_full.sh
 ```
 
-ToolRL 4B full：
-
-```bash
-PROMPT_DATA="$OUT/toolrl/react_trajectories.toolrl_steps.jsonl" \
-TOOLRL_REWARD_MODE=official \
-bash drug_agent/toolrl/scripts/run_qwen3_5_4b_toolrl_full.sh
-```
-
-GAD Stage2/Stage3：
-
-```bash
-PROMPT_DATA="$OUT/gad/gad_steps.jsonl" \
-bash drug_agent/gad/scripts/generate_stage2_negatives.sh
-
-GENERATOR_WARMUP_LOAD=/path/to/completed/sft/checkpoint \
-DISCRIMINATOR_MODEL_PATH="$DATA/Qwen3.5-4B" \
-bash drug_agent/gad/scripts/run_stage2_discriminator_warmup.sh
-
-DISCRIMINATOR_RESUME=/path/to/gad_discriminator_warmup/latest \
-bash drug_agent/gad/scripts/serve_discriminator.sh
-
-PROMPT_DATA="$OUT/gad/gad_steps.jsonl" \
-GAD_REWARD_MODE=pure \
-GAD_DISCRIMINATOR_URL=http://DISCRIMINATOR_HOST:8100 \
-STUDENT_WARMUP_LOAD=/path/to/completed/sft/checkpoint \
-DISCRIMINATOR_WARMUP_LOAD=/path/to/gad_discriminator_warmup/latest \
-GAD_WARMUP_MANIFEST=/path/to/gad_discriminator_warmup/warmup_manifest.json \
-bash drug_agent/gad/scripts/run_stage3_gad_grpo_full.sh
-```
-
-`GAD_REWARD_MODE=rule` 不需要 discriminator service；`pure`（默认）和 `hybrid` 必须连接由
-manifest 指定 warmup checkpoint 启动的 service。标准配置为同源 Qwen3.5-4B discriminator；
-0.8B 只能通过显式 `DISCRIMINATOR_MODEL_PATH` 作为 efficiency variant 使用。
-
-Resume 使用各 launcher 已有的 `RESUME_DIR`、`TOOLRL_RESUME`、`STUDENT_RESUME`、`DISCRIMINATOR_RESUME` 变量；不要把普通初始化 checkpoint 当成 resume。
+本轮不执行 loader、GPU/Ray 或训练 dry-run。历史 ToolRL/GAD/旧 serial 入口没有被提升为 structured
+SFT 主线。
 
 ## Online MCP debug
 
@@ -233,8 +200,6 @@ Resume 使用各 launcher 已有的 `RESUME_DIR`、`TOOLRL_RESUME`、`STUDENT_RE
 ```bash
 export DRUG_AGENT_ALLOW_TOOL_ENV=1
 PYTHONPATH=. python drug_agent/tools_debug/debug_mcp_tools.py --env-file ../../data-pipe/.env --list-tools
-PYTHONPATH=. python drug_agent/tools_debug/debug_one_task.py --env-file ../../data-pipe/.env --input-jsonl "$REACT" --index 0
-PYTHONPATH=. python drug_agent/tools_debug/debug_replay_trajectory.py --env-file ../../data-pipe/.env --input-jsonl "$REACT" --index 0
 ```
 
 ## Checkpoint → MolBench online evaluation
@@ -302,20 +267,9 @@ checkpoint 根目录必须含 `latest_checkpointed_iteration.txt` 和对应 iter
 模型，也不会静默回退 base model。4B/9B 可按路径名推断 profile；其他模型必须显式提供
 `HF_CHECKPOINT`、`MODEL_ARGS_FILE`、`NUM_GPUS`、TP 和 PP。完整科学评测不会被测试命令自动启动。
 
-评测 preflight 捕获的实时 catalog 可用于未来训练数据迁移和派生数据再生成：
-
-```bash
-TOOL_CATALOG=/path/to/eval_run/tool_catalog.json \
-INPUT="$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl" \
-OUTPUT_ROOT="$DRUG_AGENT_DATA_ROOT/live_tool_catalog_v2" \
-bash drug_agent/scripts/migrate_and_regenerate_live_tool_data.sh
-```
-
-迁移只影响未来数据，不修改已经训练完成的 checkpoint。迁移后必须先阅读
-`migration/migration_report.json`、`migration/migration_rejected.jsonl`、
-`adjacent_thought_dedup_report.json`、`assistant_decision_length_audit.json` 和
-`derived_data_manifest.json`，再决定是否冻结新训练集。脚本会以实时 81 个 MCP 工具加当前
-6 个本地工具重建 catalog；超长 assistant decision 只审计，不会在迁移中截断或改写。
+评测 preflight 捕获的 catalog 若代表未来 student 的真实 visibility，应把它作为新的
+`--deployment-tool-set` 从 semantic mother dataset 重新物化 structured views。不要调用旧 XML
+migration/converter，也不要把未验证的工具 alias 写回数据。
 
 ## 非侵入式检查
 
@@ -330,9 +284,9 @@ PYTHONPATH=. python -m unittest discover -s pipeline/kg/tests -p 'test_*.py' -v
 
 cd ../slime-wd/slime
 PYTHONPATH=. python -m unittest -v \
-  drug_agent.tests.test_decision_extractor \
-  drug_agent.gad.tests.test_data \
-  drug_agent.tests.test_offline_training
-PYTHONPATH=. python drug_agent/toolrl/tests/run_toolrl_tests.py
-PYTHONPATH=. python drug_agent/tools_debug/audit_offline_training.py
+  drug_agent.tests.test_structured_qwen_pipeline \
+  drug_agent.tests.test_local_tools
 ```
+
+旧 ToolRL/GAD regression suite 不属于本轮 structured SFT 验收；应在后续 ToolRL 专项按其当时的
+native parser/reward contract 单独执行。

@@ -1,7 +1,5 @@
 # Data Formats
 
-ReAct LLM clean 的 planning annotation、ToolRL/GAD 共享超长上下文物化契约和 262k 长度边界见 [REACT_PLANNING_AND_CONTEXT_SUMMARY.md](REACT_PLANNING_AND_CONTEXT_SUMMARY.md)。
-
 下列字段只列稳定边界；debug、provenance 和派生统计不构成新的 authority。
 
 ## Tool Catalog
@@ -102,128 +100,153 @@ Stage3 只读取 `graph.jsonl`、`edge_decisions.jsonl` 与 `tool_catalog.jsonl`
 intermediate。采样使用 `question_sampling.yaml` 的 named profile，resolved values、
 profile/config hash 与 prompt hash 写入 manifest。
 
-## Raw Trace
+## Raw Trace 与执行目录
 
-每次 Claude CLI invocation 都以 `--verbose --output-format stream-json` 运行，并把
-stdout 与 stderr 按 `2>&1` 语义直接写入独立的不可变归档：
+每次 Claude CLI invocation 都以 `--verbose --output-format stream-json` 运行。不可变 raw stream
+保存在外层 rollout metadata 目录的 `attempts/attempt_NNNN/complete_session.jsonl`；选中的
+attempt 再按字节复制到该 sample 的顶层 `complete_session.jsonl`。`question.json`、`prompt.txt`、
+`run_meta.json`、selected-attempt manifest 等采集文件也只在外层目录。
+`run_meta.json` 与 selected-attempt manifest 都记录 question、user prompt、system prompt、selected raw
+session 和 source dataset 的 SHA-256；新采集样本进入 semantic 前必须全部互相匹配。
+任一 hash 或 selected-attempt 绑定缺失时同样 fail closed，不自动降级为旧采集格式。
 
-```text
-<workdir>/attempts/attempt_0001/complete_session.jsonl
-<workdir>/attempts/attempt_0002/complete_session.jsonl
-...
-```
+每个 `complete_session.jsonl` 都有 `complete_session.pretty.json` 阅读副本。raw 中若混有 Claude CLI
+runtime diagnostic，pretty 文件会将该行明确包装为 `raw_stream_diagnostic`，并保留原行号和文本；
+raw JSONL 本身不被修改，且仍是唯一 raw authority。
 
-执行层随后把当前流程最终采用的 attempt 按字节复制到稳定兼容路径
-`<workdir>/complete_session.jsonl`，并校验两者 SHA256 一致。`run_meta.json` 或对应
-trace 记录所有 attempt 的 index、路径、return code、字节数、SHA256 与最终选择；
-MCP-ready retry 不覆盖之前的 attempt。timeout、非零退出和 CLI stderr 留在原始文件，
-runner 自己的 timeout/MCP-ready 诊断只写 metadata，禁止追加到 raw stream。
+Claude 启动时的 cwd 是 attempt 下的独立 `workdir/`。启动前其中只能有
+`workdir-skills/molclaw-trajectory-execution/` 明确投放的运行材料；题目通过正常 user prompt
+传入，collector 不向 cwd 写 question、prompt 或采集 sidecar。agent 运行期间产生的科学产物可在
+该 cwd 中出现。
 
-下游仍只读取顶层 `complete_session.jsonl`。空文件或完全没有可解析 stream-json event
-的文件标记为 `raw_session_invalid`；Data-Pipe rollout/Tool-KG 视为执行失败，LLM clean
-回退 Python draft。该契约只适用于新运行，不为历史目录伪造 session。
+## Pre-clean Qwen3.5 Native Projection（审计中间态）
 
-执行层另保存 `run_config.json`/run meta、task input snapshot 和 artifacts。raw event
-顺序、observation、工具调用与科学结论不得由后处理修改。
+`qwen35_native_raw.jsonl` 将 immutable Claude raw events 直接投影为 Qwen3.5 的 structured
+message 形状：thinking 进入 `assistant.reasoning_content`，同一 `message.id` 中的 `tool_use`
+保持在同一 `assistant.tool_calls[]`，`tool_result` 按 ID 进入 `role=tool`，最终文本进入
+`assistant.content`。
 
-## Canonical ReAct
+该产物的 schema 是 `claude_raw_qwen35_native_projection_v1`，明确标记
+`training_source=false`，并将 skill/runtime filtering、path sanitation、observation compaction
+和 reasoning cleaning 全部记录为未执行。它因此仍包含 teacher runtime 调用、原始本机路径和未压缩
+observation，仅用于逐阶段审计，不是 semantic authority，也不是训练输入。正式下游始终从 raw
+构建 semantic，不从这个 Qwen projection 反向解析。此阶段也不伪造 raw stream 中不存在的
+deployment tool JSON schemas；完整 `tools` 只由最终 Qwen adapter 按 student visibility 注入。
 
-Step 1 的内部接口为 `python_drafts.jsonl`。其中每条已经通过确定性构造和验证，状态仅为
-`python_valid`，不是最终 accepted。Step 2 完成 restricted LLM patch 和 final gate 后，训练
-唯一接口才是 `react_trajectories.jsonl`：
+每个主要 trajectory JSONL 同目录都有同名 `.pretty.json` companion。JSONL 保持一行一个 record，
+供程序读取；pretty 文件是缩进后的 JSON array，只供人工检查，不进入 loader 或后续转换。
+
+## Semantic Canonical（母数据）
+
+`semantic_trajectories.jsonl` 是 SFT 和 ToolRL 的共同 authority：
 
 ```json
 {
-  "schema_version": "drug_agent_sft_react_json_v1",
+  "schema_version": "drug_agent_semantic_trajectory_v1",
+  "id": "...",
+  "user_task": "...",
+  "events": [
+    {
+      "type": "assistant_decision",
+      "source_message_id": "...",
+      "reasoning": "...",
+      "tool_calls": [{"name": "...", "arguments": {}, "source_tool_use_id": "..."}],
+      "final_answer": null
+    },
+    {
+      "type": "tool_observation",
+      "name": "...",
+      "source_tool_use_id": "...",
+      "status": "success",
+      "is_error": false,
+      "content": "..."
+    }
+  ],
+  "metadata": {"task_type": "kg", "source_session_sha256": "..."}
+}
+```
+
+一个 Claude `message.id` 始终对应一个 assistant decision；同一 response 的并行 calls 保持在同一
+`tool_calls[]`，结果按 `tool_use_id` 配对并按 call 顺序落盘。删除 teacher-runtime 交互时，
+整组删除 decision 与 observation，绝不跨 observation 合并前后 decisions。
+
+Semantic 正文只含 user task、assistant decisions、calls、observations 和 final response；Claude
+system/runtime instructions 只可进入 audit，不进入正文。它不含 Qwen system prompt、tool catalog
+或任何模型 wire-format 标签。
+
+Raw → Semantic canonicalization 同时完成 Python 确定性清洗：去除 L2/L3、CLAUDE/system/runtime 和
+collector sidecar 动作；把只读 mixed L1/L2 Bash 在原 decision 内投影成一个或多个 `Read`；压缩
+base64/大数组/超长日志并保留下游实际复用的路径与标量证据。
+
+路径按来源处理：attempt workdir 内文件写成普通 cwd-relative 路径；Claude L1 路径写成
+`skills/L1_tools/...`；user task 与 MCP observation 引入的服务器绝对路径保持原值并在后续原样复用。
+不生成 `resource://` 或 `<artifact:...>`。若 raw 确实执行过 `Bash pwd`，该 decision 保留，workdir
+及其依赖路径统一映射到 trajectory-specific absolute root；Python 不事后伪造调用。raw mapping
+只进入 audit。
+
+正式 SFT 主线强制 LLM clean。它只返回 `semantic_reasoning_patch_v1`，允许清理 reasoning 中的 skill prose、连续
+重复 thoughts，并在第一条 decision reasoning 前补充任务级 high-level plan。tool calls、arguments、
+observations、final response、顺序和 provenance 必须通过 immutable check。provider/patch 失败不会
+使 semantic sample 失效：母数据保留，失败项进入 `llm_pending.jsonl`；正式 cleaned view 只包含成功
+patch 的样本。
+
+## Qwen3.5 Structured SFT View
+
+Qwen adapter 注入训练 system prompt 和 deployment-visible tool set，生成：
+
+```json
+{
+  "schema_version": "drug_agent_qwen35_sft_v1",
   "id": "...",
   "messages": [
-    {"role": "system", "content": "..."},
-    {"role": "user", "content": "..."},
-    {"role": "assistant", "content": "<thought>...</thought><tool_call>...</tool_call>"},
-    {"role": "user", "content": "<observation tool_name=\"...\">...</observation>"},
-    {"role": "assistant", "content": "<thought>final analysis</thought><final_answer>...</final_answer>"}
-  ]
+    {"role": "system", "content": "...", "step_loss_mask": 0},
+    {"role": "user", "content": "...", "step_loss_mask": 0},
+    {"role": "assistant", "reasoning_content": "...", "content": "", "tool_calls": [], "step_loss_mask": 1},
+    {"role": "tool", "tool_call_id": "...", "name": "...", "content": "...", "step_loss_mask": 0},
+    {"role": "assistant", "reasoning_content": "...", "content": "...", "step_loss_mask": 1}
+  ],
+  "tools": [{"type": "function", "function": {"name": "...", "parameters": {}}}]
 }
 ```
 
-`<final_answer>` 是 Drug-Pipe 主动选择的 canonical terminal-decision 表示，不是 Claude Code
-stream-json 原始协议。最终 reasoning 与结构化 final 必须属于同一个 assistant generation；
-没有 user/observation 分隔的连续 assistant turn 非法。Final 的 task-specific result 和 evidence
-由 Python authority 构造，`summary` 可选且不得复制完整 thought。
+`tools` 的 authority 是 student 在未来 deployment/rollout 时实际可见的 deployment manifest，不是
+teacher runtime。默认 `all` 为每条样本提供 manifest 全部工具；
+`trajectory-plus-distractors` 始终包含六个本地工具、trajectory 实际使用的全部 MolClaw 工具，并按
+sample ID 确定性加入与已用 MolClaw 工具等量的 distractors。adapter 对缺失的已调用工具 fail closed。
+选择策略与 manifest hash 写入 materialization manifest，semantic 不记录它们。source dataset 始终保存 structured messages；Qwen wire-format 仅由
+`tokenizer.apply_chat_template(messages, tools=tools)` 在加载/验证时产生。Slime 使用
+`--loss-mask-type qwen3_5 --tool-key tools`，只监督 assistant reasoning/action/final。
 
-训练文件不含 source path、return code、ground truth、benchmark metrics、evaluator
-validity 或 rejection reasons。rich final 只能来自 agent prediction、raw assistant final
-和真实 observation evidence。reference labels 与 evaluator 输出按相同 `id` 写入
-`curation_audit.jsonl`。默认最终文件是：
+## Structured ToolRL View
 
-```text
-react_trajectories.jsonl
-curation_audit.jsonl
-rejected.jsonl
-run_manifest.json
-```
+ToolRL 每个 semantic assistant decision 派生一行 `drug_agent_toolrl_decision_v1`，包含历史
+`prompt`、同一 deployment-visible `tools`、结构化 `label.target_assistant`、
+`target_tool_calls|target_final_answer` 和 provenance metadata。它不从 rendered text 反向解析 teacher
+decision。
 
-`task_answer_valid` 只表示 `parsed_answer.parse_error` 是否为空。Evaluator 仍是 benchmark
-metrics 和 `aggregate_eligible` 的唯一 owner，但其 invalid SMILES、重复、长度或空预测等
-finding 只进入 audit，不参与清洗准入。`execution_valid`、`task_answer_valid` 和
-`training_trace_valid` 都由 `python_clean` 产生；final/observation consistency 由
-`invariants.py` 只读记录。LLM clean 内部的 final acceptance gate 只把这三个 gate 投影为
-accepted/rejected，不存在 quarantine 或第二个准入 authority。
+Decision row 只是监督目标的存储粒度，不是 RL sampling 的原子单位。正式 ToolRL training view 必须先按
+`metadata.source_id` 收齐一条 trajectory 的全部 `0..trajectory_decision_count-1` decisions；任一
+decision 因长度无效时拒绝整条 trajectory。随后将一条或多条完整 trajectory 打包为固定大小的 rollout
+batch，写入 `trajectory_batch_id/position/decision_count`。禁止拆 trajectory、复制单个 decision 补齐，
+也禁止 batch 内 `A0,B0,A1,B1` 式交错。
 
-LLM clean 不再消费 Python 生成的逐段 repair target。它检查每条 Python-valid trajectory
-的全部 thought 与 final summary；空 patch 记为 `not_required`，失败或不安全 patch 回退
-Python draft。残留的 L2/L3 或 teacher-sidecar prose 只写 audit，不改变 A/B/C 准入。
+Slime 使用 trajectory-aware data source：`--rollout-shuffle` 只打乱完整 batch 的顺序，batch 内始终按
+trajectory block 和 `decision_ordinal` 顺序读取。RBS 必须不小于最大 trajectory decision 数，并且所有
+准入 trajectory 必须能整条组合成精确 RBS；否则在 rollout 前 fail closed。Decision-level dynamic
+sampling filter 会破坏完整性，因此当前主线不允许启用。训练参数还必须满足
+`GBS = RBS × n_samples_per_prompt`，使一个完整 rollout batch 恰好由一次 optimizer update 消费。
 
-VS 的 QuickVina 排序以每个 SMILES 在整条轨迹中的成功
-`docking_affinity_value` 最小值（最负、最佳 pose）为准，不以 pocket/protein context
-一致作为硬门槛。已有分数的分子先按最佳分数升序排列；缺少成功分数的分子保持原相对
-顺序并置于末尾；重复 SMILES 保留。context、全部重试分数和选中的最佳分数写入 audit。
-
-Canonical artifact token 仅允许 `<artifact:[A-Za-z0-9._/-]+>`。Observation compaction
-不得截断 token；final 中不被保留 call argument 或 observation 支持的 artifact ref 会在
-Python 结构化时替换为中性 unavailable-path 文本。
-
-默认 canonical ReAct 保留 MolClaw 与受支持的本地工具
-`Read/Write/Edit/Bash/Grep/Glob`；其中 `Read/Grep/Glob` 可只读访问 L1 tool-level skill，Bash
-受任务 workspace 限制。Teacher runtime sidecar（如 `question.json`、`run_meta.json`、
-`complete_session.jsonl`、`CLAUDE.md`）和非 L1 skills catalog 访问会成对移除，避免
-benchmark label 与层级脚手架通过 observation 回流。显式 `--only-molclaw-tool` 会成对
-移除所有非 MolClaw call 和 observation，但不改变 A/B/C gate 或 record ID。
-
-## Shared Decision State
-
-`iter_react_decisions(messages)` 对每个 assistant decision 产生：
-
-```json
-{
-  "assistant_index": 2,
-  "state_messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}],
-  "target_assistant": {"role": "assistant", "content": "..."},
-  "decision_type": "tool_call",
-  "tool_calls": [],
-  "final_answer": null
-}
-```
-
-`state_messages` 只含当前 assistant 之前的 `role/content/name`。当前 target 和后续 observation 永不进入 state。
-
-## Training Views
-
-SFT 直接消费 canonical ReAct `messages`，使用 `--loss-mask-type qwen3_5` 实现 assistant-only loss。
-
-ToolRL v2 每行包含 `decision_type=tool_call|final_answer`、`prompt`、`label`、`metadata`、
-`target_assistant`，以及对应的 `target_tool_calls` 或 `target_final_answer`。默认
-`TOOLRL_REWARD_MODE=official`；`molclaw` 是同一 trainer 的领域适配模式。
-
-GAD 每行包含 `prompt/state_messages`、`teacher_response`、`label`、`metadata`。GAD 保留
-tool-call 与 final-answer decisions；`GAD_REWARD_MODE=pure|rule|hybrid`，默认 pure。
+rollout/reward 使用当前 checkpoint 与当前 SGLang 版本实际支持的 native reasoning/tool parser。
+parser 名称是 launcher/serving 配置，不写入数据 schema；正式启动前必须通过 tokenizer-rendered
+target 的 native parser round-trip gate。Drug-Pipe 不提供旧 XML fallback parser。
 
 ## Online MolBench Evaluation
 
 评测启动时调用唯一 MCP server `molclaw-scp` 的 `list_tools`，并将完整名称、description 和
 JSON Schema 固化在当次 `tool_catalog.json`。其 hash 在 preflight 与 rollout worker 间必须
-一致；旧工具名不会通过 alias 静默转换。模型可见 observation 中的服务器绝对路径会变成
-稳定 `<artifact:namespace/name>`，只有 `artifact_audit.jsonl` 保存 raw path 映射。
+一致；旧工具名不会通过 alias 静默转换。模型可见 observation 中的服务器绝对路径必须通过
+当前统一 path-sanitization contract 变成稳定匿名引用；数据层不硬编码其文本形式，raw mapping
+只保存在 `artifact_audit.jsonl`。
 
 一次正式评测目录为：
 
@@ -255,6 +278,5 @@ MS-2 的4个 exact normalized prompt overlap 单独进入 audit；MO 源数据�
 optimization 只记入 manifest。`metrics.json` 直接由外部 MolClaw 仓库现有 evaluator
 产生，Drug-Pipe 不复制或重写指标公式。
 
-未来训练数据针对实时 catalog 的确定性迁移输出 canonical ReAct、ToolRL、GAD、format
-examples、逐条 migration audit/rejected sidecar 和 `derived_data_manifest.json`。迁移只允许
-结构化且可验证的 name/argument/schema 适配；未知等价关系整条拒绝，不进入 runtime alias。
+未来训练数据针对新的 deployment-visible catalog 应从 semantic mother dataset 重新运行 adapter，
+并由 manifest hash 显式审计。未知 name/schema 关系必须拒绝，不得通过 runtime alias 或文本迁移猜测。

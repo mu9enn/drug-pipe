@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sample_id", "reasoning_replacements"],
+  "properties": {
+    "schema_version": {"const": "semantic_reasoning_patch_v1"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "high_level_plan": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision_id", "text"],
+          "properties": {
+            "decision_id": {"type": "string", "minLength": 1},
+            "text": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "reasoning_replacements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision_id", "replacement"],
+        "properties": {
+          "decision_id": {"type": "string", "minLength": 1},
+          "replacement": {"type": "string"}
+        }
+      }
+    }
+  }
+}

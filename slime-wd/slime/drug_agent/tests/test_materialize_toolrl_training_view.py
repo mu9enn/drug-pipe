@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tempfile
+import unittest
 
 from drug_agent.scripts.materialize_toolrl_training_view import materialize_toolrl_training_view
+from drug_agent.scripts.validate_trajectory_toolrl_batches import validate_file
 
 
 class _Tokenizer:
@@ -14,15 +17,19 @@ class _Tokenizer:
         return {"input_ids": [text.split() for text in texts]}
 
 
-def _row(index: int, prompt_words: int, target_words: int) -> dict:
+def _row(source_id: str, ordinal: int, count: int, prompt_words: int, target_words: int) -> dict:
     target = " ".join(["target"] * target_words)
     return {
         "prompt": [{"role": "user", "content": " ".join(["prompt"] * prompt_words)}],
-        "label": {"assistant_content": target, "decision_type": "tool_call"},
-        "target_assistant": {"content": target},
+        "tools": [{"type": "function", "function": {"name": "Read", "parameters": {}}}],
+        "label": {
+            "decision_type": "tool_call",
+            "target_assistant": {"role": "assistant", "content": target},
+        },
         "metadata": {
-            "source_id": f"sample-{index}",
-            "assistant_index": index,
+            "source_id": source_id,
+            "decision_ordinal": ordinal,
+            "trajectory_decision_count": count,
             "decision_type": "tool_call",
             "task_type": "kg",
             "tool_names": ["Read"],
@@ -30,32 +37,67 @@ def _row(index: int, prompt_words: int, target_words: int) -> dict:
     }
 
 
-def test_capacity_filter_and_shortest_padding_are_audited(tmp_path: Path):
-    source = tmp_path / "source.jsonl"
-    source.write_text(
-        "".join(json.dumps(row) + "\n" for row in [_row(0, 2, 2), _row(1, 4, 2), _row(2, 8, 2), _row(3, 2, 9)]),
-        encoding="utf-8",
-    )
-    output = tmp_path / "view.jsonl"
-    manifest_path = tmp_path / "manifest.json"
-    manifest = materialize_toolrl_training_view(
-        input_path=source,
-        output_path=output,
-        manifest_path=manifest_path,
-        tokenizer=_Tokenizer(),
-        model_name="fake",
-        max_prompt_tokens=5,
-        max_target_tokens=5,
-        multiple=4,
-        batch_size=2,
-    )
-    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
-    assert manifest["accepted_records"] == 2
-    assert manifest["rejected_records"] == 2
-    assert manifest["padding_records"] == 2
-    assert manifest["output"]["records"] == 4
-    assert [row["metadata"]["source_id"] for row in rows] == ["sample-0", "sample-1", "sample-0", "sample-1"]
-    assert manifest["rejection_reason_counts"] == {
-        "prompt_exceeds_max_tokens": 1,
-        "target_exceeds_max_tokens": 1,
-    }
+class MaterializeTrajectoryToolRLTest(unittest.TestCase):
+    def test_capacity_filter_rejects_whole_trajectory_and_never_pads_decisions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rows = [
+                _row("a", 0, 2, 2, 2),
+                _row("a", 1, 2, 3, 2),
+                _row("b", 0, 2, 2, 2),
+                _row("b", 1, 2, 4, 2),
+                _row("too-long", 0, 2, 8, 2),
+                _row("too-long", 1, 2, 2, 2),
+            ]
+            source = root / "source.jsonl"
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            output = root / "view.jsonl"
+            manifest = materialize_toolrl_training_view(
+                input_path=source,
+                output_path=output,
+                manifest_path=root / "manifest.json",
+                tokenizer=_Tokenizer(),
+                model_name="fake",
+                max_prompt_tokens=5,
+                max_target_tokens=5,
+                rollout_batch_size=4,
+            )
+            output_rows = [json.loads(line) for line in output.read_text().splitlines()]
+            self.assertEqual(manifest["schema_version"], "toolrl_trajectory_batched_view_v1")
+            self.assertEqual(manifest["accepted_trajectories"], 2)
+            self.assertEqual(manifest["accepted_records"], 4)
+            self.assertEqual(manifest["rejected_trajectories"], 1)
+            self.assertEqual(manifest["rejected_records"], 2)
+            self.assertNotIn("padding_records", manifest)
+            self.assertEqual([row["metadata"]["source_id"] for row in output_rows], ["a", "a", "b", "b"])
+            self.assertEqual(
+                [row["metadata"]["trajectory_batch_position"] for row in output_rows],
+                [0, 1, 2, 3],
+            )
+            self.assertEqual({row["metadata"]["trajectory_batch_id"] for row in output_rows}, {0})
+            pretty_rows = json.loads(output.with_suffix(".pretty.json").read_text())
+            self.assertEqual(pretty_rows, output_rows)
+            validation = validate_file(output, 4)
+            self.assertEqual(validation["trajectory_batches"], 1)
+            self.assertEqual(validation["trajectories"], 2)
+
+    def test_incomplete_trajectory_is_rejected_before_materialization(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.jsonl"
+            source.write_text(json.dumps(_row("broken", 1, 2, 2, 2)) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "trajectory broken is incomplete"):
+                materialize_toolrl_training_view(
+                    input_path=source,
+                    output_path=root / "view.jsonl",
+                    manifest_path=root / "manifest.json",
+                    tokenizer=_Tokenizer(),
+                    model_name="fake",
+                    max_prompt_tokens=5,
+                    max_target_tokens=5,
+                    rollout_batch_size=2,
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

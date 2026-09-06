@@ -46,7 +46,7 @@ if [ ! -f "$MODEL_ARGS_FILE" ]; then
 fi
 source "$MODEL_ARGS_FILE"
 
-PROMPT_DATA=${PROMPT_DATA:?PROMPT_DATA must point to a step-level ToolRL JSONL file}
+PROMPT_DATA=${PROMPT_DATA:?PROMPT_DATA must point to a trajectory-batched ToolRL JSONL file}
 if [ ! -f "$PROMPT_DATA" ]; then
   echo "PROMPT_DATA not found: $PROMPT_DATA" >&2
   exit 2
@@ -76,6 +76,7 @@ TOOLRL_REWARD_MODE=${TOOLRL_REWARD_MODE:-official}
 ADVANTAGE_ESTIMATOR=${ADVANTAGE_ESTIMATOR:-grpo}
 NORMALIZE_ADVANTAGES=${NORMALIZE_ADVANTAGES:-0}
 DYNAMIC_SAMPLING_FILTER_PATH=${DYNAMIC_SAMPLING_FILTER_PATH:-}
+DATA_SOURCE_PATH=drug_agent.toolrl.trajectory_data_source.TrajectoryBatchDataSource
 USE_ROLLOUT_LOGPROBS=${USE_ROLLOUT_LOGPROBS:-0}
 ROLLOUT_MAX_RESPONSE_LEN=${ROLLOUT_MAX_RESPONSE_LEN:-2048}
 ROLLOUT_MAX_PROMPT_LEN=${ROLLOUT_MAX_PROMPT_LEN:-}
@@ -135,7 +136,10 @@ RECOMPUTE_NUM_LAYERS=${RECOMPUTE_NUM_LAYERS:-1}
 RECOMPUTE_LOSS_FUNCTION=${RECOMPUTE_LOSS_FUNCTION:-1}
 RECOMPUTE_VOCAB_LOG_PROBS=${RECOMPUTE_VOCAB_LOG_PROBS:-0}
 LOG_PROBS_CHUNK_SIZE=${LOG_PROBS_CHUNK_SIZE:-2048}
-APPLY_CHAT_TEMPLATE_KWARGS=${APPLY_CHAT_TEMPLATE_KWARGS:-'{"enable_thinking":false}'}
+APPLY_CHAT_TEMPLATE_KWARGS=${APPLY_CHAT_TEMPLATE_KWARGS:-'{"enable_thinking":true}'}
+export DRUG_AGENT_NATIVE_REASONING_PARSER=${DRUG_AGENT_NATIVE_REASONING_PARSER:?validate and set the native reasoning parser for the active Qwen3.5/SGLang version}
+export DRUG_AGENT_NATIVE_TOOL_PARSER=${DRUG_AGENT_NATIVE_TOOL_PARSER:?validate and set the native tool parser for the active Qwen3.5/SGLang version}
+VALIDATE_NATIVE_PARSER=${VALIDATE_NATIVE_PARSER:-1}
 MEGATRON_LORA=${MEGATRON_LORA:-0}
 MEGATRON_LORA_RANK=${MEGATRON_LORA_RANK:-32}
 MEGATRON_LORA_ALPHA=${MEGATRON_LORA_ALPHA:-64}
@@ -147,6 +151,22 @@ MODEL_PARALLEL_SIZE=$((TENSOR_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE
 if [ "$MODEL_PARALLEL_SIZE" -le 0 ] || [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne 0 ]; then
   echo "NUM_GPUS must be divisible by TP*PP*CP: NUM_GPUS=$NUM_GPUS TP=$TENSOR_MODEL_PARALLEL_SIZE PP=$PIPELINE_MODEL_PARALLEL_SIZE CP=$CONTEXT_PARALLEL_SIZE" >&2
   exit 2
+fi
+
+if [ -n "$DYNAMIC_SAMPLING_FILTER_PATH" ]; then
+  echo "Trajectory-atomic sampling does not support decision-level dynamic filtering" >&2
+  exit 2
+fi
+python drug_agent/scripts/validate_trajectory_toolrl_batches.py \
+  --input "$PROMPT_DATA" \
+  --rollout-batch-size "$ROLLOUT_BATCH_SIZE"
+if [ "$VALIDATE_NATIVE_PARSER" = "1" ]; then
+  python drug_agent/scripts/validate_qwen_native_toolrl_roundtrip.py \
+    --input "$PROMPT_DATA" \
+    --model "$ROLLOUT_HF_CHECKPOINT" \
+    --reasoning-parser "$DRUG_AGENT_NATIVE_REASONING_PARSER" \
+    --tool-parser "$DRUG_AGENT_NATIVE_TOOL_PARSER" \
+    --limit "${NATIVE_PARSER_VALIDATE_LIMIT:-32}"
 fi
 DATA_PARALLEL_SIZE=$((NUM_GPUS / MODEL_PARALLEL_SIZE))
 EXPERT_MODEL_SIZE=$((EXPERT_TENSOR_PARALLEL_SIZE * EXPERT_MODEL_PARALLEL_SIZE * PIPELINE_MODEL_PARALLEL_SIZE))
@@ -183,7 +203,7 @@ if [[ "$ADVANTAGE_ESTIMATOR" =~ ^(grpo|gspo|reinforce_plus_plus_baseline)$ ]] &&
   echo "Group-baseline ToolRL requires N_SAMPLES_PER_PROMPT >= 2 for $ADVANTAGE_ESTIMATOR; got $N_SAMPLES_PER_PROMPT" >&2
   exit 2
 fi
-if [ "$TOOLRL_REWARD_MODE" != "toolrl_official_8cee13e" ] && [ "$TOOLRL_REWARD_MODE" != "official" ] && [ "$TOOLRL_REWARD_MODE" != "molclaw" ] && [ "$TOOLRL_REWARD_MODE" != "decision_aware" ] && [ "$TOOLRL_REWARD_MODE" != "hierarchical" ]; then
+if [ "$TOOLRL_REWARD_MODE" != "official" ] && [ "$TOOLRL_REWARD_MODE" != "molclaw" ] && [ "$TOOLRL_REWARD_MODE" != "decision_aware" ] && [ "$TOOLRL_REWARD_MODE" != "hierarchical" ] && [ "$TOOLRL_REWARD_MODE" != "v8_baseline" ]; then
   echo "Unsupported TOOLRL_REWARD_MODE: $TOOLRL_REWARD_MODE" >&2
   exit 2
 fi
@@ -193,6 +213,10 @@ if [ "$USE_ROLLOUT_LOGPROBS" != "0" ] && [ "$USE_ROLLOUT_LOGPROBS" != "1" ]; the
 fi
 if [ "$BATCHES_PER_ROLLOUT" -le 0 ]; then
   echo "ROLLOUT_BATCH_SIZE * N_SAMPLES_PER_PROMPT must be positive: ROLLOUT_BATCH_SIZE=$ROLLOUT_BATCH_SIZE N_SAMPLES_PER_PROMPT=$N_SAMPLES_PER_PROMPT" >&2
+  exit 2
+fi
+if [ "$GLOBAL_BATCH_SIZE" -ne "$BATCHES_PER_ROLLOUT" ]; then
+  echo "Trajectory-atomic ToolRL requires one optimizer update per complete rollout batch: GBS=$GLOBAL_BATCH_SIZE RBS*n=$BATCHES_PER_ROLLOUT" >&2
   exit 2
 fi
 if [ -n "$ROLLOUT_LONG_RESPONSE_LEN" ]; then
@@ -245,9 +269,13 @@ TOOLRL_ARGS=(
   --prompt-data "$PROMPT_DATA"
   --input-key prompt
   --label-key label
+  --tool-key tools
   --metadata-key metadata
+  --data-source-path "$DATA_SOURCE_PATH"
   --apply-chat-template
   --apply-chat-template-kwargs "$APPLY_CHAT_TEMPLATE_KWARGS"
+  --sglang-reasoning-parser "$DRUG_AGENT_NATIVE_REASONING_PARSER"
+  --sglang-tool-call-parser "$DRUG_AGENT_NATIVE_TOOL_PARSER"
   --rollout-shuffle
 
   --advantage-estimator "$ADVANTAGE_ESTIMATOR"

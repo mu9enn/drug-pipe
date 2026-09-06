@@ -8,8 +8,8 @@ source "$SLIME_ENV"
 
 cd "$SLIME"
 
-# Full one-epoch Qwen3.5-4B ReAct SFT profile. TP=4 retains the memory-safe
-# topology validated with the long ReAct trajectories. In train-only SFT,
+# Full one-epoch Qwen3.5-4B structured-message SFT profile. TP=4 retains the
+# memory-safe topology validated with long trajectories. In train-only SFT,
 # RBS controls how often Slime crosses the rollout/train boundary, while GBS
 # controls optimizer updates. The default therefore loads one complete epoch
 # per rollout (RBS=dataset size) but keeps GBS=1. This preserves one optimizer
@@ -17,7 +17,7 @@ cd "$SLIME"
 export MODEL_ARGS_FILE=${MODEL_ARGS_FILE:-scripts/models/qwen3.5-4B.sh}
 export HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-4B}
 export REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-4B_torch_dist}
-export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl}
+export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/qwen35_sft.jsonl}
 
 export NUM_GPUS=${NUM_GPUS:-4}
 export TENSOR_MODEL_PARALLEL_SIZE=${TENSOR_MODEL_PARALLEL_SIZE:-4}
@@ -71,7 +71,28 @@ if [ ! -d "$REF_LOAD" ]; then
   exit 2
 fi
 
-DATASET_SIZE=$(wc -l < "$PROMPT_DATA")
+case "$PROMPT_DATA" in
+  *.jsonl)
+    DATASET_SIZE=$(awk 'NF {count += 1} END {print count + 0}' "$PROMPT_DATA")
+    ;;
+  *.parquet)
+    DATASET_SIZE=$(python - "$PROMPT_DATA" <<'PY'
+import sys
+import pyarrow.parquet as parquet
+
+print(parquet.ParquetFile(sys.argv[1]).metadata.num_rows)
+PY
+    )
+    ;;
+  *)
+    echo "PROMPT_DATA must be a structured JSONL or Parquet file: $PROMPT_DATA" >&2
+    exit 2
+    ;;
+esac
+if [ "$DATASET_SIZE" -le 0 ]; then
+  echo "PROMPT_DATA contains no SFT records: $PROMPT_DATA" >&2
+  exit 2
+fi
 export ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-$DATASET_SIZE}
 if [ "$ROLLOUT_BATCH_SIZE" -lt "$GLOBAL_BATCH_SIZE" ]; then
   echo "ROLLOUT_BATCH_SIZE must be >= GLOBAL_BATCH_SIZE: RBS=$ROLLOUT_BATCH_SIZE GBS=$GLOBAL_BATCH_SIZE" >&2

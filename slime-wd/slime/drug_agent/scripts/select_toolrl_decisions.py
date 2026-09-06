@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the auditable candidate pool for online policy-boundary sampling.
+"""Build the audited static coverage view for structured next-decision ToolRL.
 
 The static pass enforces validity, no-progress removal, context limits, and
 coverage.  Learnability is intentionally evaluated by the current policy at
@@ -26,7 +26,7 @@ from drug_agent.scripts.compact_rl_context import COMPACTION_SCHEMA, compact_pro
 from drug_agent.context_summary import ClaudeContextSummarizer
 
 
-VIEW_SCHEMA = "toolrl_static_curated_view_v2"
+VIEW_SCHEMA = "toolrl_structured_static_view_v1"
 
 
 def _sha256(path: Path) -> str:
@@ -37,63 +37,30 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _without_summary(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _without_summary(item) for key, item in value.items() if key != "summary"}
-    if isinstance(value, list):
-        return [_without_summary(item) for item in value]
-    return value
-
-
-def _canonical_target(row: dict[str, Any]) -> str:
-    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+def _target_assistant(row: dict[str, Any]) -> dict[str, Any]:
     label = row.get("label") if isinstance(row.get("label"), dict) else {}
-    protocol = str(label.get("protocol") or metadata.get("protocol") or "")
-    if protocol == "toolrl_turn_v1":
-        assistant_content = label.get("assistant_content")
-        if not isinstance(assistant_content, str) or not assistant_content.strip():
-            target = label.get("target_assistant", metadata.get("target_assistant"))
-            assistant_content = target.get("content") if isinstance(target, dict) else None
-        if not isinstance(assistant_content, str) or not assistant_content.strip():
-            raise ValueError("toolrl_turn_v1 row has no canonical assistant content")
-        return assistant_content
-    decision_type = str(label.get("decision_type") or metadata.get("decision_type") or "")
-    if decision_type == "final_answer":
-        target = _without_summary(label.get("target_final_answer", metadata.get("target_final_answer")))
-        return "<final_answer>" + json.dumps(target, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "</final_answer>"
-    calls = label.get("target_tool_calls", metadata.get("target_tool_calls"))
-    if not isinstance(calls, list) or not calls:
-        raise ValueError("tool row has no target calls")
-    return "".join(
-        "<tool_call>"
-        + json.dumps(
-            {"tool_name": str(call.get("tool_name") or call.get("name") or ""), "arguments": call.get("arguments") or {}},
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "</tool_call>"
-        for call in calls
-        if isinstance(call, dict)
-    )
+    target = label.get("target_assistant")
+    if not isinstance(target, dict) or target.get("role") != "assistant":
+        raise ValueError("ToolRL row has no structured target_assistant")
+    return target
 
 
 def _decision_key(metadata: dict[str, Any]) -> str:
-    return (
-        f"{metadata.get('source_id') or metadata.get('task_id')}:"
-        f"{metadata.get('assistant_index')}:{metadata.get('assistant_subturn_index', 0)}:"
-        f"{metadata.get('decision_type')}"
-    )
+    return f"{metadata.get('source_id')}:{metadata.get('decision_id')}:{metadata.get('decision_type')}"
 
 
-def _render_prompt(tokenizer: Any, prompt: list[dict[str, Any]], assistant_prefix: str) -> str:
-    rendered = tokenizer.apply_chat_template(
+def _render_prompt(
+    tokenizer: Any,
+    prompt: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> str:
+    return tokenizer.apply_chat_template(
         prompt,
+        tools=tools,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=False,
+        enable_thinking=True,
     )
-    return rendered + assistant_prefix
 
 
 def _approximate_length_bin(row: dict[str, Any]) -> str:
@@ -115,11 +82,9 @@ def _depth_bin(metadata: dict[str, Any]) -> int:
 
 def _previous_observation_status(row: dict[str, Any]) -> str:
     for message in reversed(row.get("prompt") or []):
-        if not isinstance(message, dict) or message.get("role") != "user":
+        if not isinstance(message, dict) or message.get("role") != "tool":
             continue
         content = str(message.get("content") or "").lower()
-        if "<observation" not in content:
-            continue
         if any(token in content for token in ('"ok":false', '"status":"error"', '"status":"failed"', '"status":"timeout"')):
             return "failure"
         if any(token in content for token in ('"ok":true', '"status":"success"', '"status":"completed"')):
@@ -129,13 +94,14 @@ def _previous_observation_status(row: dict[str, Any]) -> str:
 
 
 def _middle_stratum(row: dict[str, Any], metadata: dict[str, Any]) -> tuple[Any, ...]:
-    calls = metadata.get("target_tool_calls") if isinstance(metadata.get("target_tool_calls"), list) else []
+    label = row.get("label") if isinstance(row.get("label"), dict) else {}
+    calls = label.get("target_tool_calls") if isinstance(label.get("target_tool_calls"), list) else []
     call_shapes = []
     for call in calls:
         if not isinstance(call, dict):
             continue
         arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
-        call_shapes.append((str(call.get("tool_name") or ""), tuple(sorted(str(key) for key in arguments))))
+        call_shapes.append((str(call.get("name") or ""), tuple(sorted(str(key) for key in arguments))))
     return (
         str(metadata.get("task_type") or "unknown"),
         tuple(sorted(call_shapes)),
@@ -188,7 +154,7 @@ def select_decisions(
             continue
         role = str(metadata.get("decision_role") or "")
         if role not in {"tool_step", "final"}:
-            raise ValueError(f"invalid v2 ToolRL role at line {line_number}: {role!r}")
+            raise ValueError(f"invalid structured ToolRL role at line {line_number}: {role!r}")
         if selection_mode == "all_static":
             selected_lines.add(line_number)
             continue
@@ -244,25 +210,14 @@ def select_decisions(
             return False
         role = str(metadata.get("decision_role") or "")
         if role not in {"tool_step", "final"}:
-            raise ValueError(f"invalid v2 ToolRL role at line {line_number}: {role!r}")
-        target_tokens = len(tokenizer.encode(_canonical_target(row), add_special_tokens=False))
-        if target_tokens > max_response_tokens:
-            excluded.append(
-                {
-                    "line": line_number,
-                    "decision_key": key,
-                    "reason": "target_action_exceeds_runtime_response_limit",
-                    "target_tokens": target_tokens,
-                    "runtime_response_limit": max_response_tokens,
-                }
-            )
-            return False
+            raise ValueError(f"invalid structured ToolRL role at line {line_number}: {role!r}")
         prompt = row.get("prompt")
         if not isinstance(prompt, list) or not prompt:
             raise ValueError(f"missing prompt at line {line_number}")
-        assistant_prefix = str(metadata.get("assistant_prefix") or "")
-        prefix_tokens = len(tokenizer.encode(assistant_prefix, add_special_tokens=False))
-        compaction_budget = max(1, max_prompt_tokens - prefix_tokens)
+        row_tools = row.get("tools")
+        if not isinstance(row_tools, list) or not row_tools:
+            raise ValueError(f"missing deployment-visible tools at line {line_number}")
+        compaction_budget = max_prompt_tokens
         try:
             for _ in range(3):
                 final_prompt, audit = compact_prompt_with_audit(
@@ -270,6 +225,8 @@ def select_decisions(
                     prompt,
                     compaction_budget,
                     summary_max_tokens=summary_max_tokens,
+                    tools=row_tools,
+                    native_qwen_thinking=True,
                     semantic_summarizer=(
                         lambda messages: summarizer.summarize(
                             messages, tokenizer=tokenizer, max_tokens=max(1, summary_max_tokens - 128)
@@ -278,7 +235,7 @@ def select_decisions(
                 )
                 prompt_tokens = len(
                     tokenizer.encode(
-                        _render_prompt(tokenizer, final_prompt, assistant_prefix),
+                        _render_prompt(tokenizer, final_prompt, row_tools),
                         add_special_tokens=False,
                     )
                 )
@@ -286,10 +243,14 @@ def select_decisions(
                     break
                 compaction_budget -= prompt_tokens - max_prompt_tokens + 16
                 if compaction_budget < 1:
-                    raise ValueError("assistant prefix alone exceeds prompt budget")
+                    raise ValueError("system/task/tools prefix alone exceeds prompt budget")
             else:
-                raise ValueError("prefix-conditioned prompt did not fit after compaction retries")
+                raise ValueError("structured prompt did not fit after compaction retries")
         except Exception as exc:
+            # A missing/incompatible tokenizer dependency is a release-host
+            # failure, not evidence that every decision context is invalid.
+            if isinstance(exc, (ImportError, ModuleNotFoundError)):
+                raise
             excluded.append(
                 {
                     "line": line_number,
@@ -297,6 +258,29 @@ def select_decisions(
                     "reason": "context_compaction_failed",
                     "error_type": type(exc).__name__,
                     "error": str(exc),
+                }
+            )
+            return False
+        target = _target_assistant(row)
+        full_render = tokenizer.apply_chat_template(
+            final_prompt + [target],
+            tools=row_tools,
+            tokenize=False,
+        )
+        prompt_render = _render_prompt(tokenizer, final_prompt, row_tools)
+        if not full_render.startswith(prompt_render):
+            raise ValueError(f"target is not a continuation of prompt for {key}")
+        target_tokens = len(
+            tokenizer.encode(full_render[len(prompt_render):], add_special_tokens=False)
+        )
+        if target_tokens > max_response_tokens:
+            excluded.append(
+                {
+                    "line": line_number,
+                    "decision_key": key,
+                    "reason": "target_action_exceeds_runtime_response_limit",
+                    "target_tokens": target_tokens,
+                    "runtime_response_limit": max_response_tokens,
                 }
             )
             return False
@@ -325,8 +309,7 @@ def select_decisions(
                 "prompt_tokens_original": int(audit["original_tokens"]),
                 "prompt_tokens_final": prompt_tokens,
                 "canonical_target_tokens": target_tokens,
-                "assistant_prefix_tokens": prefix_tokens,
-                "prompt_rendering": "qwen_chat_template_plus_exact_assistant_prefix",
+                "prompt_rendering": "qwen_native_structured_messages",
                 "context_compaction": audit,
             }
         )

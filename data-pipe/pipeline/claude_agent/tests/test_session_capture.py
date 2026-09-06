@@ -69,6 +69,29 @@ class SessionCaptureTest(unittest.TestCase):
             self.assertEqual(selected["sha256"], hashlib.sha256(expected).hexdigest())
             self.assertTrue(attempt["raw_session_valid"])
             self.assertEqual(_extract_result_text_from_stream_jsonl(canonical), "ok")
+            attempt_pretty = json.loads(Path(attempt["pretty_session_file"]).read_text())
+            canonical_pretty = json.loads(Path(selected["pretty_session_file"]).read_text())
+            self.assertEqual(attempt_pretty, canonical_pretty)
+            self.assertEqual([event["type"] for event in canonical_pretty], ["system", "result"])
+
+    def test_pretty_sidecar_preserves_non_json_runtime_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fake = self._fake_claude(
+                root,
+                "import os\n"
+                "os.write(1, b'[claude-code:notice] diagnostic\\n')\n"
+                "os.write(1, b'{\"type\":\"result\",\"result\":\"ok\"}\\n')\n",
+            )
+            attempt = run_stream_json(
+                [str(fake), "--verbose", "--output-format", "stream-json"],
+                cwd=root,
+                archive_root=root,
+            )
+            pretty = json.loads(Path(attempt["pretty_session_file"]).read_text())
+            self.assertEqual(pretty[0]["type"], "raw_stream_diagnostic")
+            self.assertEqual(pretty[0]["line_number"], 1)
+            self.assertEqual(pretty[1]["type"], "result")
 
     def test_claude_process_uses_bounded_foreground_execution(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -130,7 +153,10 @@ class SessionCaptureTest(unittest.TestCase):
                 [str(fake), "--verbose", "--output-format", "stream-json"],
                 cwd=root,
                 archive_root=root,
-                timeout_sec=0.1,
+                # Leave enough time for the Python shebang interpreter to
+                # start on a loaded login host while still timing out during
+                # the explicit two-second sleep.
+                timeout_sec=0.5,
             )
             raw = Path(attempt["session_file"]).read_text()
             self.assertEqual(attempt["return_code"], 124)

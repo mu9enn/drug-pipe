@@ -6,10 +6,14 @@ if [ ! -f "$SLIME_ENV" ]; then
 fi
 source "$SLIME_ENV"
 cd "$SLIME"
-export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/toolrl/react_trajectories.toolrl_steps.jsonl}
+export PROMPT_DATA=${PROMPT_DATA:-$DRUG_AGENT_DATA_ROOT/toolrl/qwen35_toolrl.jsonl}
 export ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-4}
 DATASET_SIZE=$(wc -l < "$PROMPT_DATA")
-export NUM_ROLLOUT=${NUM_ROLLOUT:-$(((DATASET_SIZE + ROLLOUT_BATCH_SIZE - 1) / ROLLOUT_BATCH_SIZE))}
+if [ $((DATASET_SIZE % ROLLOUT_BATCH_SIZE)) -ne 0 ]; then
+  echo "Trajectory-batched ToolRL data must be divisible by RBS: records=$DATASET_SIZE RBS=$ROLLOUT_BATCH_SIZE" >&2
+  exit 2
+fi
+export NUM_ROLLOUT=${NUM_ROLLOUT:-$((DATASET_SIZE / ROLLOUT_BATCH_SIZE))}
 export MODEL_ARGS_FILE=${MODEL_ARGS_FILE:-scripts/models/qwen3.5-4B.sh}
 export HF_CHECKPOINT=${HF_CHECKPOINT:-$DATA/Qwen3.5-4B}
 export REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-4B_torch_dist}

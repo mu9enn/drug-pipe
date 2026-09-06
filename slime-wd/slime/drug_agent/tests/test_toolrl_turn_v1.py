@@ -262,6 +262,28 @@ def test_v6_canonical_target_keeps_thought_and_single_container():
     assert _canonical_target(row) == content
 
 
+def test_v8_canonical_target_keeps_native_think_and_single_multi_call_container():
+    calls = [
+        {"tool_name": "Read", "arguments": {"file_path": "a"}},
+        {"tool_name": "Glob", "arguments": {"pattern": "*.json"}},
+    ]
+    content = serialize_decision(
+        thoughts=["inspect"],
+        tool_calls=calls,
+        reasoning_tag="think",
+    )
+    row = {
+        "metadata": {"protocol": "toolrl_turn_v2_qwen_native_think"},
+        "label": {
+            "protocol": "toolrl_turn_v2_qwen_native_think",
+            "assistant_content": content,
+            "target_tool_calls": calls,
+        },
+    }
+    assert _canonical_target(row) == content
+    assert _canonical_target(row).count("<tool_call>") == 1
+
+
 def test_official_reward_preserves_repeated_same_tool_multiplicity():
     gold = [
         {"tool_name": "Read", "arguments": {"file_path": "a"}},

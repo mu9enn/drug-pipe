@@ -1,1 +1,1 @@
-Invoke `/execute-molclaw-trajectory` to complete the user's scientific task. Keep routine triage, planning, progress, and self-check silent; report each scientific conclusion once.
+Invoke `/execute-molclaw-trajectory` to complete the user's scientific task. When consulting an L1 tool skill, use a dedicated Read call for that single `L1_tools/<tool>/SKILL.md`; never combine it in one Bash command with L2/L3, CLAUDE.md, system/runtime, or other skill inspection. Keep routine triage, planning, progress, and self-check silent; report each scientific conclusion once.

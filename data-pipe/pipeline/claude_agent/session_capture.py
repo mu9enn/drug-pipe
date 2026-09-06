@@ -55,6 +55,32 @@ def inspect_session(path: Path) -> dict[str, Any]:
     }
 
 
+def write_session_pretty(session_path: Path) -> Path:
+    """Write a readable sidecar without changing the immutable raw stream."""
+    pretty_path = session_path.with_suffix(".pretty.json")
+    rows: list[Any] = []
+    with session_path.open("r", encoding="utf-8", errors="replace") as stream:
+        for line_number, line in enumerate(stream, start=1):
+            text = line.rstrip("\r\n")
+            if not text:
+                continue
+            try:
+                rows.append(json.loads(text))
+            except json.JSONDecodeError:
+                rows.append(
+                    {
+                        "type": "raw_stream_diagnostic",
+                        "line_number": line_number,
+                        "content": text,
+                    }
+                )
+    pretty_path.write_text(
+        json.dumps(rows, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return pretty_path
+
+
 def session_has_retryable_http_500(path: Path) -> bool:
     """Return true only for a terminal upstream HTTP-500 API failure."""
     if not path.is_file():
@@ -157,6 +183,8 @@ def run_stream_json(
             return_code = 127
             failure = "executable_not_found"
 
+    pretty_path = write_session_pretty(session_path)
+
     metadata = {
         "attempt_index": attempt_index,
         "workdir": str(cwd),
@@ -166,6 +194,7 @@ def run_stream_json(
         "timeout_sec": timeout_sec,
         "duration_sec": round(time.time() - started, 3),
         "failure": failure,
+        "pretty_session_file": str(pretty_path),
     }
     metadata.update(inspect_session(session_path))
     return metadata
@@ -175,7 +204,9 @@ def select_attempt(attempt: dict[str, Any], canonical_path: Path) -> dict[str, A
     source = Path(str(attempt["session_file"]))
     canonical_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, canonical_path)
+    pretty_path = write_session_pretty(canonical_path)
     selected = inspect_session(canonical_path)
+    selected["pretty_session_file"] = str(pretty_path)
     if selected["sha256"] != attempt.get("sha256"):
         raise RuntimeError(
             f"selected Claude session checksum mismatch: {source} -> {canonical_path}"

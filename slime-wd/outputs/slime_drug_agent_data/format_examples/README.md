@@ -26,19 +26,11 @@ final-answer decision examples for ToolRL and GAD.
 - `gad/skipped.jsonl`: empty for this sample.
 - `gad/report.json`: GAD conversion counts.
 
-## Canonical transformations
+## Historical status
 
-SFT materialization:
-
-```bash
-cd slime-wd/slime
-jq -c . \
-  ../outputs/slime_drug_agent_data/format_examples/source/canonical_react.json \
-  > /tmp/canonical_react.jsonl
-PYTHONPATH=. python -m drug_agent.data.materialize_sft_jsonl \
-  --input /tmp/canonical_react.jsonl \
-  --output /tmp/sft_messages.jsonl
-```
+These ReAct examples are archived references for the deferred ToolRL/GAD refactor. They are not accepted by the
+current SFT launcher. Current SFT data is produced by `pipeline.cleaning.materialize_sft` as structured
+`messages + tools` JSONL/Parquet; there is no directory/JSON flatten step.
 
 ToolRL uses
 `drug_agent.toolrl.convert_react_to_toolrl_steps.convert_react_to_toolrl_steps`.
@@ -56,8 +48,5 @@ PYTHONPATH=. python -m drug_agent.gad.data \
   --report /tmp/gad_report.json
 ```
 
-ToolRL and GAD both consume the shared history-only decision extractor. The
-target assistant response and every future observation are excluded from the
-state. XML ReAct is the only formal trained-agent protocol; the structured
-`<final_answer>` is a project canonical representation, not a raw Claude Code
-stream convention.
+ToolRL and GAD both consume the historical shared history-only decision extractor. Their XML dependencies are
+not part of the current SFT mainline and will be handled in the ToolRL-specific refactor.

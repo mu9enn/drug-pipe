@@ -817,17 +817,20 @@ def _run_one(
 def _prepare_claude_workdir(
     target: Path,
     *,
-    source_claude_dir: Path,
-    question_payload: dict[str, Any],
-    prompt: str,
+    source_scene_dir: Path,
 ) -> None:
+    """Populate an execution cwd exclusively from the selected scene payload."""
+    if target.exists() and (not target.is_dir() or any(target.iterdir())):
+        raise RuntimeError(f"Claude execution cwd must be an empty directory before scene projection: {target}")
     target.mkdir(parents=True, exist_ok=True)
-    _copy_tree(source_claude_dir, target / ".claude")
-    (target / "question.json").write_text(
-        json.dumps(question_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (target / "prompt.txt").write_text(prompt, encoding="utf-8")
+    for item in source_scene_dir.iterdir():
+        if item.name in {"system_prompt.md", "user_prompt.md"}:
+            continue
+        destination = target / item.name
+        if item.is_dir():
+            _copy_tree(item, destination)
+        else:
+            shutil.copy2(item, destination)
 
 
 def _promote_attempt_workdir(
@@ -835,6 +838,7 @@ def _promote_attempt_workdir(
     canonical: Path,
     *,
     attempt_index: int,
+    capture_binding: dict[str, str],
 ) -> None:
     """Project one selected attempt into the canonical sample directory."""
     if not source.is_dir():
@@ -851,7 +855,10 @@ def _promote_attempt_workdir(
         elif target.exists() or target.is_symlink():
             target.unlink()
 
-    immutable_inputs = {".claude", "question.json", "prompt.txt"}
+    immutable_inputs = {
+        ".claude", "CLAUDE.md", "question.json", "prompt.txt",
+        "run_meta.json", "complete_session.jsonl", "parsed_answer.json",
+    }
     promoted_entries: list[str] = []
     for item in source.iterdir():
         if item.name in immutable_inputs:
@@ -868,6 +875,7 @@ def _promote_attempt_workdir(
                 "selected_attempt": attempt_index,
                 "selected_attempt_workdir": str(source),
                 "promoted_entries": sorted(promoted_entries),
+                **capture_binding,
             },
             ensure_ascii=False,
             indent=2,
@@ -885,11 +893,13 @@ def _run_single_rollout(
     num_rollouts: int,
     prompt: str,
     system_prompt: str,
-    source_claude_dir: Path,
+    source_scene_dir: Path,
     provider: str,
     claude_bin: str,
     mcp_config_file: Path | None,
     strict_mcp_config: bool,
+    source_dataset_sha256: str,
+    system_prompt_sha256: str,
 ) -> RolloutResult:
     workdir = _rollout_dir(sample_root, num_rollouts, rollout_index)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -917,12 +927,12 @@ def _run_single_rollout(
             if isinstance(parsed_spec, dict):
                 kg_task_spec = parsed_spec
         question_payload["kg_task_spec"] = kg_task_spec
-    _prepare_claude_workdir(
-        workdir,
-        source_claude_dir=source_claude_dir,
-        question_payload=question_payload,
-        prompt=prompt,
-    )
+    question_bytes = json.dumps(question_payload, ensure_ascii=False, indent=2).encode("utf-8")
+    prompt_bytes = prompt.encode("utf-8")
+    (workdir / "question.json").write_bytes(question_bytes)
+    (workdir / "prompt.txt").write_bytes(prompt_bytes)
+    question_sha256 = hashlib.sha256(question_bytes).hexdigest()
+    user_prompt_sha256 = hashlib.sha256(prompt_bytes).hexdigest()
 
     session_path = workdir / "complete_session.jsonl"
     expected_mcp_servers = _load_expected_mcp_servers(mcp_config_file)
@@ -947,9 +957,7 @@ def _run_single_rollout(
         )
         _prepare_claude_workdir(
             attempt_workdir,
-            source_claude_dir=source_claude_dir,
-            question_payload=question_payload,
-            prompt=prompt,
+            source_scene_dir=source_scene_dir,
         )
         cli_meta = _run_one(
             claude_bin=claude_bin,
@@ -988,12 +996,20 @@ def _run_single_rollout(
         time.sleep(ready_retry_wait_sec)
 
     selected_attempt_workdir = Path(str(cli_meta["workdir"]))
+    selected_session = select_attempt(cli_meta, session_path)
+    capture_binding = {
+        "question_sha256": question_sha256,
+        "user_prompt_sha256": user_prompt_sha256,
+        "system_prompt_sha256": system_prompt_sha256,
+        "selected_session_sha256": str(selected_session["sha256"]),
+        "source_dataset_sha256": source_dataset_sha256,
+    }
     _promote_attempt_workdir(
         selected_attempt_workdir,
         workdir,
         attempt_index=int(cli_meta["attempt_index"]),
+        capture_binding=capture_binding,
     )
-    selected_session = select_attempt(cli_meta, session_path)
     if not bool(cli_meta.get("raw_session_valid")) and int(cli_meta.get("return_code", 0)) == 0:
         cli_meta["return_code"] = 97
         cli_meta["failure"] = "raw_session_invalid"
@@ -1068,6 +1084,10 @@ def _run_single_rollout(
         "selected_attempt_workdir": str(selected_attempt_workdir),
         "selected_session_byte_count": selected_session["byte_count"],
         "selected_session_sha256": selected_session["sha256"],
+        "question_sha256": question_sha256,
+        "user_prompt_sha256": user_prompt_sha256,
+        "system_prompt_sha256": system_prompt_sha256,
+        "source_dataset_sha256": source_dataset_sha256,
         "raw_session_valid": bool(selected_session["raw_session_valid"]),
     }
     (workdir / "run_meta.json").write_text(
@@ -1266,19 +1286,21 @@ def main() -> None:
     else:
         system_prompt_file = skills_root / prompt_name
 
-    source_claude_dir = skills_root / ".claude"
+    source_scene_dir = skills_root
 
     if not dataset_csv.is_file():
         raise FileNotFoundError(f"dataset csv not found: {dataset_csv}")
     if not system_prompt_file.is_file():
         raise FileNotFoundError(f"system prompt file not found: {system_prompt_file}")
-    if not source_claude_dir.is_dir():
-        raise FileNotFoundError(f"scene skill payload not found: {source_claude_dir}")
+    if not (source_scene_dir / ".claude").is_dir():
+        raise FileNotFoundError(f"scene skill payload not found: {source_scene_dir / '.claude'}")
     if mcp_config_file is not None and not mcp_config_file.is_file():
         raise FileNotFoundError(f"mcp config file not found: {mcp_config_file}")
     mcp_tool_timeout_ms = _load_mcp_tool_timeout_ms(mcp_config_file)
 
     system_prompt = system_prompt_file.read_text(encoding="utf-8")
+    source_dataset_sha256 = hashlib.sha256(dataset_csv.read_bytes()).hexdigest()
+    system_prompt_sha256 = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()
     all_samples = _load_samples(dataset_csv, args.task)
 
     selected = [s for s in all_samples if s.row_number >= args.start_row]
@@ -1308,9 +1330,10 @@ def main() -> None:
         "task": args.task,
         "provider": args.provider,
         "dataset_csv": str(dataset_csv),
+        "source_dataset_sha256": source_dataset_sha256,
         "skills_root": str(skills_root),
         "system_prompt_file": str(system_prompt_file),
-        "system_prompt_sha256": hashlib.sha256(system_prompt.encode("utf-8")).hexdigest(),
+        "system_prompt_sha256": system_prompt_sha256,
         "num_rollouts": args.num_rollouts,
         "parallel_rollouts": args.parallel_rollouts,
         "max_workers": max_workers,
@@ -1451,11 +1474,13 @@ def main() -> None:
                         num_rollouts=args.num_rollouts,
                         prompt=job["prompt"],
                         system_prompt=system_prompt,
-                        source_claude_dir=source_claude_dir,
+                        source_scene_dir=source_scene_dir,
                         provider=args.provider,
                         claude_bin=args.claude_bin,
                         mcp_config_file=mcp_config_file,
                         strict_mcp_config=bool(args.strict_mcp_config),
+                        source_dataset_sha256=source_dataset_sha256,
+                        system_prompt_sha256=system_prompt_sha256,
                     )
                     active[future] = job
                 if not active:

@@ -43,6 +43,7 @@ LOCAL_DSH_TO_CANONICAL = {
     "glob": "Glob",
 }
 LOCAL_CANONICAL_TO_DSH = {value: key for key, value in LOCAL_DSH_TO_CANONICAL.items()}
+FORBIDDEN_BENCHMARK_TOOLS = {"ask_user_question"}
 ROLLOUT_FORMAT_REMINDER = (
     "/no_think\n"
     "Use canonical ReAct XML. Put reasoning in <thought>...</thought>, followed by "
@@ -145,6 +146,17 @@ def tool_catalog(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
     if not specs:
         raise ValueError("DSH request exposes no canonical MolClaw/local tools")
     return specs, name_map
+
+
+def dsh_function_names(tools: Any) -> list[str]:
+    names: list[str] = []
+    for entry in tools if isinstance(tools, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        function = entry.get("function") if entry.get("type") == "function" else entry
+        if isinstance(function, dict) and str(function.get("name") or "").strip():
+            names.append(str(function["name"]).strip())
+    return names
 
 
 def canonical_observation(tool_name: str, content: Any, *, is_error: bool = False) -> str:
@@ -330,9 +342,16 @@ class CanonicalBridge:
         finish = (((result.get("meta_info") or {}).get("finish_reason") or {}).get("type") or "stop")
         return text, str(finish)
 
-    def _repeat(self, task_id: str, raw: str) -> int:
+    def _repeat(self, task_id: str, raw: str, *, reset: bool = False) -> int:
         digest = hashlib.sha256(raw.strip().encode("utf-8")).hexdigest()
         with self._repeat_lock:
+            # A pilot and a full run intentionally reuse benchmark task ids.  A
+            # fresh DSH conversation has no assistant turns, so discard any
+            # repetition state left by an earlier conversation with that id.
+            # Without this reset, deterministic pilot output can make the full
+            # evaluation trip the repetition guard prematurely.
+            if reset:
+                self._repeat_state.pop(task_id, None)
             previous, count = self._repeat_state.get(task_id, ("", 0))
             count = count + 1 if previous == digest else 1
             self._repeat_state[task_id] = (digest, count)
@@ -343,7 +362,14 @@ class CanonicalBridge:
         if not isinstance(messages, list):
             raise ValueError("messages must be a list")
         task = extract_task(messages)
-        specs, name_map = tool_catalog(request_body.get("tools"))
+        requested_tools = request_body.get("tools")
+        exposed_names = dsh_function_names(requested_tools)
+        forbidden = sorted(FORBIDDEN_BENCHMARK_TOOLS.intersection(exposed_names))
+        if forbidden:
+            raise RuntimeError(
+                f"DSH benchmark preset exposed forbidden interactive tools: {forbidden}"
+            )
+        specs, name_map = tool_catalog(requested_tools)
         catalog_hash = hashlib.sha256(
             compact_json(sorted(specs, key=lambda item: str(item.get("name") or ""))).encode("utf-8")
         ).hexdigest()
@@ -384,7 +410,11 @@ class CanonicalBridge:
             parsed = parse_runtime_decision(raw, strict_toolrl_turn=True)
             if not parsed.get("ok"):
                 break
-            if self._repeat(task["task_id"], raw) >= self.config.repeat_limit:
+            if self._repeat(
+                task["task_id"],
+                raw,
+                reset=(assistant_turns == 0 and internal_step == 0),
+            ) >= self.config.repeat_limit:
                 raw_outputs.append("<thought>Repeated identical canonical decision; terminating.</thought>")
                 decision = None
                 break
@@ -465,6 +495,7 @@ class CanonicalBridge:
             "task_id": task["task_id"],
             "task_type": task["task_type"],
             "tool_catalog_sha256": catalog_hash,
+            "dsh_exposed_tool_names": exposed_names,
             "assistant_turns": assistant_turns,
             "raw_outputs": raw_outputs,
             "parsed_decision": decision,

@@ -1,110 +1,116 @@
 # Mainline
 
-## 职责与唯一 authority
+## Authorities
 
-| 事实 | 唯一 authority | 其他模块的角色 |
-| --- | --- | --- |
-| Tool-KG 构建时的 MCP 明确字段 | 该次构建捕获的 MCP schema snapshot | Tool Catalog 合并时保持 immutable |
-| online evaluation 可调用工具与参数 schema | 评测启动时 `molclaw-scp list_tools` 的实时结果 | runtime 只校验和执行，不维护旧 alias/mini-allowlist |
-| skills 中的工具语义摘要 | Tool-card Claude annotation patch | 只能注解已有 schema slot；skill-derived slot 必须独立并带 evidence |
-| 是否调度 directed candidate | stage taxonomy 的 transition/alternative 规则 | Tool Card 字段只用于上下文、优先级与 audit |
-| relation status/type 的受控词汇与结构约束 | `edge_ontology.yaml` | 运行时生成 pair prompt 片段与 output schema |
-| directed relation status/type/mapping/evidence/confidence | Claude pair adjudication | Python 只拒绝结构/跨字段非法结果，不猜测或修复语义 |
-| sampling graph | `graph.jsonl` 的确定性 projection | 只筛选可采样的 valid Claude decision，不改边语义 |
-| Stage3 默认参数与 prompt | `question_sampling.yaml` 的 named profile | CLI 显式 flag 才覆盖 resolved profile，并记录 hash |
-| grounded task validity | Tool-KG sampler + Science-KB + canonical graph | Data-Pipe 只检查可读性并执行 |
-| task metrics / `aggregate_eligible` | `pipeline/evaluate/task_evaluator.py` | 只计算 benchmark 指标，不决定清洗准入 |
-| `execution_valid`、`task_answer_valid`、`training_trace_valid` | `cleaning/python_clean.py` | `task_answer_valid` 只检查 `parsed_answer.parse_error`；LLM clean 只消费 Python audit |
-| canonical ReAct draft、observation compaction/final construction | `cleaning/react_builder.py` | 每条 raw trace 只构造一次 |
-| artifact/path 规范和 observation status 解释 | `cleaning/artifacts.py` | Python clean 唯一执行规范化 |
-| final/observation 与跨消息 consistency findings | `cleaning/invariants.py` | 只读验证，不再次清洗或构造 |
-| thought/final summary prose | restricted LLM patch | 只能修改 Python 标记的文本 segment |
-| accepted/rejected | `cleaning/acceptance_gate.py` | 只投影 Python A/B/C gate；LLM 失败或静态 finding 不改变准入 |
-| decision-state slicing / assistant decision parsing | `drug_agent/decision_extractor.py` | ToolRL、GAD 只派生方法字段 |
-| ToolRL reward | `drug_agent.toolrl.molclaw_reward` | 只评价生成 action，不执行 |
-| GAD negative/discriminator/reward | `drug_agent.gad` | 保留现有方法与权重 |
-| real MCP execution | Data-Pipe executor 与显式 `tools_debug` | formal training 禁止调用 |
+| Fact | Authority |
+| --- | --- |
+| Tool schema and names | The exact tool manifest visible to the student at deployment/rollout |
+| Raw assistant decisions/calls/results | Claude stream-json; one `message.id` is one decision |
+| Training path normalization | Source-aware deterministic Python contract |
+| Semantic trajectory | `drug_agent_semantic_trajectory_v1` |
+| Reasoning prose edits | Restricted `semantic_reasoning_patch_v1` |
+| Qwen system prompt and native message projection | Qwen3.5 adapter |
+| Wire-format rendering | Checkpoint tokenizer `apply_chat_template(messages, tools=tools)` |
+| Serving parser implementation | Active Qwen3.5 checkpoint + active SGLang version configuration |
+| ToolRL reward | `drug_agent.toolrl.molclaw_reward` over native parsed decisions |
+| Real tool execution | Data-Pipe collector and explicit online rollout/debug only |
 
-ToolRL 的 allowlist、GAD 的筛选策略和 tool registry 是方法策略或运行时 projection，不是新的工具语义 authority。
+Tool-KG keeps its existing schema/adjudication/sampling authorities. Benchmark labels and evaluator metrics remain
+audit data and never enter training prompts.
 
-## 主线图
+## Data flow
 
-```mermaid
-flowchart TD
-    A[MCP schema + canonical skills] --> B[Immutable facts + annotation patch]
-    B --> C[Tool Catalog]
-    C --> D[Taxonomy-directed pair scheduling]
-    D --> E[Ontology-generated contract + Claude adjudication]
-    E --> F[Canonical edge decisions]
-    F --> G[Pure sampling graph]
-    G --> S[Named sampling profile + Science-KB]
-    S --> H[Grounded task sampling]
-    H --> I[Real Agent execution]
-    I --> V[Immutable per-invocation attempts]
-    V --> J[Selected complete_session]
-    J --> K[Step 1: Python filter with A/B/C gates]
-    K --> U[Step 2: Python canonical ReAct structuring]
-    U --> T[Step 3: restricted LLM prose clean]
-    T --> R[Canonical ReAct + audit sidecar]
-    R --> L[Shared history-only decisions]
-    L --> M[SFT]
-    L --> N[ToolRL]
-    L --> O[GAD]
-    M --> P[Checkpoint]
-    N --> P
-    O --> P
-    P --> Q[Explicit online MCP evaluation/debug]
+```text
+clean Claude execution cwd
+        ↓
+immutable raw stream-json + outer rollout metadata
+        ├──→ uncleaned Qwen3.5 native message projection (audit only)
+        │
+        └──→ Python deterministic filtering/path sanitation/observation compaction
+                    ↓
+             model-agnostic semantic canonical     ← permanent mother dataset
+        ↓
+mandatory LLM reasoning patch (failure is pending; mother data remains valid)
+        ↓
+        Qwen3.5 structured SFT view
+                ↓
+        tokenizer.apply_chat_template + qwen3_5 loss mask
+                ↓
+              Slime SFT
 ```
 
-## Offline / online 边界
+There is no XML ReAct stage or rendered-text reverse parser anywhere in the SFT path.
 
-SFT 使用完整历史 teacher forcing；ToolRL 和 GAD 在固定历史 state 上生成下一步 decision。
-XML ReAct 是训练、online inference 和显式 debug 的唯一 agent protocol；一个 assistant generation
-输出 thought 加一个或多个 tool call，或 thought 加一个 final answer。生成 decision 在 formal
-training 中不会被执行，也不会取得新 observation。正式训练入口在启动 Ray 前加载
-`offline_training_env.sh`，清除 MolClaw credentials，并由 MCP client/executor fail closed。
+Every primary trajectory JSONL has a sibling `.pretty.json` JSON-array rendering for human review. Pretty files
+are not data authorities and are never consumed by loaders.
 
-真实工具交互只允许在 Data-Pipe 执行层和显式 online debug 中发生。VS、AC、PF、E2E、KG
-统一连接固定命名的 `molclaw-scp`，不保留 task-specific MCP server。
-`debug_mcp_tools.py`、`debug_one_task.py` 与 `debug_replay_trajectory.py` 必须设置
-`DRUG_AGENT_ALLOW_TOOL_ENV=1`。
+## Collector boundary
 
-Slime online inference 与 `debug_one_task.py` 可同时使用 MolClaw 和逐任务沙箱中的
-`Read/Write/Edit/Bash/Grep/Glob`。本地路径被限制在 sample workspace，L1 skill 文档通过 Read/Grep/Glob
-只读访问，受限 Bash 不启动 shell 且禁止网络、解释器、删除、提权、进程控制与路径逃逸。
-这不会改变 formal SFT、ToolRL、GAD 的 offline boundary 或 reward 定义。
+Before Claude starts, its cwd contains only runtime material explicitly supplied by
+`workdir-skills/molclaw-trajectory-execution/`. The task is passed through the normal user prompt.
+`question.json`, `prompt.txt`, `run_meta.json`, `complete_session.jsonl`, attempt manifests and other collector
+sidecars remain in the outer rollout directory. Agent-created scientific artifacts may appear in the cwd after
+launch.
 
-正式 MolBench 测评由 `run_molbench_eval.sh` 以 eval-only 模式加载指定 Slime
-torch-distributed checkpoint，并在 actor 加载完成后同步权重到 SGLang。评测输入永远只有
-fresh system + user question；teacher assistant/observation 不会进入 prompt。每题拥有独立
-MCP session、workspace 和 artifact registry，默认 `MAX_WORKERS=2`。MCP 业务失败作为普通
-observation 允许模型 replanning；连接、进程和协议终止才属于任务级失败。
-每题完成后会原子写入独立 task checkpoint；中断后只有显式 `RESUME_EVAL=1` 且 run fingerprint
-完全匹配时才复用。event loop、MCP transport 和 owner thread 必须在题目结束时完整关闭，不能依靠
-提高 worker 的 file-descriptor limit 掩盖资源泄漏。
+Each invocation has an immutable `attempts/attempt_NNNN/complete_session.jsonl`; the selected stream is copied
+byte-for-byte to the sample-level `complete_session.jsonl`. Runner diagnostics never get appended to raw events.
+Each stream has a `complete_session.pretty.json` sidecar for reading. Non-JSON Claude runtime diagnostics are
+represented there as explicit line-numbered diagnostic records; the byte-identical JSONL remains authoritative.
+`run_meta.json` and `selected_attempt_artifacts.json` both bind `question_sha256`, `user_prompt_sha256`,
+`system_prompt_sha256`, `selected_session_sha256` and `source_dataset_sha256`; Python clean rejects a mismatch.
+缺失任一绑定字段也会拒绝该样本；正式入口不保留 legacy partial-binding fallback。
 
-ToolRL 默认使用 official reward baseline，MolClaw-adapted reward 是显式实验模式；两者共享
-converter、decision parser 和 trainer。GAD 默认 pure discriminator reward，Stage 3 必须同时
-提供配对 manifest 中的 generator SFT warmup 与 discriminator warmup checkpoint。
+## Semantic boundary
 
-## 主线边界
+For stage-by-stage audit, raw events are also projected once into
+`claude_raw_qwen35_native_projection_v1`. This projection preserves raw skill/runtime calls, paths and long
+observations and marks every cleaning flag false. It is not the mother dataset; no downstream stage reverse-parses
+it. Deployment-visible tool schemas are added only by the final Qwen adapter, because the raw Claude stream is not
+their authority.
 
-- Tool-KG 只发布 canonical `tool_catalog.jsonl`、`edge_decisions.jsonl`、`graph.jsonl`、可选 `tasks.jsonl` 和 manifest/issues；旧 graph views、CSV/GraphML export 与历史 KG migration 已归档。
-- Stage3 只使用 `simple_default` profile 和 canonical graph/task records。
-- 旧 `trajectory_exporter.py`、usage scanner、`post_process_sft.py`、独立 hard-clean/aggregate
-  入口已删除；逻辑主线是 Python 筛选、Python 结构化、LLM clean。前两段由同一个
-  `python_clean` 入口顺序执行，因此正式命令仍只有 `python_clean` 和 `llm_clean`。
-- Data-Pipe KG adapter 只读 `results/tasks.jsonl`，不再接受历史 `sample_success*`。
-- SFT、ToolRL、GAD 与 online replay 的默认输入都从 `$DRUG_AGENT_DATA_ROOT/react_trajectories.jsonl` 或其方法派生目录开始；`PROMPT_DATA`/`INPUT` 只用于显式覆盖。
+Semantic data contains only user task, assistant decisions, tool calls, tool observations, final response and
+source provenance. Claude system/runtime instructions can be retained in audit metadata but are excluded from the
+training body. Qwen system prompts and tool schemas are not semantic fields.
 
-OPD、VERL bundle、legacy action-JSON SFT 和 legacy online PPO/GRPO 不属于当前主线。
+The canonicalizer groups all fragments with the same Claude `message.id`, preserves parallel calls as one
+`tool_calls[]`, and matches results through `tool_use_id`. Removing a teacher-runtime interaction removes that
+decision and its results; it never merges assistant decisions across an observation. Scientific calls are not
+filtered against a student deployment manifest at this stage.
 
-Python clean 先用 A/B/C gate 筛选，再生成 canonical draft。所有 Python-valid draft 都交给 LLM
-自行检查可编辑 prose，不再由 Python 生成逐段 repair hints；ground truth、benchmark
-metrics 和 evaluator 结果只进入 audit。LLM 返回最小 patch，不能重写 tool call、observation、
-prediction 或完整 trajectory。
+Python cleaning removes L2/L3/CLAUDE/collector-runtime actions. A read-only mixed Bash that contains both L1 and
+teacher-runtime inspection is projected within the same assistant decision into native `Read` calls for its L1
+`SKILL.md` targets; the original Bash-to-derived-call relation stays in audit. Attempt-workdir files become normal
+cwd-relative paths, L1 paths become `skills/L1_tools/...`, and server paths from the user/MCP remain unchanged.
+A real raw `Bash pwd` is preserved and maps its workdir chain to one trajectory-specific absolute root; Python
+never invents a pwd call. Oversized observations retain scalar/path evidence reused downstream.
 
-所有主线 Claude Code runtime（Data-Pipe rollout、LLM clean、Tool-KG adjudication/
-Tool Card/task sampling 和单样本 launcher）共享同一留存边界：每次 invocation 原样写入
-`attempts/attempt_NNNN/complete_session.jsonl`，顶层 `complete_session.jsonl` 只是最终
-采用 attempt 的 SHA256 一致副本。runner 诊断不进入 raw stream。
+Mandatory LLM cleaning may only edit reasoning and prepend one task-level high-level plan to the first decision.
+Calls, arguments, observations, final response, event order and provenance are immutable.
+
+An LLM/provider/patch failure creates a pending clean materialization, not an invalid semantic sample. Only
+successful patches enter the cleaned materialization; the semantic mother dataset is always retained.
+
+## SFT boundary
+
+The Qwen3.5 adapter injects the final training system prompt and a deployment-aligned tool set. `all` exposes the
+full manifest; `trajectory-plus-distractors` exposes the six local discovery tools, all used MolClaw tools and a
+deterministic equal-size distractor set. Tool selection and the deployment hash belong to the materialization
+manifest, never to semantic. SFT stores
+structured `messages` and `tools`, never rendered XML/text. Slime receives `--tool-key tools` and uses
+`--loss-mask-type qwen3_5`, so system/user/tool observations are non-trainable and assistant
+reasoning/action/final spans are trainable.
+
+ToolRL is not materialized by the SFT pipeline. The existing ToolRL rows are derived directly from semantic assistant decisions. Their labels contain structured
+`target_assistant`, `target_tool_calls` or `target_final_answer`; no custom string parser reconstructs them.
+Rows remain decision-level records, but rollout sampling is trajectory-atomic: all ordinals for one `source_id`
+must be present, contiguous and contained in one rollout batch. A batch may contain multiple complete
+trajectories. Batch shuffling never shuffles individual decisions, and a trajectory is never split or padded with
+duplicated decisions. Capacity rejection also applies to the whole trajectory. ToolRL launch requires
+`global_batch_size == rollout_batch_size * n_samples_per_prompt`, so the complete rollout batch is not split across
+optimizer updates.
+The native reasoning/tool parser names are required launcher configuration, not schema fields. The launcher must
+round-trip tokenizer-rendered targets through the installed SGLang parsers before starting Ray/GPU training.
+
+Formal SFT remains offline. Real MCP calls are restricted to collection and explicit online evaluation or debug
+paths. Legacy XML-dependent ToolRL/online runtime is explicitly deferred to the ToolRL-specific refactor and is
+not linked from the SFT entrypoint.

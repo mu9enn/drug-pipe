@@ -39,7 +39,7 @@ DEFAULT_DSH_REPO = WORKSPACE_ROOT / "deepseek-harness"
 DEFAULT_SKILL_SOURCE = DRUG_PIPE_ROOT / "workdir-skills/molclaw-trajectory-execution"
 DEFAULT_RUNS_ROOT = WORKSPACE_ROOT / "outputs/dsh_molbench_evals"
 DEFAULT_DSH_URL = "http://127.0.0.1:3080"
-AGENT_PRESET = "standard"
+DEFAULT_AGENT_PRESET = "standard"
 TASK_MARKER = "DSH_CANONICAL_REACT_TASK_V1\n"
 
 MS1_CSV = Path("data/molbench-ms-1/molbench-ms-1.csv")
@@ -189,7 +189,7 @@ def adapt_skill_text(text: str) -> str:
     return text
 
 
-def create_skill_snapshot(run_dir: Path, skill_source: Path) -> Path:
+def create_skill_snapshot(run_dir: Path, skill_source: Path, skill_visibility: str) -> Path:
     snapshot = run_dir / "skill_snapshot"
     bundle = snapshot / "dsh-bundle"
     resources = snapshot / "resources"
@@ -200,6 +200,8 @@ def create_skill_snapshot(run_dir: Path, skill_source: Path) -> Path:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("source_sha256") != source_digest:
             raise RuntimeError("skill source changed after this run was prepared; use a new run directory")
+        if manifest.get("skill_visibility", "hierarchy") != skill_visibility:
+            raise RuntimeError("skill visibility changed after this run was prepared; use a new run directory")
         return bundle
 
     if snapshot.exists():
@@ -210,27 +212,57 @@ def create_skill_snapshot(run_dir: Path, skill_source: Path) -> Path:
     if not (source_entry / "SKILL.md").is_file():
         raise FileNotFoundError(source_entry / "SKILL.md")
 
-    shutil.copytree(source_tree, resources)
+    if skill_visibility == "l1-only":
+        shutil.copytree(source_tree / "L1_tools", resources / "L1_tools")
+        bundle.mkdir()
+        write_text(
+            bundle / "SKILL.md",
+            "---\n"
+            "name: execute-molclaw-trajectory\n"
+            "description: Execute one evidence-grounded MolClaw task using on-demand L1 tool documentation.\n"
+            "---\n\n"
+            "# Execute a MolClaw trajectory\n\n"
+            "Treat `question.json` as the authoritative task input. Select scientific tools from the "
+            "available native tool schemas. Before using an unfamiliar tool, inspect its documentation "
+            "under `resources/L1_tools/<tool-skill>/SKILL.md`. Base every conclusion on observed tool "
+            "results, keep generated files in the task workspace, and write supporting methods and "
+            "evidence to `run_log.md` and `result.md`. Return the requested scientific conclusion once.\n",
+        )
+    else:
+        shutil.copytree(source_tree, resources)
+        shutil.copytree(source_entry, bundle)
+
     for path in resources.rglob("*.md"):
         path.write_text(adapt_skill_text(path.read_text(encoding="utf-8")), encoding="utf-8")
-
-    shutil.copytree(source_entry, bundle)
     for path in bundle.rglob("*.md"):
         path.write_text(adapt_skill_text(path.read_text(encoding="utf-8")), encoding="utf-8")
     skill_path = bundle / "SKILL.md"
+    if skill_visibility == "l1-only":
+        runtime_contract = (
+            "\n\n## DSH native tool invocation\n\n"
+            "Invoke each MolClaw server tool directly through its structured schema named "
+            "`mcp__molclaw-scp__<bare_tool_name>`. Never emit XML tool-call tags, call a generic "
+            "wrapper, or simulate an MCP call with shell commands.\n"
+            "\n## Benchmark finalization\n\n"
+            "The final assistant message must obey `question.json.output_contract` and contain "
+            "only the selected source SMILES.\n"
+        )
+    else:
+        runtime_contract = (
+            "\n\n## Canonical ReAct tool invocation\n\n"
+            "Invoke MolClaw tools with their bare authoritative names through canonical "
+            "`<tool_call>{\"tool_name\":\"...\",\"arguments\":{...}}</tool_call>` blocks. "
+            "The DSH bridge translates these calls to the harness namespace. Never emit a "
+            "namespaced `mcp__...` tool name, call a generic wrapper, or simulate an MCP call "
+            "with shell commands.\n"
+            "\n## Canonical benchmark finalization\n\n"
+            "When `question.json` contains `output_contract`, the last assistant message must be the "
+            "single canonical `<final_answer>` envelope specified there and nothing else. Copy the "
+            "selected SMILES from the verified result. "
+            "Do not replace it with a completion acknowledgement such as `Completed` or `Outputting the final answer`.\n"
+        )
     skill_path.write_text(
-        skill_path.read_text(encoding="utf-8").rstrip()
-        + "\n\n## Canonical ReAct tool invocation\n\n"
-        + "Invoke MolClaw tools with their bare authoritative names through canonical "
-        + "`<tool_call>{\"tool_name\":\"...\",\"arguments\":{...}}</tool_call>` blocks. "
-        + "The DSH bridge translates these calls to the harness namespace. Never emit a "
-        + "namespaced `mcp__...` tool name, call a generic wrapper, or simulate an MCP call "
-        + "with shell commands.\n"
-        + "\n## Canonical benchmark finalization\n\n"
-        + "When `question.json` contains `output_contract`, the last assistant message must be the "
-        + "single canonical `<final_answer>` envelope specified there and nothing else. Copy the "
-        + "selected SMILES from the verified result. "
-        + "Do not replace it with a completion acknowledgement such as `Completed` or `Outputting the final answer`.\n",
+        skill_path.read_text(encoding="utf-8").rstrip() + runtime_contract,
         encoding="utf-8",
     )
     resource_link = bundle / "resources"
@@ -240,18 +272,24 @@ def create_skill_snapshot(run_dir: Path, skill_source: Path) -> Path:
         "created_at": utc_now(),
         "source": str(skill_source),
         "source_sha256": source_digest,
+        "skill_visibility": skill_visibility,
         "layout": ".dsh/skills/execute-molclaw-trajectory/{SKILL.md,references,resources}",
         "adaptations": [
             ".claude/skills -> .dsh/skills/execute-molclaw-trajectory/resources",
             "Claude session -> DSH session",
-            "bare MolClaw tool names preserved for canonical ReAct bridge translation",
-            "single DSH catalog entry with on-demand hierarchical resources",
+            (
+                "native namespaced DSH tool calls"
+                if skill_visibility == "l1-only"
+                else "bare MolClaw tool names preserved for canonical ReAct bridge translation"
+            ),
+            "single DSH catalog entry with on-demand resources",
+            f"skill visibility: {skill_visibility}",
         ],
     })
     return bundle
 
 
-def question_payload(sample: Sample) -> dict[str, Any]:
+def question_payload(sample: Sample, skill_visibility: str) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": "dsh_molbench_question_v1",
         "task": "molbench",
@@ -260,11 +298,20 @@ def question_payload(sample: Sample) -> dict[str, Any]:
         "source_row": sample.source_row,
         "question_text": sample.prompt,
     }
-    if sample.suite == "ms1":
+    if sample.suite == "ms1" and skill_visibility == "l1-only":
+        payload["output_contract"] = (
+            "Final assistant message: selected source SMILES, one per line, and nothing else."
+        )
+    elif sample.suite == "ms1":
         payload["output_contract"] = (
             "Final assistant message: exactly one canonical "
             "<final_answer>{\"task_type\":\"pf\",\"selected_smiles\":[...],\"evidence\":[...]}</final_answer> "
             "envelope and nothing else."
+        )
+    elif skill_visibility == "l1-only":
+        payload["target"] = sample.target
+        payload["output_contract"] = (
+            "Final assistant message: exactly one of Molecule A or Molecule B SMILES, and nothing else."
         )
     else:
         payload["target"] = sample.target
@@ -286,7 +333,9 @@ The final assistant message must obey `question.json.output_contract`; put metho
 """
 
 
-def prepare_workspace(run_dir: Path, sample: Sample, bundle: Path) -> Path:
+def prepare_workspace(
+    run_dir: Path, sample: Sample, bundle: Path, skill_visibility: str,
+) -> Path:
     workdir = run_dir / "workspaces" / sample.task_id
     workdir.mkdir(parents=True, exist_ok=True)
     # DSH discovers project skills relative to the nearest .git marker.  A
@@ -298,7 +347,7 @@ def prepare_workspace(run_dir: Path, sample: Sample, bundle: Path) -> Path:
         skill_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(bundle, skill_dir, symlinks=True)
     write_text(workdir / "AGENTS.md", AGENTS_TEXT)
-    write_json(workdir / "question.json", question_payload(sample))
+    write_json(workdir / "question.json", question_payload(sample, skill_visibility))
     return workdir
 
 
@@ -378,7 +427,9 @@ class DshApi:
             socket.close()
 
 
-def task_prompt(sample: Sample) -> str:
+def task_prompt(sample: Sample, skill_visibility: str) -> str:
+    if skill_visibility == "l1-only":
+        return sample.prompt
     payload = {
         "task_id": sample.task_id,
         "task_type": "pf" if sample.suite == "ms1" else "ac",
@@ -595,6 +646,8 @@ def run_sample(
     timeout_sec: int,
     model_provider: str,
     model_id: str,
+    agent_preset: str,
+    skill_visibility: str,
 ) -> dict[str, Any]:
     started = time.time()
     session_id = f"session-dsh-molbench-{uuid.uuid4()}"
@@ -612,7 +665,7 @@ def run_sample(
     events: list[dict[str, Any]] = []
     try:
         created = api.rpc("session.create", {
-            "cwd": str(workdir), "sessionId": session_id, "agentPreset": AGENT_PRESET,
+            "cwd": str(workdir), "sessionId": session_id, "agentPreset": agent_preset,
         }, timeout=180)
         session_id = created["sessionId"]
         record["session_id"] = session_id
@@ -634,7 +687,7 @@ def run_sample(
         api.rpc("session.prompt", {
             "sessionId": session_id,
             "mode": "queue",
-            "content": [{"type": "text", "text": task_prompt(sample)}],
+            "content": [{"type": "text", "text": task_prompt(sample, skill_visibility)}],
         }, timeout=60)
 
         deadline = time.monotonic() + timeout_sec
@@ -845,6 +898,8 @@ def build_manifest(
     dsh_url: str,
     model_provider: str,
     model_id: str,
+    agent_preset: str,
+    skill_visibility: str,
 ) -> dict[str, Any]:
     return {
         "schema_version": "dsh_molbench_run_manifest_v1",
@@ -853,11 +908,12 @@ def build_manifest(
         "dsh_url": dsh_url,
         "dsh_source_repo": str(dsh_repo),
         "dsh_revision": git_revision(dsh_repo),
-        "agent_preset": AGENT_PRESET,
+        "agent_preset": agent_preset,
         "model_provider": model_provider,
         "model": model_id,
         "molbench_root": str(molbench_root),
         "skill_source": str(skill_source),
+        "skill_visibility": skill_visibility,
         "suites": sorted(suites),
         "limit_per_suite": limit_per_suite,
         "sample_count": len(samples),
@@ -875,8 +931,16 @@ def build_manifest(
             "max_prompt_tokens": 49152,
             "context_window": 65536,
             "max_steps": 128,
-            "tool_protocol": "canonical_react_bridge_to_dsh_structured_calls",
-            "terminal_protocol": "canonical_final_answer",
+            "tool_protocol": (
+                "qwen_native_structured_calls"
+                if skill_visibility == "l1-only"
+                else "canonical_react_bridge_to_dsh_structured_calls"
+            ),
+            "terminal_protocol": (
+                "plain_benchmark_answer"
+                if skill_visibility == "l1-only"
+                else "canonical_final_answer"
+            ),
             "empty_final_is_valid": False,
             "artifact_answer_fallback": False,
         },
@@ -907,9 +971,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dsh-url", default=DEFAULT_DSH_URL)
     parser.add_argument("--model-provider", default="slime-local")
     parser.add_argument("--model-id", default="qwen3.5-9b-local")
+    parser.add_argument("--agent-preset", default=DEFAULT_AGENT_PRESET)
     parser.add_argument("--molbench-root", type=Path, default=DEFAULT_MOLBENCH_ROOT)
     parser.add_argument("--dsh-repo", type=Path, default=DEFAULT_DSH_REPO)
     parser.add_argument("--skill-source", type=Path, default=DEFAULT_SKILL_SOURCE)
+    parser.add_argument(
+        "--skill-visibility", choices=("hierarchy", "l1-only"), default="hierarchy",
+        help="expose the complete skill hierarchy or only on-demand L1 tool documentation",
+    )
     return parser.parse_args()
 
 
@@ -941,18 +1010,24 @@ def main() -> int:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("sample_ids") != [sample.task_id for sample in samples]:
             raise RuntimeError("resume selection does not match the existing run manifest")
+        if manifest.get("skill_visibility", "hierarchy") != args.skill_visibility:
+            raise RuntimeError("resume skill visibility does not match the existing run manifest")
     else:
         manifest = build_manifest(
             run_dir, molbench_root, dsh_repo, skill_source, suites,
             args.limit_per_suite, samples, args.dsh_url,
-            args.model_provider, args.model_id,
+            args.model_provider, args.model_id, args.agent_preset,
+            args.skill_visibility,
         )
         manifest["execution_mode"] = "rollout-only" if args.rollout_only else "rollout-and-score"
         manifest["source_files"] = [item for item in manifest["source_files"] if item is not None]
         write_json(manifest_path, manifest)
 
-    bundle = create_skill_snapshot(run_dir, skill_source)
-    workdirs = {sample.task_id: prepare_workspace(run_dir, sample, bundle) for sample in samples}
+    bundle = create_skill_snapshot(run_dir, skill_source, args.skill_visibility)
+    workdirs = {
+        sample.task_id: prepare_workspace(run_dir, sample, bundle, args.skill_visibility)
+        for sample in samples
+    }
     if args.prepare_only:
         print(json.dumps({"run_dir": str(run_dir), "prepared": len(samples)}, ensure_ascii=False))
         return 0
@@ -977,7 +1052,7 @@ def main() -> int:
             print(f"[{index}/{len(samples)}] {sample.task_id}: running", flush=True)
             record = run_sample(
                 DshApi(args.dsh_url), run_dir, sample, workdirs[sample.task_id], args.task_timeout_sec,
-                args.model_provider, args.model_id,
+                args.model_provider, args.model_id, args.agent_preset, args.skill_visibility,
             )
             return index, sample, record
 

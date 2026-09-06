@@ -51,6 +51,11 @@ def load_session_events(path: Path) -> tuple[list[dict[str, Any]], int, bool]:
             try:
                 value = json.loads(text)
             except json.JSONDecodeError:
+                # Claude Code may interleave its own bracketed runtime diagnostic
+                # with stream-json output. It is not a trajectory event and the
+                # immutable raw session remains available for audit.
+                if text.startswith("[claude-code:"):
+                    continue
                 malformed += 1
                 continue
             if isinstance(value, dict):

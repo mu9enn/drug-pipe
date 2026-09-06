@@ -10,7 +10,7 @@ fi
 
 cd "$SLIME"
 
-# Conservative 4xH200 smoke profile for the current long ReAct SFT samples.
+# Conservative 4xH200 smoke profile for long structured Qwen3.5 SFT samples.
 # TP=4 shards the large vocabulary logits and their temporary clone across all
 # four GPUs; DP=1 then permits the smallest valid RBS=GBS=1 smoke step.
 export MODEL_ARGS_FILE=${MODEL_ARGS_FILE:-scripts/models/qwen3.5-4B.sh}

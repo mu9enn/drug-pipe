@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "prompt", "tools", "label", "metadata"],
+  "properties": {
+    "schema_version": {"const": "drug_agent_toolrl_decision_v1"},
+    "prompt": {"type": "array", "minItems": 2, "items": {"type": "object"}},
+    "tools": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "decision_id", "decision_ordinal", "decision_type", "target_tool_calls", "target_final_answer", "target_assistant"],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "decision_id": {"type": "string", "minLength": 1},
+        "decision_ordinal": {"type": "integer", "minimum": 0},
+        "decision_type": {"enum": ["tool_call", "final_answer"]},
+        "target_tool_calls": {"type": "array"},
+        "target_final_answer": {"type": ["string", "null"]},
+        "target_assistant": {"type": "object"}
+      }
+    },
+    "metadata": {"type": "object"}
+  }
+}

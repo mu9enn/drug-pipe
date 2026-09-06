@@ -17,7 +17,11 @@ from typing import Any
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from drug_agent.protocol.toolrl_turn import TOOLRL_TURN_PROTOCOL, normalize_trajectory, split_assistant_segments
+from drug_agent.protocol.toolrl_turn import (
+    TOOLRL_TURN_PROTOCOL_NATIVE_THINK,
+    normalize_trajectory,
+    split_assistant_segments,
+)
 from drug_agent.scripts.audit_runtime_parser_compatibility import audit as audit_runtime_parser
 from drug_agent.scripts.audit_sft_toolrl_serializer_parity import audit as audit_serializer_parity
 from drug_agent.scripts.audit_toolrl_turn_release import audit as audit_segmentation
@@ -126,6 +130,7 @@ def materialize_release(
     sft_path = output_root / "react_trajectories.jsonl"
     source_records = normalized_records = sft_records = 0
     audit_totals: Counter[str] = Counter()
+    release_protocols: set[str] = set()
     source_ids: set[str] = set()
     with (
         input_react.open(encoding="utf-8") as source,
@@ -144,6 +149,7 @@ def materialize_release(
                 raise ValueError(f"missing or duplicate source id at line {line_number}: {source_id!r}")
             source_ids.add(source_id)
             normalized, audit = normalize_trajectory(record)
+            release_protocols.add(str(audit.get("protocol") or ""))
             canonical_target.write(json.dumps(normalized, ensure_ascii=False, separators=(",", ":")) + "\n")
             for sft_record in _sft_records_for_trajectory(normalized):
                 sft_target.write(json.dumps(sft_record, ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -152,6 +158,9 @@ def materialize_release(
             audit_totals.update({key: int(value) for key, value in audit.items() if isinstance(value, int)})
     if source_records == 0 or normalized_records != source_records or sft_records < normalized_records:
         raise ValueError("empty or incomplete normalized SFT view")
+    if len(release_protocols) != 1:
+        raise ValueError(f"release mixes reasoning protocols: {sorted(release_protocols)}")
+    release_protocol = next(iter(release_protocols))
 
     raw_steps = toolrl_root / "raw_toolrl_steps.jsonl"
     conversion_report_path = toolrl_root / "toolrl_steps.report.json"
@@ -216,7 +225,9 @@ def materialize_release(
     audit_root = output_root / "audit"
     segmentation_report = audit_segmentation(input_react, normalized_path)
     serializer_parity_report = audit_serializer_parity(sft_path, raw_steps)
-    runtime_parser_report = audit_runtime_parser()
+    runtime_parser_report = audit_runtime_parser(
+        native_qwen_thinking=release_protocol == TOOLRL_TURN_PROTOCOL_NATIVE_THINK
+    )
     serializer_examples = build_serializer_examples(input_react)
     _write_json(audit_root / "reasoning_action_segmentation.json", segmentation_report)
     _write_json(audit_root / "sft_toolrl_serializer_parity.json", serializer_parity_report)
@@ -235,7 +246,7 @@ def materialize_release(
             "official_baseline": "base checkpoint -> ToolRL",
             "drug_pipe_production": "SFT -> ToolRL",
         },
-        "protocol": TOOLRL_TURN_PROTOCOL,
+        "protocol": release_protocol,
         "source": {
             "path": str(input_react.resolve()),
             "records": source_records,
@@ -320,7 +331,7 @@ def materialize_release(
         {
             "schema_version": "toolrl_turn_materialized_release_v1",
             "source_sha256": _sha256(sft_path),
-            "protocol": TOOLRL_TURN_PROTOCOL,
+            "protocol": release_protocol,
             "limits": {"context": 262144, "prompt": 245760, "response": 16384},
             "records": int(view["candidate_records"]),
             "batch_multiple": 4,

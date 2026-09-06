@@ -20,8 +20,10 @@ LLM_CLEAN_SKILL_DIR = (
 )
 LLM_CLEAN_SYSTEM_PROMPT = LLM_CLEAN_SCENE_DIR / "system_prompt.md"
 LLM_CLEAN_USER_PROMPT = LLM_CLEAN_SCENE_DIR / "user_prompt.md"
-REACT_SCHEMA_VERSION = "drug_agent_sft_react_json_v1"
-PATCH_SCHEMA_VERSION = "llm_clean_patch_v2"
+SEMANTIC_SCHEMA_VERSION = "drug_agent_semantic_trajectory_v1"
+QWEN35_SFT_SCHEMA_VERSION = "drug_agent_qwen35_sft_v1"
+TOOLRL_SCHEMA_VERSION = "drug_agent_toolrl_decision_v1"
+PATCH_SCHEMA_VERSION = "semantic_reasoning_patch_v1"
 
 
 @lru_cache(maxsize=None)
@@ -41,9 +43,17 @@ def schema_findings(value: Any, schema_name: str) -> list[str]:
     return findings
 
 
-def react_schema_findings(value: Any) -> list[str]:
-    return schema_findings(value, "react_trajectory_v1.schema.json")
+def semantic_schema_findings(value: Any) -> list[str]:
+    return schema_findings(value, "semantic_trajectory_v1.schema.json")
+
+
+def qwen35_sft_schema_findings(value: Any) -> list[str]:
+    return schema_findings(value, "qwen35_sft_v1.schema.json")
+
+
+def toolrl_schema_findings(value: Any) -> list[str]:
+    return schema_findings(value, "toolrl_decision_v1.schema.json")
 
 
 def patch_schema_findings(value: Any) -> list[str]:
-    return schema_findings(value, "llm_clean_patch_v2.schema.json")
+    return schema_findings(value, "semantic_reasoning_patch_v1.schema.json")

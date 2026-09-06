@@ -118,6 +118,31 @@ class CanonicalFinalAnswerTest(unittest.TestCase):
         self.assertFalse(parsed["ok"])
         self.assertEqual(parsed["error_type"], "ReactFormatError")
 
+    def test_accepts_v8_full_native_think_block(self) -> None:
+        parsed = parse_runtime_decision(
+            '<think>inspect the structure</think>'
+            '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>',
+            strict_toolrl_turn=True,
+        )
+        self.assertTrue(parsed["ok"])
+        self.assertEqual(parsed["reasoning_tag"], "think")
+        self.assertEqual(parsed["thoughts"], ["inspect the structure"])
+
+    def test_native_qwen_continuation_requires_explicit_v8_mode(self) -> None:
+        response = (
+            "inspect the structure\n</think>\n\n"
+            '<tool_call>{"tool_name":"Read","arguments":{"file_path":"x"}}</tool_call>'
+        )
+        self.assertFalse(parse_runtime_decision(response, strict_toolrl_turn=True)["ok"])
+        parsed = parse_runtime_decision(
+            response,
+            strict_toolrl_turn=True,
+            native_qwen_thinking=True,
+        )
+        self.assertTrue(parsed["ok"])
+        self.assertEqual(parsed["reasoning_tag"], "think")
+        self.assertEqual(parsed["thoughts"], ["inspect the structure"])
+
     def test_rejects_qwen_end_token_outside_terminal_transport_position(self) -> None:
         parsed = parse_react_sequence(
             '<thought>inspect the structure</thought><|im_end|>'

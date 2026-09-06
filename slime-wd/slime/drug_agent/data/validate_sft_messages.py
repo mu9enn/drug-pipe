@@ -2,703 +2,124 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
-import sys
-
-if __package__ is None or __package__ == "":
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from drug_agent.protocol.react_protocol import (
-    PROTOCOL_AUTO,
-    PROTOCOL_REACT_JSON,
-    detect_sft_protocol,
-    parse_react_sequence,
-)
-
-PROTOCOL_PLAN_JSON = "plan_json"
-PLAN_PATTERN = re.compile(r"^\s*<plan>(?P<payload>\{.*\})</plan>\s*$", re.DOTALL)
 
 
-def _preview_messages(messages: Any, limit: int = 6) -> Any:
-    if not isinstance(messages, list):
-        return messages
-    return messages[:limit]
+LEGACY_MARKERS = ("<thought>", "<tool_call>", "<observation>", "<final_answer>")
 
 
-def _roles(messages: Any) -> list[str]:
-    if not isinstance(messages, list):
-        return []
-    out: list[str] = []
-    for item in messages:
-        if isinstance(item, dict) and isinstance(item.get("role"), str):
-            out.append(item["role"])
-    return out
-
-
-def _coerce_int(value: Any) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return 0
-        try:
-            return int(float(text))
-        except Exception:
-            return 0
-    return 0
-
-
-def _collect_count_aliases(value: Any, alias_map: dict[str, str]) -> Counter:
-    counts = Counter()
-
-    def walk(obj: Any) -> None:
-        if isinstance(obj, dict):
-            for key, item in obj.items():
-                if key in alias_map:
-                    counts[alias_map[key]] += _coerce_int(item)
-                walk(item)
-        elif isinstance(obj, list):
-            for item in obj:
-                walk(item)
-
-    walk(value)
-    return counts
-
-
-def _load_cleaning_report(metadata: dict[str, Any]) -> Any:
-    report = metadata.get("cleaning_report")
-    if isinstance(report, dict):
-        return report
-
-    report = metadata.get("cleaning_report_summary")
-    if isinstance(report, dict):
-        return report
-
-    report_path = metadata.get("cleaning_report_path")
-    if isinstance(report_path, str) and report_path.strip():
-        path = Path(report_path)
-        if path.exists():
-            try:
-                return json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                return {"cleaning_report_path": report_path}
-
-    return {}
-
-
-def _merge_record_counts(*counts_dicts: Counter) -> Counter:
-    merged = Counter()
-    for counts in counts_dicts:
-        for key, value in counts.items():
-            merged[key] = max(int(merged.get(key) or 0), int(value))
-    return merged
-
-
-def audit_react_actions(
-    messages: Any,
-    *,
-    allow_terminal_tool_action: bool = False,
-) -> tuple[Counter, list[dict[str, Any]]]:
-    counts = Counter()
-    samples: list[dict[str, Any]] = []
-    if not isinstance(messages, list):
-        return counts, samples
-
-    pending_tool_calls: list[str] = []
-    seen_plain_user_prompt = False
-    seen_react_turn = False
-    seen_final_answer = False
-
-    previous_role = None
-    for turn_idx, msg in enumerate(messages):
-        if not isinstance(msg, dict):
+def validate_record(record: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if record.get("schema_version") != "drug_agent_qwen35_sft_v1":
+        errors.append("unexpected_schema_version")
+    messages = record.get("messages")
+    tools = record.get("tools")
+    if not isinstance(messages, list) or len(messages) < 3:
+        return errors + ["messages_missing_or_short"]
+    if not isinstance(tools, list) or not tools:
+        return errors + ["tools_missing"]
+    tool_names = {
+        str((tool.get("function") or {}).get("name") or "")
+        for tool in tools if isinstance(tool, dict)
+    }
+    if any(not name for name in tool_names):
+        errors.append("tool_without_name")
+    if messages[0].get("role") != "system" or messages[1].get("role") != "user":
+        errors.append("system_user_prefix_required")
+    pending: list[tuple[str, str]] = []
+    final_positions: list[int] = []
+    for index, message in enumerate(messages):
+        if not isinstance(message, dict):
+            errors.append(f"message_not_object:{index}")
             continue
-
-        role = msg.get("role")
-        content = msg.get("content")
-        if not isinstance(content, str) or not content.strip():
-            continue
-
-        if role == "assistant" and previous_role == "assistant":
-            counts["react_json_parse_failed"] += 1
-            samples.append(
-                {
-                    "turn_index": turn_idx,
-                    "role": role,
-                    "strict_ok": False,
-                    "strict_error_type": "ReactSequenceError",
-                    "strict_error_message": "consecutive assistant turns require an intervening user/observation turn",
-                    "parse_source": "sequence",
-                    "content_preview": content[:300],
-                }
-            )
-        previous_role = role
-
-        if role == "system":
-            continue
-
-        if seen_final_answer:
-            counts["react_json_parse_failed"] += 1
-            samples.append(
-                {
-                    "turn_index": turn_idx,
-                    "role": role,
-                    "strict_ok": False,
-                    "strict_error_type": "ReactSequenceError",
-                    "strict_error_message": "content found after final_answer",
-                    "parse_source": "sequence",
-                    "content_preview": content[:300],
-                }
-            )
-            continue
-
-        parsed = parse_react_sequence(content, role=role if isinstance(role, str) else None)
-        if not bool(parsed.get("ok")):
-            counts["react_json_parse_failed"] += 1
-            samples.append(
-                {
-                    "turn_index": turn_idx,
-                    "role": role,
-                    "strict_ok": False,
-                    "strict_error_type": parsed.get("error_type"),
-                    "strict_error_message": parsed.get("error_message"),
-                    "parse_source": parsed.get("mode") or "react",
-                    "content_preview": content[:300],
-                }
-            )
-            continue
-
-        counts["fence_wrappers_stripped"] += int(parsed.get("fence_wrappers_stripped") or 0)
-        counts["fence_inner_content_preserved"] += int(parsed.get("fence_inner_content_preserved") or 0)
-
-        blocks = parsed.get("blocks")
-        if not isinstance(blocks, list):
-            continue
-
+        role = message.get("role")
         if role == "assistant":
-            counts["assistant_total"] += 1
-            saw_block_kind = False
-            for block in blocks:
-                if not isinstance(block, dict):
-                    continue
-                kind = block.get("kind")
-                saw_block_kind = True
-                if kind == "thought":
-                    counts["assistant_thought_total"] += 1
-                elif kind == "tool_call":
-                    payloads = block.get("payloads")
-                    if not isinstance(payloads, list):
-                        payload = block.get("payload")
-                        payloads = [payload] if isinstance(payload, dict) else []
-                    counts["assistant_tool_call_total"] += len(payloads)
-                    counts["retained_mcp_tool_calls"] += len(payloads)
-                    for payload in payloads:
-                        tool_name = payload.get("tool_name") if isinstance(payload, dict) else None
-                        pending_tool_calls.append(tool_name if isinstance(tool_name, str) else "")
-                    seen_react_turn = True
-                elif kind == "final_answer":
-                    counts["assistant_final_answer_total"] += 1
-                    seen_final_answer = True
-                    seen_react_turn = True
-                else:
-                    counts["react_json_parse_failed"] += 1
-                    samples.append(
-                        {
-                            "turn_index": turn_idx,
-                            "role": role,
-                            "strict_ok": False,
-                            "strict_error_type": "ReactSchemaError",
-                            "strict_error_message": f"unsupported assistant block: {kind}",
-                            "parse_source": "react",
-                            "content_preview": content[:300],
-                        }
-                    )
-            if not saw_block_kind:
-                counts["react_json_parse_failed"] += 1
-                samples.append(
-                    {
-                        "turn_index": turn_idx,
-                        "role": role,
-                        "strict_ok": False,
-                        "strict_error_type": "ReactFormatError",
-                        "strict_error_message": "assistant message did not contain any supported ReAct blocks",
-                        "parse_source": "react",
-                        "content_preview": content[:300],
-                    }
-                )
-            continue
-
-        if role == "user":
-            if parsed.get("mode") == "plain_user_prompt":
-                counts["user_prompt_total"] += 1
-                if seen_react_turn or seen_plain_user_prompt:
-                    counts["react_json_parse_failed"] += 1
-                    samples.append(
-                        {
-                            "turn_index": turn_idx,
-                            "role": role,
-                            "strict_ok": False,
-                            "strict_error_type": "ReactSequenceError",
-                            "strict_error_message": "plain user prompt is only allowed for the initial seed turn",
-                            "parse_source": "react",
-                            "content_preview": content[:300],
-                        }
-                    )
-                else:
-                    seen_plain_user_prompt = True
-                continue
-
-            observation_blocks = [block for block in blocks if isinstance(block, dict) and block.get("kind") == "observation"]
-            if not observation_blocks:
-                counts["react_json_parse_failed"] += 1
-                samples.append(
-                    {
-                        "turn_index": turn_idx,
-                        "role": role,
-                        "strict_ok": False,
-                        "strict_error_type": "ReactSchemaError",
-                        "strict_error_message": "user message must be plain prompt or observation blocks",
-                        "parse_source": "react",
-                        "content_preview": content[:300],
-                    }
-                )
-                continue
-
-            counts["user_observation_total"] += len(observation_blocks)
-            for block in observation_blocks:
-                tool_name = block.get("tool_name")
-                if pending_tool_calls:
-                    expected_tool = pending_tool_calls[0]
-                    # Parallel tool calls may complete in a different order from
-                    # submission.  With no call ids in the canonical ReAct wire
-                    # format, pair each observation to the oldest pending call
-                    # with the same tool name.  An observation whose name is not
-                    # pending remains a hard protocol error.
-                    matching_index = (
-                        pending_tool_calls.index(tool_name)
-                        if isinstance(tool_name, str) and tool_name in pending_tool_calls
-                        else None
-                    )
-                    if matching_index is not None:
-                        if matching_index > 0:
-                            counts["out_of_order_tool_results"] += 1
-                        pending_tool_calls.pop(matching_index)
-                    else:
-                        counts["react_json_parse_failed"] += 1
-                        samples.append(
-                            {
-                                "turn_index": turn_idx,
-                                "role": role,
-                                "strict_ok": False,
-                                "strict_error_type": "ReactSequenceError",
-                                "strict_error_message": f"observation tool_name mismatch: expected {expected_tool}, got {tool_name}",
-                                "parse_source": "react",
-                                "content_preview": content[:300],
-                            }
-                        )
-                else:
-                    counts["orphan_tool_results"] += 1
-                    counts["react_json_parse_failed"] += 1
-                    samples.append(
-                        {
-                            "turn_index": turn_idx,
-                            "role": role,
-                            "strict_ok": False,
-                            "strict_error_type": "ReactSequenceError",
-                            "strict_error_message": "observation encountered without a pending tool_call",
-                            "parse_source": "react",
-                            "content_preview": content[:300],
-                        }
-                    )
-                seen_react_turn = True
-            continue
-
-        counts["react_json_parse_failed"] += 1
-        samples.append(
-            {
-                "turn_index": turn_idx,
-                "role": role,
-                "strict_ok": False,
-                "strict_error_type": "ReactSchemaError",
-                "strict_error_message": f"unsupported role: {role}",
-                "parse_source": "react",
-                "content_preview": content[:300],
-            }
-        )
-
-    if pending_tool_calls and allow_terminal_tool_action:
-        # Prefix-conditioned SFT rows end at the supervised assistant action.
-        # Its calls intentionally have no observation yet; observations belong
-        # to the next causal state, not to this target.
-        counts["terminal_supervised_tool_calls"] += len(pending_tool_calls)
-        pending_tool_calls.clear()
-
-    if pending_tool_calls:
-        counts["orphan_tool_calls"] += len(pending_tool_calls)
-        counts["react_json_parse_failed"] += len(pending_tool_calls)
-        samples.append(
-            {
-                "turn_index": len(messages),
-                "role": "assistant",
-                "strict_ok": False,
-                "strict_error_type": "ReactSequenceError",
-                "strict_error_message": f"{len(pending_tool_calls)} tool_call(s) were not followed by observation blocks",
-                "parse_source": "react",
-                "content_preview": None,
-            }
-        )
-
-    return counts, samples
-
-
-def audit_plan_actions(messages: Any) -> tuple[Counter, list[dict[str, Any]]]:
-    counts = Counter()
-    issues: list[dict[str, Any]] = []
-    if not isinstance(messages, list):
-        return counts, issues
-    assistant_messages = [
-        (index, message) for index, message in enumerate(messages)
-        if isinstance(message, dict) and message.get("role") == "assistant"
-    ]
-    if len(assistant_messages) != 1:
-        counts["plan_json_parse_failed"] += 1
-        issues.append({"turn_index": -1, "role": "assistant", "strict_ok": False, "strict_error_type": "PlanSequenceError", "strict_error_message": "plan sample must contain exactly one assistant target", "parse_source": "plan_json", "content_preview": None})
-        return counts, issues
-    turn_index, message = assistant_messages[0]
-    content = str(message.get("content") or "")
-    match = PLAN_PATTERN.fullmatch(content)
-    error = None
-    if match is None:
-        error = "assistant target must be one <plan> JSON block"
-    else:
-        try:
-            payload = json.loads(match.group("payload"))
-        except json.JSONDecodeError as exc:
-            error = f"invalid plan JSON: {exc}"
+            if pending:
+                errors.append(f"assistant_before_tool_results:{index}")
+            if message.get("step_loss_mask") != 1:
+                errors.append(f"assistant_mask:{index}")
+            calls = message.get("tool_calls") or []
+            content = message.get("content")
+            if calls:
+                if content not in (None, ""):
+                    errors.append(f"tool_decision_has_content:{index}")
+                for call in calls:
+                    function = call.get("function") if isinstance(call, dict) else None
+                    call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
+                    name = str((function or {}).get("name") or "")
+                    arguments = (function or {}).get("arguments")
+                    if not call_id or name not in tool_names or not isinstance(arguments, dict):
+                        errors.append(f"invalid_tool_call:{index}")
+                    pending.append((call_id, name))
+            elif not isinstance(content, str) or not content.strip():
+                errors.append(f"empty_assistant_decision:{index}")
+            else:
+                final_positions.append(index)
+        elif role == "tool":
+            if message.get("step_loss_mask") != 0:
+                errors.append(f"tool_mask:{index}")
+            call_id = str(message.get("tool_call_id") or "")
+            name = str(message.get("name") or "")
+            if not pending or pending[0] != (call_id, name):
+                errors.append(f"tool_result_order:{index}:{call_id}:{name}")
+            else:
+                pending.pop(0)
+        elif role in {"system", "user"}:
+            if message.get("step_loss_mask") != 0:
+                errors.append(f"context_mask:{index}")
         else:
-            subgoals = payload.get("subgoals") if isinstance(payload, dict) else None
-            if not isinstance(subgoals, list) or not subgoals:
-                error = "plan JSON must contain a non-empty subgoals list"
-            elif any(
-                not isinstance(item, dict)
-                or not isinstance(item.get("step"), int)
-                or not isinstance(item.get("objective"), str)
-                or not item["objective"].strip()
-                for item in subgoals
-            ):
-                error = "each subgoal must contain an integer step and non-empty objective"
-    counts["assistant_total"] += 1
-    counts["assistant_plan_total"] += int(error is None)
-    if error is not None:
-        counts["plan_json_parse_failed"] += 1
-        issues.append({"turn_index": turn_index, "role": "assistant", "strict_ok": False, "strict_error_type": "PlanFormatError", "strict_error_message": error, "parse_source": "plan_json", "content_preview": content[:300]})
-    return counts, issues
+            errors.append(f"unexpected_role:{index}:{role}")
+    if pending:
+        errors.append(f"missing_tool_results:{pending}")
+    if final_positions != [len(messages) - 1]:
+        errors.append(f"single_terminal_final_required:{final_positions}")
+    serialized = json.dumps(record, ensure_ascii=False)
+    for marker in LEGACY_MARKERS:
+        if marker in serialized:
+            errors.append(f"legacy_marker:{marker}")
+    return errors
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate SFT messages for slime/Qwen chat template compatibility")
-    parser.add_argument("--input", type=str, required=True)
-    parser.add_argument(
-        "--protocol",
-        type=str,
-        default=PROTOCOL_AUTO,
-        choices=[PROTOCOL_AUTO, PROTOCOL_REACT_JSON, PROTOCOL_PLAN_JSON],
-        help="SFT message protocol to validate. auto detects per record.",
-    )
-    parser.add_argument("--tokenizer", type=str, default=None, help="Optional HF tokenizer path for apply_chat_template validation")
-    parser.add_argument("--preview", type=int, default=20)
+def validate_file(path: Path, *, model: str | None = None) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    counts: Counter[str] = Counter()
+    tokenizer = None
+    mask_generator = None
+    if model:
+        from transformers import AutoTokenizer
+        from slime.utils.mask_utils import MultiTurnLossMaskGenerator
+
+        tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
+        mask_generator = MultiTurnLossMaskGenerator(tokenizer, tokenizer_type="qwen3_5")
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            counts["records"] += 1
+            record = json.loads(line)
+            findings = validate_record(record)
+            if not findings and tokenizer is not None:
+                tokenizer.apply_chat_template(record["messages"], tools=record["tools"], tokenize=False)
+                token_ids, mask = mask_generator.get_loss_mask(record["messages"], tools=record["tools"])
+                if len(token_ids) != len(mask) or not any(mask):
+                    findings.append("invalid_qwen35_loss_mask")
+            if findings:
+                errors.append({"line": line_number, "id": record.get("id"), "errors": findings})
+    return {"ok": not errors and counts["records"] > 0, "counts": dict(counts), "errors": errors}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Validate structured Qwen3.5 SFT messages.")
+    parser.add_argument("--input", required=True, type=Path)
+    parser.add_argument("--model")
     args = parser.parse_args()
-
-    input_path = Path(args.input)
-    if not input_path.exists():
-        raise FileNotFoundError(input_path)
-
-    records = []
-    with input_path.open("r", encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            s = line.strip()
-            if not s:
-                continue
-            obj = json.loads(s)
-            records.append((i, obj))
-
-    bad = []
-    reason_counter = Counter()
-    assistant_counter = Counter()
-    assistant_issue_samples: list[dict[str, Any]] = []
-    protocol_counter = Counter()
-    sft_counts = Counter()
-    cleaning_counts = Counter()
-    react_protocol_used = False
-
-    cleaning_alias_map = {
-        "retained_mcp_tool_count": "retained_mcp_tool_calls",
-        "retained_mcp_tool_calls": "retained_mcp_tool_calls",
-        "dropped_non_mcp_tool_count": "dropped_non_mcp_tool_calls",
-        "dropped_non_mcp_tool_calls": "dropped_non_mcp_tool_calls",
-        "orphan_tool_results": "orphan_tool_results",
-        "orphan_tool_calls": "orphan_tool_calls",
-        "fence_wrappers_stripped": "fence_wrappers_stripped",
-        "fence_inner_content_preserved": "fence_inner_content_preserved",
-        "react_json_parse_failed": "react_json_parse_failed",
-    }
-
-    for i, obj in records:
-        messages = obj.get("messages")
-        metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
-        record_protocol = args.protocol
-        if record_protocol == PROTOCOL_AUTO:
-            record_protocol = detect_sft_protocol(obj)
-
-        protocol_counter[record_protocol] += 1
-        react_protocol_used = react_protocol_used or record_protocol == PROTOCOL_REACT_JSON
-        if record_protocol == PROTOCOL_PLAN_JSON:
-            assistant_counts, assistant_issues = audit_plan_actions(messages)
-        else:
-            assistant_counts, assistant_issues = audit_react_actions(
-                messages,
-                allow_terminal_tool_action=isinstance(obj.get("sft_segment_target"), dict),
-            )
-
-        reasons = []
-        if not isinstance(messages, list) or not messages:
-            reasons.append("messages_empty_or_not_list")
-        else:
-            roles = []
-            for msg in messages:
-                if not isinstance(msg, dict):
-                    reasons.append("message_not_object")
-                    continue
-                role = msg.get("role")
-                content = msg.get("content")
-                roles.append(role)
-                if role not in {"system", "user", "assistant"}:
-                    reasons.append("unsupported_role")
-                if not isinstance(content, str):
-                    reasons.append("content_not_string")
-                elif not content.strip():
-                    reasons.append("content_empty")
-
-            if roles and roles[0] != "system" and roles[0] != "user":
-                reasons.append("bad_first_role")
-            first_non_system = next((r for r in roles if r != "system"), None)
-            if first_non_system is not None and first_non_system != "user":
-                reasons.append("first_non_system_not_user")
-
-            has_user = any(
-                isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content").strip()
-                for m in messages
-            )
-            has_assistant = any(
-                isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str) and m.get("content").strip()
-                for m in messages
-            )
-            if not has_user:
-                reasons.append("no_nonempty_user_turn")
-            if not has_assistant:
-                reasons.append("no_nonempty_assistant_turn")
-
-        assistant_counter.update(assistant_counts)
-
-        report = _load_cleaning_report(metadata)
-        report_counts = _collect_count_aliases(report, cleaning_alias_map)
-        record_counts = _merge_record_counts(assistant_counts, report_counts)
-        cleaning_counts.update(report_counts)
-        for key, value in record_counts.items():
-            sft_counts[key] += int(value)
-
-        if assistant_issues:
-            for issue in assistant_issues:
-                if len(assistant_issue_samples) >= args.preview:
-                    break
-                assistant_issue_samples.append(
-                    {
-                        "line": i,
-                        "index": i,
-                        "task_id": metadata.get("task_id"),
-                        "roles": _roles(messages),
-                        "issue": issue,
-                    }
-                )
-
-        report_counts = _collect_count_aliases(_load_cleaning_report(metadata), cleaning_alias_map)
-        merged_counts = _merge_record_counts(assistant_counts, report_counts)
-        react_reasons = list(reasons)
-        parse_failed = (
-            int(merged_counts.get("react_json_parse_failed") or 0) > 0
-            or int(merged_counts.get("plan_json_parse_failed") or 0) > 0
-        )
-        orphan_tool_results = int(merged_counts.get("orphan_tool_results") or 0) > 0
-        if parse_failed or orphan_tool_results:
-            if parse_failed:
-                react_reasons.append(
-                    "plan_json_parse_failed" if record_protocol == PROTOCOL_PLAN_JSON else "react_json_parse_failed"
-                )
-            if orphan_tool_results:
-                react_reasons.append("orphan_tool_results")
-            for reason in react_reasons:
-                reason_counter[reason] += 1
-            bad.append(
-                {
-                    "line": i,
-                    "index": i,
-                    "task_id": metadata.get("task_id"),
-                    "roles": _roles(messages),
-                    "reasons": sorted(set(react_reasons)),
-                    "preview": _preview_messages(messages),
-                }
-            )
-
-    apply_template_failed = []
-    chat_template_import_failed: dict[str, Any] | None = None
-    if args.tokenizer:
-        try:
-            from transformers import AutoTokenizer
-
-            tok = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
-            for i, obj in records:
-                messages = obj.get("messages")
-                try:
-                    tok.apply_chat_template(messages, tokenize=False, return_dict=False)
-                except Exception as exc:
-                    apply_template_failed.append(
-                        {
-                            "line": i,
-                            "index": i,
-                            "task_id": (obj.get("metadata") or {}).get("task_id")
-                            if isinstance(obj.get("metadata"), dict)
-                            else None,
-                            "roles": _roles(messages),
-                            "error_type": type(exc).__name__,
-                            "error_message": str(exc),
-                            "preview": _preview_messages(messages),
-                        }
-                    )
-        except Exception as exc:
-            chat_template_import_failed = {
-                "line": -1,
-                "index": -1,
-                "task_id": None,
-                "roles": [],
-                "error_type": type(exc).__name__,
-                "error_message": str(exc),
-                "preview": None,
-            }
-
-    protocol_counts = dict(protocol_counter)
-    detected_protocol = PROTOCOL_AUTO
-    if len(protocol_counter) == 1:
-        detected_protocol = next(iter(protocol_counter))
-    elif protocol_counter:
-        detected_protocol = "mixed"
-
-    assistant_total = int(assistant_counter.get("assistant_total") or 0)
-    assistant_tool_call_total = int(assistant_counter.get("assistant_tool_call_total") or 0)
-    assistant_final_answer_total = int(assistant_counter.get("assistant_final_answer_total") or 0)
-    assistant_thought_total = int(assistant_counter.get("assistant_thought_total") or 0)
-    user_observation_total = int(assistant_counter.get("user_observation_total") or 0)
-    retained_mcp_tool_calls = assistant_tool_call_total
-    dropped_non_mcp_tool_calls = int(cleaning_counts.get("dropped_non_mcp_tool_calls") or 0)
-    orphan_tool_results = max(
-        int(assistant_counter.get("orphan_tool_results") or 0),
-        int(cleaning_counts.get("orphan_tool_results") or 0),
-    )
-    orphan_tool_calls = max(
-        int(assistant_counter.get("orphan_tool_calls") or 0),
-        int(cleaning_counts.get("orphan_tool_calls") or 0),
-    )
-    fence_wrappers_stripped = max(
-        int(assistant_counter.get("fence_wrappers_stripped") or 0),
-        int(cleaning_counts.get("fence_wrappers_stripped") or 0),
-    )
-    fence_inner_content_preserved = max(
-        int(assistant_counter.get("fence_inner_content_preserved") or 0),
-        int(cleaning_counts.get("fence_inner_content_preserved") or 0),
-    )
-    react_json_parse_failed = max(
-        int(assistant_counter.get("react_json_parse_failed") or 0),
-        int(cleaning_counts.get("react_json_parse_failed") or 0),
-    )
-    out_of_order_tool_results = int(assistant_counter.get("out_of_order_tool_results") or 0)
-    chat_template_failed = len(apply_template_failed)
-    chat_template_checked = bool(args.tokenizer) and chat_template_import_failed is None
-
-    summary = {
-        "ok": len(bad) == 0 and chat_template_failed == 0,
-        "input": str(input_path),
-        "protocol_mode": args.protocol,
-        "protocol_counts": protocol_counts,
-        "detected_protocol": detected_protocol,
-        "deprecated_legacy_protocol": False,
-        "total_sessions": len(records),
-        "total_sft_samples": len(records),
-        "assistant_total": assistant_total,
-        "assistant_thought_total": assistant_thought_total,
-        "assistant_tool_call_total": assistant_tool_call_total,
-        "assistant_final_answer_total": assistant_final_answer_total,
-        "user_observation_total": user_observation_total,
-        "retained_mcp_tool_calls": retained_mcp_tool_calls,
-        "dropped_non_mcp_tool_calls": dropped_non_mcp_tool_calls,
-        "orphan_tool_results": orphan_tool_results,
-        "orphan_tool_calls": orphan_tool_calls,
-        "fence_wrappers_stripped": fence_wrappers_stripped,
-        "fence_inner_content_preserved": fence_inner_content_preserved,
-        "react_json_parse_failed": react_json_parse_failed,
-        "out_of_order_tool_results": out_of_order_tool_results,
-        "chat_template_failed": chat_template_failed,
-        "chat_template_checked": chat_template_checked,
-        "bad": len(bad),
-        "bad_reason_counts": dict(reason_counter),
-    }
-
-    bad_preview: list[dict[str, Any]] = []
-    for item in bad[: args.preview]:
-        bad_preview.append(
-            {
-                "line": item.get("line"),
-                "index": item.get("index"),
-                "task_id": item.get("task_id"),
-                "roles": item.get("roles"),
-                "reason": item.get("reasons"),
-                "preview": item.get("preview"),
-            }
-        )
-
-    apply_failed_preview: list[dict[str, Any]] = []
-    for item in apply_template_failed[: args.preview]:
-        apply_failed_preview.append(
-            {
-                "line": item.get("line"),
-                "index": item.get("index"),
-                "task_id": item.get("task_id"),
-                "roles": item.get("roles"),
-                "reason": f"{item.get('error_type')}: {item.get('error_message')}",
-                "preview": item.get("preview"),
-            }
-        )
-
-    if bad_preview:
-        summary["bad_samples_preview"] = bad_preview
-    if apply_failed_preview:
-        summary["apply_chat_template_failed_preview"] = apply_failed_preview
-    if chat_template_import_failed is not None:
-        summary["chat_template_import_failed"] = chat_template_import_failed
-    if assistant_issue_samples:
-        summary["assistant_issue_samples_preview"] = assistant_issue_samples
-    if len(protocol_counter) > 1:
-        summary["protocol_warning"] = "mixed_protocols_detected"
-
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0 if summary["ok"] else 1
+    report = validate_file(args.input, model=args.model)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not report["ok"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

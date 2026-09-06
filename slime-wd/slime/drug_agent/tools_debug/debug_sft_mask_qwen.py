@@ -12,9 +12,6 @@ if __package__ is None or __package__ == "":
 from slime.utils.mask_utils import MultiTurnLossMaskGenerator
 from slime.utils.processing_utils import load_tokenizer
 
-from drug_agent.data.materialize_sft_jsonl import materialize_sft_jsonl
-
-
 def _iter_jsonl(path: Path):
     with path.open("r", encoding="utf-8") as f:
         for line_no, line in enumerate(f, start=1):
@@ -81,7 +78,10 @@ def _run_one_type(
             break
 
         try:
-            token_ids, loss_mask = mask_generator.get_loss_mask(messages, tools=None)
+            tools = obj.get("tools")
+            if not isinstance(tools, list) or not tools:
+                raise ValueError("`tools` must be a non-empty list")
+            token_ids, loss_mask = mask_generator.get_loss_mask(messages, tools=tools)
             if len(token_ids) != len(loss_mask):
                 raise ValueError(
                     f"token_ids/loss_mask length mismatch: {len(token_ids)} != {len(loss_mask)}"
@@ -111,8 +111,8 @@ def _run_one_type(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Debug Qwen/Qwen3.5 SFT loss-mask generation on ReAct SFT samples.")
-    parser.add_argument("--input", type=str, required=True, help="Input JSON directory / JSONL file")
+    parser = argparse.ArgumentParser(description="Debug Qwen/Qwen3.5 loss masks on structured SFT JSONL.")
+    parser.add_argument("--input", type=str, required=True, help="Structured messages + tools JSONL")
     parser.add_argument("--tokenizer", type=str, required=True, help="HF tokenizer/model path")
     parser.add_argument(
         "--tokenizer-types",
@@ -121,26 +121,15 @@ def main() -> int:
         help="Tokenizer types to test in order",
     )
     parser.add_argument("--max-samples", type=int, default=None, help="Optional sample cap for quick checks")
-    parser.add_argument(
-        "--materialized-output",
-        type=str,
-        default=None,
-        help="Optional path for materialized JSONL when input is a directory",
-    )
     args = parser.parse_args()
 
     input_path = Path(args.input).expanduser().resolve()
     if not input_path.exists():
         raise FileNotFoundError(input_path)
 
+    if not input_path.is_file() or input_path.suffix != ".jsonl":
+        raise ValueError("--input must be a structured JSONL file")
     jsonl_path = input_path
-    materialized_manifest = None
-    if input_path.is_dir():
-        if args.materialized_output:
-            jsonl_path = Path(args.materialized_output).expanduser().resolve()
-        else:
-            jsonl_path = input_path.with_suffix(".train.jsonl")
-        materialized_manifest = materialize_sft_jsonl(input_path, jsonl_path)
 
     results = {}
     for tokenizer_type in args.tokenizer_types:
@@ -154,7 +143,6 @@ def main() -> int:
     output = {
         "input": str(input_path),
         "effective_input_jsonl": str(jsonl_path),
-        "materialized_manifest": materialized_manifest,
         "results": results,
     }
     print(json.dumps(output, ensure_ascii=False, indent=2))

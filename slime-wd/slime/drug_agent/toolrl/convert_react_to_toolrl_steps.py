@@ -13,7 +13,12 @@ if __package__ is None or __package__ == "":
 
 from drug_agent.decision_extractor import iter_react_decisions, parse_assistant_decision
 from drug_agent.protocol.react_protocol import parse_react_sequence
-from drug_agent.protocol.toolrl_turn import SFT_SCHEMA, TOOLRL_TURN_PROTOCOL
+from drug_agent.protocol.toolrl_turn import (
+    SFT_SCHEMA,
+    SFT_SCHEMA_NATIVE_THINK,
+    TOOLRL_TURN_PROTOCOL,
+    TOOLRL_TURN_PROTOCOL_NATIVE_THINK,
+)
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES
 from drug_agent.toolrl.parse_tool_calls import (
     default_molclaw_allowlist,
@@ -228,8 +233,16 @@ def _build_sample(
     decision_annotation: dict[str, Any],
     source_path: str,
 ) -> dict[str, Any]:
-    protocol = TOOLRL_TURN_PROTOCOL if str(record.get("schema_version") or "") == SFT_SCHEMA else "react_json"
-    step_schema = "toolrl_turn_step_v1" if protocol == TOOLRL_TURN_PROTOCOL else "toolrl_step_v3"
+    record_schema = str(record.get("schema_version") or "")
+    if record_schema == SFT_SCHEMA_NATIVE_THINK:
+        protocol = TOOLRL_TURN_PROTOCOL_NATIVE_THINK
+        step_schema = "toolrl_turn_step_v2_qwen_native_think"
+    elif record_schema == SFT_SCHEMA:
+        protocol = TOOLRL_TURN_PROTOCOL
+        step_schema = "toolrl_turn_step_v1"
+    else:
+        protocol = "react_json"
+        step_schema = "toolrl_step_v3"
     decision_type = str(parsed_assistant.get("decision_type") or "")
     target_tool_calls = [item for item in (parsed_assistant.get("target_tool_calls") or []) if isinstance(item, dict)]
     target_final_answer = parsed_assistant.get("final_answer") if decision_type == "final_answer" else None
@@ -336,7 +349,7 @@ def convert_react_to_toolrl_steps(
             )
             continue
 
-        is_v6 = str(record.get("schema_version") or "") == SFT_SCHEMA
+        is_v6 = str(record.get("schema_version") or "") in {SFT_SCHEMA, SFT_SCHEMA_NATIVE_THINK}
         annotations = _decision_annotations(messages)
         if any(item.get("trajectory_has_no_progress_repeat") for item in annotations.values()):
             counts["trajectories_with_no_progress_repeat"] += 1

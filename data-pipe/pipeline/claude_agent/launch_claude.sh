@@ -34,12 +34,7 @@ MCP_SERVER_AUTH_HEADER="${MOLCLAW_SCP_MCP_AUTH_HEADER:-SCP-HUB-API-KEY}"
 MCP_SERVER_SCOPE="${MCP_SERVER_SCOPE:-project}"
 MCP_SERVER_TOOL_TIMEOUT_MS="${MOLCLAW_MCP_TOOL_TIMEOUT_MS:-14400000}"
 
-# Single-sample mode options
-WORKDIR=""
-PROMPT_FILE=""
-PROMPT_TEXT=""
-
-# Dataset mode options
+# Dataset runner options. A one-row CSV is the supported single-task entry.
 RUN_DATASET=0
 DATASET_CSV=""
 RESULTS_ROOT="results"
@@ -57,12 +52,6 @@ while [[ $# -gt 0 ]]; do
       TASK="$2"; shift 2 ;;
     --run-dataset)
       RUN_DATASET=1; shift ;;
-    --workdir)
-      WORKDIR="$2"; shift 2 ;;
-    --prompt-file)
-      PROMPT_FILE="$2"; shift 2 ;;
-    --prompt)
-      PROMPT_TEXT="$2"; shift 2 ;;
     --skills-root)
       SKILLS_ROOT="$2"; shift 2 ;;
     --system-prompt-file)
@@ -97,19 +86,14 @@ while [[ $# -gt 0 ]]; do
       cat <<EOF
 Usage: bash claude_agent/launch_claude.sh [options]
 
-Modes:
-  1) Single-sample mode (default):
-     --workdir PATH
-     --prompt-file PATH | --prompt TEXT
-
-  2) Dataset mode:
-     --run-dataset
-     [--task vs|ac|pf|e2e|kg]
-     [--dataset-csv PATH]
-     [--results-root PATH]
-     [--start-row N] [--end-row N] [--limit N]
-     [--num-rollouts N] [--parallel-rollouts N] [--rollout-seed-base N]
-     [--max-workers N]          Global concurrent Claude invocation limit
+Dataset mode only (use a one-row CSV for one task):
+  --run-dataset
+  [--task vs|ac|pf|e2e|kg]
+  [--dataset-csv PATH]
+  [--results-root PATH]
+  [--start-row N] [--end-row N] [--limit N]
+  [--num-rollouts N] [--parallel-rollouts N] [--rollout-seed-base N]
+  [--max-workers N]          Global concurrent Claude invocation limit
 
 Shared options:
   --task TASK
@@ -234,172 +218,37 @@ if [[ ! -f "$SYSTEM_PROMPT_PATH" ]]; then
   echo "[error] system prompt not found: $SYSTEM_PROMPT_PATH" >&2
   exit 1
 fi
-SYSTEM_PROMPT_TEXT="$(cat "$SYSTEM_PROMPT_PATH")"
 echo "[route] task=${TASK} skills_root=${SKILLS_ROOT} system_prompt=${SYSTEM_PROMPT_FILE} mcp_server=${MCP_SERVER_NAME} mcp_scope=${MCP_SERVER_SCOPE}"
 
-if [[ "$RUN_DATASET" -eq 1 ]]; then
-  RUNNER="$PIPELINE_DIR/claude_agent/run_claude.py"
-  if [[ ! -f "$RUNNER" ]]; then
-    echo "[error] run_claude.py not found: $RUNNER" >&2
-    exit 1
-  fi
-
-  cmd=(
-    "$PYTHON_BIN" "$RUNNER"
-    --task "$TASK"
-    --dataset-csv "$DATASET_CSV"
-    --skills-root "$SKILLS_ROOT"
-    --system-prompt-file "$SYSTEM_PROMPT_FILE"
-    --results-root "$RESULTS_ROOT"
-    --provider "$PROVIDER"
-    --claude-bin "$CLAUDE_BIN"
-    --start-row "$START_ROW"
-    --end-row "$END_ROW"
-    --limit "$LIMIT"
-    --num-rollouts "$NUM_ROLLOUTS"
-    --rollout-seed-base "$ROLLOUT_SEED_BASE"
-    --parallel-rollouts "$PARALLEL_ROLLOUTS"
-    --max-workers "$MAX_WORKERS"
-    --mcp-config-file "$MCP_CONFIG_FILE"
-    --strict-mcp-config
-    --skip-provider-switch
-  )
-  "${cmd[@]}"
-  exit $?
-fi
-
-if [[ -z "$WORKDIR" ]]; then
-  echo "[error] --workdir is required in single-sample mode" >&2
-  exit 1
-fi
-if [[ -z "$PROMPT_FILE" && -z "$PROMPT_TEXT" ]]; then
-  echo "[error] --prompt-file or --prompt is required in single-sample mode" >&2
-  exit 1
-fi
-if [[ -n "$PROMPT_FILE" && -n "$PROMPT_TEXT" ]]; then
-  echo "[error] only one of --prompt-file / --prompt can be provided" >&2
+if [[ "$RUN_DATASET" -ne 1 ]]; then
+  echo "[error] --run-dataset is required; use a one-row CSV for a single task" >&2
   exit 1
 fi
 
-mkdir -p "$WORKDIR"
-mkdir -p "$WORKDIR/.claude"
-cp -a "$SKILLS_ROOT/.claude"/. "$WORKDIR/.claude"/
-
-if [[ -n "$PROMPT_FILE" ]]; then
-  if [[ ! -f "$PROMPT_FILE" ]]; then
-    echo "[error] prompt file not found: $PROMPT_FILE" >&2
-    exit 1
-  fi
-  PROMPT_TEXT="$(cat "$PROMPT_FILE")"
+RUNNER="$PIPELINE_DIR/claude_agent/run_claude.py"
+if [[ ! -f "$RUNNER" ]]; then
+  echo "[error] run_claude.py not found: $RUNNER" >&2
+  exit 1
 fi
 
-printf '%s\n' "$PROMPT_TEXT" > "$WORKDIR/prompt.txt"
-
-ATTEMPT_INDEX=1
-while [[ -e "$WORKDIR/attempts/attempt_$(printf '%04d' "$ATTEMPT_INDEX")" ]]; do
-  ATTEMPT_INDEX=$((ATTEMPT_INDEX + 1))
-done
-ATTEMPT_DIR="$WORKDIR/attempts/attempt_$(printf '%04d' "$ATTEMPT_INDEX")"
-ATTEMPT_SESSION="$ATTEMPT_DIR/complete_session.jsonl"
-mkdir -p "$ATTEMPT_DIR"
-: > "$ATTEMPT_SESSION"
-
-set +e
-(
-  cd "$WORKDIR" || exit 1
-  "$CLAUDE_BIN" \
-    --dangerously-skip-permissions \
-    --verbose \
-    --output-format stream-json \
-    --mcp-config "$MCP_CONFIG_FILE" \
-    --strict-mcp-config \
-    --system-prompt "$SYSTEM_PROMPT_TEXT" \
-    -p "$PROMPT_TEXT"
-) > "$ATTEMPT_SESSION" 2>&1
-RC=$?
-set -e
-
-set +e
-"$PYTHON_BIN" - "$WORKDIR" "$PROVIDER" "$CLAUDE_BIN" "$RC" "$ATTEMPT_INDEX" "$ATTEMPT_SESSION" "$MCP_SERVER_TOOL_TIMEOUT_MS" <<'PY'
-import hashlib
-import json
-import shutil
-import sys
-from datetime import datetime
-from pathlib import Path
-
-workdir = Path(sys.argv[1]).resolve()
-provider = sys.argv[2]
-claude_bin = sys.argv[3]
-rc = int(sys.argv[4])
-attempt_index = int(sys.argv[5])
-attempt_session = Path(sys.argv[6]).resolve()
-mcp_tool_timeout_ms = int(sys.argv[7])
-canonical_session = workdir / "complete_session.jsonl"
-
-def digest(path: Path) -> str:
-    value = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
-
-parseable_events = 0
-with attempt_session.open("rb") as stream:
-    for raw_line in stream:
-        try:
-            value = json.loads(raw_line)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if isinstance(value, dict):
-            parseable_events += 1
-byte_count = attempt_session.stat().st_size
-raw_session_valid = byte_count > 0 and parseable_events > 0
-attempt_sha256 = digest(attempt_session)
-shutil.copyfile(attempt_session, canonical_session)
-canonical_sha256 = digest(canonical_session)
-if canonical_sha256 != attempt_sha256:
-    raise RuntimeError("selected Claude session checksum mismatch")
-if rc == 0 and not raw_session_valid:
-    rc = 97
-
-attempt = {
-    "attempt_index": attempt_index,
-    "session_file": str(attempt_session),
-    "return_code": rc,
-    "timed_out": False,
-    "timeout_sec": None,
-    "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
-    "byte_count": byte_count,
-    "sha256": attempt_sha256,
-    "parseable_event_count": parseable_events,
-    "raw_session_valid": raw_session_valid,
-    "failure": None if raw_session_valid else "raw_session_invalid",
-}
-meta = {
-    "timestamp": datetime.now().isoformat(),
-    "provider": provider,
-    "claude_bin": claude_bin,
-    "workdir": str(workdir),
-    "return_code": rc,
-    "timed_out": False,
-    "timeout_sec": None,
-    "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
-    "session_file": str(canonical_session),
-    "claude_attempts": [attempt],
-    "selected_claude_attempt": attempt_index,
-    "selected_session_byte_count": byte_count,
-    "selected_session_sha256": canonical_sha256,
-    "raw_session_valid": raw_session_valid,
-}
-(workdir / "run_meta.json").write_text(
-    json.dumps(meta, ensure_ascii=False, indent=2),
-    encoding="utf-8",
+cmd=(
+  "$PYTHON_BIN" "$RUNNER"
+  --task "$TASK"
+  --dataset-csv "$DATASET_CSV"
+  --skills-root "$SKILLS_ROOT"
+  --system-prompt-file "$SYSTEM_PROMPT_FILE"
+  --results-root "$RESULTS_ROOT"
+  --provider "$PROVIDER"
+  --claude-bin "$CLAUDE_BIN"
+  --start-row "$START_ROW"
+  --end-row "$END_ROW"
+  --limit "$LIMIT"
+  --num-rollouts "$NUM_ROLLOUTS"
+  --rollout-seed-base "$ROLLOUT_SEED_BASE"
+  --parallel-rollouts "$PARALLEL_ROLLOUTS"
+  --max-workers "$MAX_WORKERS"
+  --mcp-config-file "$MCP_CONFIG_FILE"
+  --strict-mcp-config
+  --skip-provider-switch
 )
-raise SystemExit(rc)
-PY
-RC=$?
-set -e
-
-echo "WORKDIR=$WORKDIR"
-exit "$RC"
+"${cmd[@]}"

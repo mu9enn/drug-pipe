@@ -1,52 +1,38 @@
 ---
 name: clean-drug-trajectory
-description: Produce a machine-validated restricted patch that cleans editable Drug-Pipe trajectory prose and creates one grounded high-level planning thought for the first assistant decision. Use in an isolated LLM-clean workdir containing source_trajectory.json, cleaning_context.json, editable_segments.json, prose_findings.json, and the v2 patch contract.
+description: Produce a restricted semantic reasoning patch without changing trajectory facts.
 ---
 
-# Clean restricted Drug-Pipe prose
+# Clean semantic trajectory reasoning
 
-## Read the contract
+Read `source_trajectory.json`, `cleaning_context.json`, and `editable_reasoning.json` completely.
 
-Read these workdir files before editing anything:
+The semantic trajectory is the authority. Only propose replacements for the `reasoning` field of an existing `assistant_decision`, identified by its exact `source_message_id`. Never change, synthesize, reorder, merge, or delete decisions, tool calls, arguments, observations, final responses, task text, resource references, or provenance.
 
-1. `source_trajectory.json`
-2. `cleaning_context.json`
-3. `editable_segments.json`
-4. `prose_findings.json`
+Remove:
 
-Read `.claude/skills/clean-drug-trajectory/references/react_trajectory_v1.example.json`, `.claude/skills/clean-drug-trajectory/references/llm_clean_patch_v2.example.json`, and `.claude/skills/clean-drug-trajectory/references/llm_clean_patch_v2.schema.json`. Current workdir files are runtime authority; bundled files are stable contracts and representative examples.
+- L2/L3/LR/auto-generated skill orchestration, CLAUDE.md, and teacher-runtime narration;
+- references to collection sidecars or transcript inspection;
+- consecutive prose that repeats an action, observation, or conclusion without adding information.
 
-Representative runtime shapes also live in `references/source_trajectory.example.json`, `references/cleaning_context.example.json`, `references/editable_segments.example.json`, and `references/prose_findings.example.json`.
+Preserve scientific intent, evidence, parameters, failures, uncertainty, alternatives, replanning, and path references already grounded in the user task or a tool observation. A replacement may be empty only when the original reasoning is pure removable scaffolding. Do not invent new paths or resource identifiers, and do not introduce protocol tags, new facts, or facts learned only from the final answer.
 
-## Create the initial high-level plan
+Provide a concise task-level plan in `high_level_plan`, targeting the first assistant decision. Describe ordered scientific subgoals without leaking concrete results. The materializer prepends it to that decision's cleaned reasoning; do not create a separate decision.
 
-- Inspect the complete successful teacher trajectory before deciding how to write the plan.
-- Target exactly the first assistant message containing a tool call or final answer.
-- Choose `rewrite_first_thought` only when its first thought already describes the task-level objective and ordered major subgoals; set reason to `existing_thought_is_plan_like`.
-- Otherwise choose `prepend_planning_thought`. Use reason `existing_thought_is_step_local` when a thought exists, or `no_existing_thought` when none exists.
-- Describe scientific subgoals and their order. Do not copy concrete parameters, paths, artifact IDs, long results, or the known final answer. Do not claim steps absent from the teacher trajectory.
-- When prepending, preserve the existing local rationale. When rewriting, do not also emit a prose edit for thought segment zero of that message.
+Write exactly one JSON file named `semantic_reasoning_patch.json`:
 
-## Restrict every prose edit
+```json
+{
+  "schema_version": "semantic_reasoning_patch_v1",
+  "sample_id": "the source id",
+  "high_level_plan": {
+    "decision_id": "first source_message_id",
+    "text": "concise task-level plan"
+  },
+  "reasoning_replacements": [
+    {"decision_id": "source_message_id", "replacement": "cleaned prose"}
+  ]
+}
+```
 
-- Edit only prose in an existing `<thought>...</thought>` segment or the existing string value of `summary` inside `<final_answer>`.
-- Copy every target coordinate exactly from `editable_segments.json`. Never infer or recount coordinates.
-- Cover every coordinate listed by `prose_findings.json`, then inspect all remaining allowlisted prose for the same prohibited material.
-- Never modify inputs, roles, message order, loss masks, tool calls, arguments, observations, statuses, values, paths, artifact identities, predictions, results, rankings, SMILES, evidence, or validity decisions.
-- Never create a final summary. Never add scientific claims or numbers unsupported by `source_trajectory.json`.
-
-## Clean prose conservatively
-
-Remove or rewrite explicit L2/L3 orchestration, teacher-only skill hierarchy inspection, and narration about teacher sidecars such as `question.json`, `parsed_answer.json`, `run_meta.json`, `complete_session.jsonl`, `prompt.txt`, and `CLAUDE.md`.
-
-Preserve L1 tool-skill reads, real task-file operations, scientific decisions, parameters, failure diagnosis, replanning, uncertainty, and evidence-grounded conclusions. Do not remove prose merely because it mentions Read, Write, Edit, Bash, Grep, Glob, `run_log.md`, `result.md`, `results.md`, an execution log, a result report, or a file inventory.
-
-If `only_molclaw_tool` is true, remove pure narration whose sole purpose was a removed local-tool call, while preserving scientific content from mixed thoughts.
-
-Set `replacement` to an empty string only for fully removable scaffolding. For mixed thoughts, retain the scientific content. Merge adjacent thoughts only when they repeat the same action, observation, update, or conclusion without new scientific information. Preserve later text that adds a parameter, observation, failure diagnosis, alternative hypothesis, or replanning decision.
-
-For an existing final summary, use only canonical `<artifact:...>` references already present in the source. Never introduce server paths, unseen workspace files, teacher sidecars, or engineering reports as scientific results.
-
-## Write the patch
-
-Write exactly one file named `llm_clean_patch.json`; do not modify any input file. Always include `planning_action`; use an empty `edits` array when no other prose needs cleaning. Validate the patch against the runtime `llm_clean_patch_v2.schema.json`. Write JSON only to the file; the conversational response is ignored.
+Use an empty `reasoning_replacements` array when no reasoning needs editing. Do not modify any input file and do not write conversational output.

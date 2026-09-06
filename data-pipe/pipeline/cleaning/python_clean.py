@@ -2,21 +2,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
-from pipeline.cleaning.invariants import validate_final_record
-from pipeline.cleaning.io import base_manifest, write_json, write_jsonl
-from pipeline.cleaning.models import REACT_SCHEMA_VERSION, react_schema_findings
-from pipeline.cleaning.react_builder import (
-    reconstruct_react_messages,
-    retainable_molclaw_call_count,
-)
+from pipeline.cleaning.invariants import validate_semantic_record
+from pipeline.cleaning.io import base_manifest, write_json, write_jsonl, write_pretty_json
+from pipeline.cleaning.semantic_builder import SemanticConstructionError, build_semantic_trajectory
 from pipeline.cleaning.trace_parser import (
     RolloutSample,
     TASK_CHOICES,
-    candidate_values,
     discover_rollout_samples,
     discover_run_dirs,
     infer_task,
@@ -26,184 +20,131 @@ from pipeline.cleaning.trace_parser import (
     source_labels,
     terminal_execution_findings,
 )
-from pipeline.evaluate.task_evaluator import evaluate_task_answer, load_chemistry_module
 
 
-def _structuring_errors(invariant_errors: list[str]) -> list[str]:
-    """Select errors that prove the Python constructor emitted invalid ReAct."""
-    exact = {
-        "orphan_observation",
-        "tool_observation_order_mismatch",
+CAPTURE_HASH_KEYS = (
+    "question_sha256",
+    "user_prompt_sha256",
+    "system_prompt_sha256",
+    "selected_session_sha256",
+    "source_dataset_sha256",
+)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _capture_binding_audit(sample: RolloutSample, run_meta: dict[str, Any]) -> dict[str, Any]:
+    checks: dict[str, bool] = {}
+    expected_files = {
+        "question_sha256": sample.sample_dir / "question.json",
+        "user_prompt_sha256": sample.sample_dir / "prompt.txt",
+        "selected_session_sha256": sample.sample_dir / "complete_session.jsonl",
     }
-    prefixes = (
-        "schema:",
-        "message_",
-        "missing_observations:",
-        "structured_final_answer_count:",
-    )
-    return [
-        finding
-        for finding in invariant_errors
-        if finding in exact or finding.startswith(prefixes)
-    ]
+    for key, path in expected_files.items():
+        expected = str(run_meta.get(key) or "")
+        checks[key] = bool(expected) and path.is_file() and _sha256(path) == expected
+
+    run_config = safe_load_json(sample.run_dir / "run_config.json")
+    for key in ("system_prompt_sha256", "source_dataset_sha256"):
+        expected = str(run_meta.get(key) or "")
+        configured = str(run_config.get(key) or "")
+        checks[key] = bool(expected) and bool(configured) and configured == expected
+
+    complete = all(str(run_meta.get(key) or "") for key in CAPTURE_HASH_KEYS)
+    selected_manifest = safe_load_json(sample.sample_dir / "selected_attempt_artifacts.json")
+    for key in CAPTURE_HASH_KEYS:
+        expected = str(run_meta.get(key) or "")
+        selected = str(selected_manifest.get(key) or "")
+        checks[f"selected_manifest:{key}"] = bool(expected) and selected == expected
+    return {
+        "status": "complete" if complete else "missing_required_hashes",
+        "checks": checks,
+        "ok": complete and all(checks.values()),
+    }
 
 
 def clean_sample(
     sample: RolloutSample,
     *,
     default_task: str,
-    chemistry: Any | None,
-    only_molclaw_tool: bool = False,
+    max_observation_chars: int = 6000,
 ) -> dict[str, Any]:
     question = safe_load_json(sample.sample_dir / "question.json") or safe_load_json(sample.row_dir / "question.json")
-    parsed = safe_load_json(sample.sample_dir / "parsed_answer.json")
     run_meta = safe_load_json(sample.sample_dir / "run_meta.json")
+    parsed = safe_load_json(sample.sample_dir / "parsed_answer.json")
     task = str(question.get("task") or run_meta.get("task") or default_task).strip().lower()
     if task not in TASK_CHOICES:
         task = default_task
     session_path = sample.sample_dir / "complete_session.jsonl"
     events, malformed_line_count, runner_error = load_session_events(session_path)
-    raw_molclaw_usage_count = retainable_molclaw_call_count(events)
-
-    return_code = run_meta.get("return_code")
-    timed_out = run_meta.get("timed_out") is True
     execution_reasons: list[str] = []
     if not session_path.is_file():
         execution_reasons.append("missing_session")
-    if return_code not in (None, 0):
-        execution_reasons.append(f"runner_nonzero_rc:{return_code}")
-    if timed_out:
+    if run_meta.get("return_code") not in (None, 0):
+        execution_reasons.append(f"runner_nonzero_rc:{run_meta.get('return_code')}")
+    if run_meta.get("timed_out") is True:
         execution_reasons.append("timeout")
     if runner_error:
         execution_reasons.append("runner_error_last_line")
     execution_reasons.extend(terminal_execution_findings(events))
-
-    parse_error = parsed.get("parse_error")
-    task_answer_reasons = ["parse_error"] if parse_error not in (None, "", False, [], {}) else []
-    training_reasons = ["missing_molclaw_usage"] if raw_molclaw_usage_count <= 0 else []
-    python_reasons: list[str] = []
-    if execution_reasons:
-        python_reasons.append("execution_invalid")
-    if task_answer_reasons:
-        python_reasons.append("task_answer_invalid")
-    if training_reasons:
-        python_reasons.append("training_trace_invalid")
+    capture_binding = _capture_binding_audit(sample, run_meta)
+    if not capture_binding["ok"]:
+        execution_reasons.append("capture_hash_binding_mismatch")
 
     sample_key = f"{task}:{sample.row_number}:{sample.dataset_index}:{sample.rollout_index}:{session_path.resolve()}"
-    record_id = f"react_{task}_{hashlib.sha256(sample_key.encode()).hexdigest()[:16]}"
-    task_id = f"{task}_row{sample.row_number:04d}_idx{sample.dataset_index}_r{sample.rollout_index:04d}"
-    base_audit: dict[str, Any] = {
+    record_id = f"semantic_{task}_{hashlib.sha256(sample_key.encode()).hexdigest()[:16]}"
+    audit: dict[str, Any] = {
         "id": record_id,
-        "python_status": "rejected" if python_reasons else "python_valid",
-        "python_status_authority": "python_filter",
-        "python_status_reasons": list(dict.fromkeys(python_reasons)),
-        "execution_valid": not execution_reasons,
-        "task_answer_valid": not task_answer_reasons,
-        "training_trace_valid": not training_reasons,
         "task": task,
-        "task_id": task_id,
+        "task_id": f"{task}_row{sample.row_number:04d}_idx{sample.dataset_index}_r{sample.rollout_index:04d}",
         "source_session": str(session_path.resolve()),
-        "execution_invalid_reasons": list(dict.fromkeys(execution_reasons)),
-        "task_answer_invalid_reasons": task_answer_reasons,
-        "training_trace_invalid_reasons": training_reasons,
         "session_event_count": len(events),
         "malformed_session_line_count": malformed_line_count,
-        "return_code": return_code,
-        "timed_out": timed_out,
+        "execution_invalid_reasons": list(dict.fromkeys(execution_reasons)),
         "parsed_answer_present": (sample.sample_dir / "parsed_answer.json").is_file(),
-        "parse_error": parse_error,
-        "raw_trace_stats": {"molclaw_usage_count": raw_molclaw_usage_count},
+        "parsed_answer_audit": {"parse_error": parsed.get("parse_error"), "parse_source": parsed.get("parse_source")},
         "source_labels": source_labels(question),
-        "only_molclaw_tool": only_molclaw_tool,
+        "capture_binding": capture_binding,
     }
-    if python_reasons:
-        return {"draft": None, "audit": base_audit}
+    if execution_reasons or malformed_line_count:
+        audit.update(status="rejected", reasons=["execution_invalid"] if execution_reasons else ["malformed_session"])
+        return {"semantic": None, "audit": audit}
 
-    final_answer = parsed.get("answer")
-    if final_answer in (None, "", []):
-        final_answer = parsed.get("answer_block")
-    public_question = question_text(question)
-    messages, trace_stats = reconstruct_react_messages(
-        events,
-        question_text=public_question,
-        final_answer=final_answer,
-        task=task,
-        only_molclaw_tool=only_molclaw_tool,
-    )
-    if trace_stats["molclaw_usage_count"] != raw_molclaw_usage_count:
-        raise RuntimeError(
-            f"{task_id}: MolClaw count changed during structuring: "
-            f"raw={raw_molclaw_usage_count} structured={trace_stats['molclaw_usage_count']}"
-        )
-
-    draft = {"schema_version": REACT_SCHEMA_VERSION, "id": record_id, "messages": messages}
-    schema_errors = react_schema_findings(draft)
-    if schema_errors:
-        raise RuntimeError(f"{task_id}: Python structuring produced invalid ReAct: {schema_errors}")
-    invariant_report = validate_final_record(draft)
-    structuring_errors = _structuring_errors(invariant_report["errors"])
-    if structuring_errors:
-        raise RuntimeError(
-            f"{task_id}: Python structuring produced inconsistent ReAct: "
-            f"{structuring_errors}"
-        )
-
-    evaluator_error = ""
+    workspace = Path(str(run_meta.get("selected_attempt_workdir") or sample.sample_dir)).resolve()
+    session_sha256 = _sha256(session_path)
     try:
-        evaluation = evaluate_task_answer(
-            task,
-            prediction=trace_stats["resolved_final_answer"],
-            ground_truth=question.get("answer"),
-            candidates=candidate_values(question),
-            chemistry=chemistry,
-            parse_error=parsed.get("parse_error"),
-            task_contract=(
-                question.get("evaluation")
-                if isinstance(question.get("evaluation"), dict)
-                else question.get("task_contract")
-                if isinstance(question.get("task_contract"), dict)
-                else {}
-            ),
+        semantic, trace = build_semantic_trajectory(
+            events,
+            record_id=record_id,
+            user_task=question_text(question),
+            workspace=workspace,
+            task_type=task,
+            source_session_sha256=session_sha256,
+            max_observation_chars=max_observation_chars,
         )
-    except RuntimeError as exc:
-        evaluator_error = str(exc)
-        evaluation = {
-            "task_answer_valid": True,
-            "task_answer_invalid_reasons": [],
-            "aggregate_eligible": False,
-            "aggregate_invalid_reasons": [f"evaluator_error:{exc}"],
-            "invalid_reasons": [f"evaluator_error:{exc}"],
-            "metrics": {},
-            "audit": {"evaluator_error": str(exc)},
-            "canonical": {},
-        }
-
-    audit = {
-        **base_audit,
-        "trace_stats": trace_stats,
-        "task_metrics": evaluation["metrics"],
-        "task_metric_aggregate_eligible": bool(evaluation.get("aggregate_eligible")),
-        "task_metric_invalid_reasons": evaluation.get("aggregate_invalid_reasons", evaluation["invalid_reasons"]),
-        "task_evaluator_audit": evaluation.get("audit", {}),
-        "task_evaluator_canonical": evaluation.get("canonical", {}),
-        "task_evaluator_error": evaluator_error,
-        "python_invariants": invariant_report,
-    }
-    return {"draft": draft, "audit": audit}
+    except (SemanticConstructionError, ValueError) as exc:
+        audit.update(status="rejected", reasons=["semantic_construction_failed"], error=str(exc))
+        return {"semantic": None, "audit": audit}
+    invariants = validate_semantic_record(semantic)
+    if not invariants["ok"]:
+        raise RuntimeError(f"semantic builder violated invariants: {invariants['errors']}")
+    audit.update(status="semantic_valid", reasons=[], trace=trace, semantic_invariants=invariants)
+    return {"semantic": semantic, "audit": audit}
 
 
 def python_clean(
     results_root: Path,
     output_root: Path,
     *,
-    only_molclaw_tool: bool = False,
+    max_observation_chars: int = 6000,
 ) -> dict[str, Any]:
     results_root = results_root.resolve()
     output_root = output_root.resolve()
     run_dirs = discover_run_dirs(results_root)
     if not run_dirs:
         raise FileNotFoundError(f"no run_config.json found under {results_root}")
-    chemistry, chemistry_error = load_chemistry_module()
     processed: list[dict[str, Any]] = []
     for run_dir in run_dirs:
         task = infer_task(run_dir)
@@ -212,46 +153,29 @@ def python_clean(
                 clean_sample(
                     sample,
                     default_task=task,
-                    chemistry=chemistry,
-                    only_molclaw_tool=only_molclaw_tool,
+                    max_observation_chars=max_observation_chars,
                 )
             )
-
-    valid = [item for item in processed if item["audit"]["python_status"] == "python_valid"]
-    rejected = [item["audit"] for item in processed if item["audit"]["python_status"] == "rejected"]
-    audits = [item["audit"] for item in processed]
+    valid = [item for item in processed if item["semantic"] is not None]
+    rejected = [item["audit"] for item in processed if item["semantic"] is None]
     outputs = {
-        "python_drafts": output_root / "python_drafts.jsonl",
+        "semantic": output_root / "semantic_trajectories.jsonl",
+        "semantic_pretty": output_root / "semantic_trajectories.pretty.json",
         "python_audit": output_root / "python_audit.jsonl",
         "rejected": output_root / "rejected.jsonl",
         "run_manifest": output_root / "run_manifest.json",
     }
-    write_jsonl(outputs["python_drafts"], [item["draft"] for item in valid if item["draft"] is not None])
-    write_jsonl(outputs["python_audit"], audits)
+    write_jsonl(outputs["semantic"], [item["semantic"] for item in valid])
+    write_pretty_json(outputs["semantic_pretty"], [item["semantic"] for item in valid])
+    write_jsonl(outputs["python_audit"], [item["audit"] for item in processed])
     write_jsonl(outputs["rejected"], rejected)
-    repo_root = Path(__file__).resolve().parents[3]
     manifest = {
-        **base_manifest(step="python_clean", source=results_root, repo_root=repo_root),
+        **base_manifest(step="semantic_python_clean", source=results_root, repo_root=Path(__file__).resolve().parents[3]),
         "run_dirs": [str(path) for path in run_dirs],
         "input_count": len(processed),
-        "python_valid_count": len(valid),
+        "semantic_valid_count": len(valid),
         "rejected_count": len(rejected),
-        "only_molclaw_tool": only_molclaw_tool,
-        "tool_retention_mode": "molclaw_only" if only_molclaw_tool else "molclaw_and_local",
-        "retained_molclaw_tool_call_count": sum(
-            int((item["audit"].get("raw_trace_stats") or {}).get("molclaw_usage_count") or 0)
-            for item in valid
-        ),
-        "retained_local_tool_call_count": sum(
-            int((item["audit"].get("trace_stats") or {}).get("retained_local_tool_call_count") or 0)
-            for item in valid
-        ),
-        "dropped_non_molclaw_tool_call_count": sum(
-            int((item["audit"].get("trace_stats") or {}).get("dropped_non_molclaw_call_count") or 0)
-            for item in valid
-        ),
-        "chemistry_available": chemistry is not None,
-        "chemistry_error": chemistry_error,
+        "path_contract": "trajectory_source_aware_v1",
         "outputs": {name: str(path) for name, path in outputs.items()},
     }
     write_json(outputs["run_manifest"], manifest)
@@ -259,23 +183,17 @@ def python_clean(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Steps 1-2: filter raw sessions, then structure accepted samples as canonical ReAct."
-    )
-    parser.add_argument("--results-root", required=True)
-    parser.add_argument("--output-root", required=True)
-    parser.add_argument(
-        "--only-molclaw-tool",
-        action="store_true",
-        help="Drop all non-MolClaw tool calls and observations from canonical ReAct.",
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--results-root", required=True, type=Path)
+    parser.add_argument("--output-root", required=True, type=Path)
+    parser.add_argument("--max-observation-chars", default=6000, type=int)
     args = parser.parse_args()
-    result = python_clean(
-        Path(args.results_root),
-        Path(args.output_root),
-        only_molclaw_tool=args.only_molclaw_tool,
+    manifest = python_clean(
+        args.results_root,
+        args.output_root,
+        max_observation_chars=args.max_observation_chars,
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(manifest)
 
 
 if __name__ == "__main__":

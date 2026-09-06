@@ -20,8 +20,10 @@ from drug_agent.scripts.select_toolrl_decisions import _canonical_target, _rende
 
 def validate(root: Path, model: Path, *, view: str = "production") -> dict:
     manifest = json.loads((root / "dataset_manifest.json").read_text(encoding="utf-8"))
-    if manifest.get("protocol") != "toolrl_turn_v1":
-        raise ValueError("release protocol is not toolrl_turn_v1")
+    protocol = str(manifest.get("protocol") or "")
+    if protocol not in {"toolrl_turn_v1", "toolrl_turn_v2_qwen_native_think"}:
+        raise ValueError(f"unsupported release protocol: {protocol}")
+    native_qwen_thinking = protocol == "toolrl_turn_v2_qwen_native_think"
     tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
     keys: set[str] = set()
     roles: Counter[str] = Counter()
@@ -38,7 +40,7 @@ def validate(root: Path, model: Path, *, view: str = "production") -> dict:
                 continue
             row = json.loads(line)
             metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            if metadata.get("protocol") != "toolrl_turn_v1":
+            if metadata.get("protocol") != protocol:
                 raise ValueError(f"wrong protocol at line {line_number}")
             key = (
                 f"{metadata.get('source_id')}:{metadata.get('assistant_index')}:"
@@ -63,7 +65,12 @@ def validate(root: Path, model: Path, *, view: str = "production") -> dict:
             if has_catalog != (view == "official_baseline"):
                 raise ValueError(f"prompt strategy mismatch at line {line_number}: view={view}")
             assistant_prefix = str(metadata.get("assistant_prefix") or "")
-            rendered = _render_prompt(tokenizer, prompts, assistant_prefix)
+            rendered = _render_prompt(
+                tokenizer,
+                prompts,
+                assistant_prefix,
+                native_qwen_thinking=native_qwen_thinking,
+            )
             prompt_tokens = len(tokenizer.encode(rendered, add_special_tokens=False))
             target_tokens = len(tokenizer.encode(target, add_special_tokens=False))
             target_limit_failed = target_tokens > 16384

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "messages", "tools"],
+  "properties": {
+    "schema_version": {"const": "drug_agent_qwen35_sft_v1"},
+    "id": {"type": "string", "minLength": 1},
+    "messages": {"type": "array", "minItems": 3, "items": {"type": "object"}},
+    "tools": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+  }
+}

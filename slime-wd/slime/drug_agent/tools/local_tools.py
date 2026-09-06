@@ -18,7 +18,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "A workspace/... filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."},
+                "file_path": {"type": "string", "description": "A cwd-relative filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."},
                 "offset": {"type": "integer"},
                 "limit": {"type": "integer"},
             },
@@ -30,7 +30,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "description": "Write a UTF-8 file inside the task workspace.",
         "input_schema": {
             "type": "object",
-            "properties": {"file_path": {"type": "string", "description": "A workspace/... filesystem path; resource handles are not accepted."}, "content": {"type": "string"}},
+            "properties": {"file_path": {"type": "string", "description": "A cwd-relative filesystem path; resource handles are not accepted."}, "content": {"type": "string"}},
             "required": ["file_path", "content"],
         },
     },
@@ -40,7 +40,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "A workspace/... filesystem path; resource handles are not accepted."},
+                "file_path": {"type": "string", "description": "A cwd-relative filesystem path; resource handles are not accepted."},
                 "old_string": {"type": "string"},
                 "new_string": {"type": "string"},
                 "replace_all": {"type": "boolean"},
@@ -55,7 +55,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "pattern": {"type": "string"},
-                "path": {"type": "string", "description": "A workspace/... filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."},
+                "path": {"type": "string", "description": "A cwd-relative filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."},
                 "glob": {"type": "string"},
                 "case_insensitive": {"type": "boolean"},
             },
@@ -67,7 +67,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "description": "List files matching a glob in the task workspace or read-only L1 skill catalog.",
         "input_schema": {
             "type": "object",
-            "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "A workspace/... filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."}},
+            "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "A cwd-relative filesystem path or skills/L1_tools/... read-only path; resource handles are not accepted."}},
             "required": ["pattern"],
         },
     },
@@ -76,7 +76,7 @@ LOCAL_TOOL_SPECS: list[dict[str, Any]] = [
         "description": "Run a restricted file-oriented command in the task workspace.",
         "input_schema": {
             "type": "object",
-            "properties": {"command": {"type": "string", "description": "A restricted command using workspace/... filesystem paths; resource handles are not accepted."}},
+            "properties": {"command": {"type": "string", "description": "A restricted command using cwd-relative filesystem paths; resource handles are not accepted."}},
             "required": ["command"],
         },
     },
@@ -191,7 +191,7 @@ class LocalToolExecutor:
     def _path(self, raw: str, *, write: bool = False) -> Path:
         if _ARTIFACT_REF.search(raw) or _RESOURCE_REF.search(raw):
             raise LocalToolError(
-                "path/reference contract error: filesystem tools require workspace/... paths, "
+                "path/reference contract error: filesystem tools require cwd-relative paths, "
                 "not artifact/resource handles"
             )
         if raw == "workspace":
@@ -336,7 +336,7 @@ class LocalToolExecutor:
         command = self._require_string(arguments, "command").strip()
         if _ARTIFACT_REF.search(command) or _RESOURCE_REF.search(command):
             raise LocalToolError(
-                "path/reference contract error: Bash requires workspace/... paths; "
+                "path/reference contract error: Bash requires cwd-relative paths; "
                 "resource handles must be materialized first"
             )
         if _BASH_UNSAFE_TEXT.search(command):

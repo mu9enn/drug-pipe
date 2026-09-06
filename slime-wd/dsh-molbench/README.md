@@ -46,6 +46,18 @@ python dsh-molbench/run_dsh_molbench.py \
   --resume --retry-failed
 ```
 
+To evaluate a student model with only the tool-level skill catalog exposed,
+matching deployment without workflow or methodology skills, add:
+
+```bash
+--skill-visibility l1-only
+```
+
+The resulting skill snapshot contains only `L1_tools/`; its manifest records
+the visibility mode so a run cannot be resumed with a different skill set. In
+this mode DSH exposes its native namespaced tool schemas, and the model returns
+the benchmark's plain SMILES answer; no legacy XML ReAct bridge is requested.
+
 ## Full evaluation
 
 ```bash

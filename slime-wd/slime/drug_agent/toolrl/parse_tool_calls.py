@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from drug_agent.protocol.react_protocol import parse_react_sequence
+from drug_agent.protocol.react_protocol import parse_react_sequence, restore_qwen_native_thinking_continuation
 from drug_agent.toolrl.normalization import canonical_tool_name
 from drug_agent.tools.local_tools import LOCAL_TOOL_NAMES
 from drug_agent.utils import normalize_tool_name
@@ -109,6 +109,7 @@ def parse_tool_calls(
     allowed_tool_names: set[str] | None = None,
     keep_non_molclaw: bool = False,
     strict_toolrl_turn: bool = False,
+    native_qwen_thinking: bool = False,
 ) -> dict[str, Any]:
     """Parse ReAct content and extract one or more tool calls.
 
@@ -118,7 +119,8 @@ def parse_tool_calls(
     flag and must not be used as the training-decision authority.
     """
 
-    parsed = parse_react_sequence(text, role=role)
+    parser_text = restore_qwen_native_thinking_continuation(text) if native_qwen_thinking else text
+    parsed = parse_react_sequence(parser_text, role=role)
     result: dict[str, Any] = {
         "ok": bool(parsed.get("ok")),
         "error_type": parsed.get("error_type"),

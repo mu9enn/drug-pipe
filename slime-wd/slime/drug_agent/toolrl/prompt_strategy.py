@@ -13,7 +13,7 @@ Available Tools
 {tools}
 
 Output Format
-Always include exactly one <thought>...</thought>. Then emit either one
+Always include exactly one <{reasoning_tag}>...</{reasoning_tag}>. Then emit either one
 <tool_call> container containing one or more newline-separated JSON objects, or
 one <final_answer>...</final_answer>. Do not use commas between tool-call objects
 and do not use a JSON array."""
@@ -49,7 +49,15 @@ def apply_prompt_strategy(
     prompt = out.get("prompt")
     if not isinstance(prompt, list):
         raise ValueError("row prompt must be a message list")
-    contract = OFFICIAL_CONTRACT.format(tools=render_tool_catalog(catalog))
+    reasoning_tag = (
+        "think"
+        if str(metadata.get("protocol") or "") == "toolrl_turn_v2_qwen_native_think"
+        else "thought"
+    )
+    contract = OFFICIAL_CONTRACT.format(
+        tools=render_tool_catalog(catalog),
+        reasoning_tag=reasoning_tag,
+    )
     if prompt and isinstance(prompt[0], dict) and prompt[0].get("role") == "system":
         prompt[0]["content"] = contract
     else:
