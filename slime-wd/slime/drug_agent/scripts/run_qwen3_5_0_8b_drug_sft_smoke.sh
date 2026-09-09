@@ -289,6 +289,9 @@ MISC_ARGS=(
   --attention-softmax-in-fp32
   --attention-backend flash
 )
+if [ -n "${SFT_METRICS_DIR:-}" ]; then
+  MISC_ARGS+=(--use-tensorboard --tb-project-name "$SFT_METRICS_DIR" --tb-experiment-name steps)
+fi
 if [ "${ACCUMULATE_ALLREDUCE_GRADS_IN_FP32:-1}" = "1" ]; then
   MISC_ARGS+=(--accumulate-allreduce-grads-in-fp32)
 fi
@@ -374,6 +377,7 @@ RUNTIME_ENV_JSON="{
     \"OUTPUTS_ROOT\": \"${OUTPUTS_ROOT}\",
     \"DRUG_AGENT_DATA_ROOT\": \"${DRUG_AGENT_DATA_ROOT}\",
     \"DRUG_AGENT_RUNS_ROOT\": \"${DRUG_AGENT_RUNS_ROOT}\"
+    ,\"TENSORBOARD_DIR\": \"${SFT_METRICS_DIR:-}\"
     ,\"DRUG_AGENT_TRAINING_OFFLINE\": \"1\"
     ,\"DRUG_AGENT_ALLOW_TOOL_ENV\": \"0\"
   }

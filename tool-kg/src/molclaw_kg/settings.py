@@ -18,6 +18,10 @@ class RuntimeConfig:
     skills_root: Path
     workdir_skills_root: Path
     model_name: str = "claude-cc-v1"
+    harness: str = "claude"
+    dsh_bin: str = "dsh"
+    dsh_node_bin: str = "node"
+    dsh_model: str = "deepseek-v4-flash"
 
 
 @dataclass
@@ -34,7 +38,7 @@ def _resolve_project_path(project_root: Path, value: str | None, default: str) -
     return path.resolve()
 
 
-def build_config(project_root: Path, run_id: str | None = None, server_url: str | None = None, api_key: str | None = None, skills_root: str | None = None, model_name: str = "claude-cc-v1") -> ProjectConfig:
+def build_config(project_root: Path, run_id: str | None = None, server_url: str | None = None, api_key: str | None = None, skills_root: str | None = None, model_name: str = "claude-cc-v1", harness: str = "claude", dsh_bin: str = "dsh", dsh_node_bin: str = "node", dsh_model: str = "deepseek-v4-flash") -> ProjectConfig:
     project_root = project_root.resolve()
     if run_id is None:
         run_id = "run_latest"
@@ -65,6 +69,10 @@ def build_config(project_root: Path, run_id: str | None = None, server_url: str 
             "../workdir-skills",
         ),
         model_name=model_name,
+        harness=harness,
+        dsh_bin=dsh_bin,
+        dsh_node_bin=dsh_node_bin,
+        dsh_model=dsh_model,
     )
     return ProjectConfig(
         paths=paths,

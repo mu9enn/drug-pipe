@@ -1,0 +1,5 @@
+sentence-transformers==5.7.0
+scikit-learn==1.6.1
+scipy==1.15.2
+joblib==1.4.2
+threadpoolctl==3.6.0

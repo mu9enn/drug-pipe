@@ -35,6 +35,12 @@ class DeploymentToolSet:
                 return canonical
         return None
 
+    def require_public_name(self, raw_name: str) -> str:
+        resolved = self.resolve_raw_name(raw_name)
+        if resolved is None:
+            raise ValueError(f"tool absent from deployment tool-set: {raw_name}")
+        return resolved
+
     def qwen_tools(self, names: set[str] | None = None) -> list[dict[str, Any]]:
         return [
             {
@@ -53,11 +59,18 @@ class DeploymentToolSet:
         if policy not in TOOL_VISIBILITY_CHOICES:
             raise ValueError(f"unsupported tool visibility policy: {policy}")
         available = set(self.by_name)
-        missing_local = LOCAL_TOOLS - available
+        local_public = {
+            public
+            for name in LOCAL_TOOLS
+            if (public := self.resolve_raw_name(name)) is not None
+        }
+        missing_local = {
+            name for name in LOCAL_TOOLS if self.resolve_raw_name(name) is None
+        }
         if missing_local:
             raise ValueError(f"deployment tool-set lacks required local tools: {sorted(missing_local)}")
         used = {
-            str(call["name"])
+            self.require_public_name(str(call["name"]))
             for event in record.get("events") or []
             if event.get("type") == "assistant_decision"
             for call in event.get("tool_calls") or []
@@ -68,8 +81,8 @@ class DeploymentToolSet:
         if policy == "all":
             return available
 
-        used_molclaw = used - LOCAL_TOOLS
-        candidates = sorted(available - LOCAL_TOOLS - used_molclaw)
+        used_molclaw = used - local_public
+        candidates = sorted(available - local_public - used_molclaw)
         sample_id = str(record.get("id") or "")
         candidates.sort(
             key=lambda name: (
@@ -78,7 +91,7 @@ class DeploymentToolSet:
             )
         )
         distractors = set(candidates[: len(used_molclaw)])
-        return set(LOCAL_TOOLS) | used_molclaw | distractors
+        return local_public | used_molclaw | distractors
 
 
 def load_deployment_tool_set(path: Path) -> DeploymentToolSet:

@@ -25,8 +25,8 @@ python -m drug_agent.gad.data \
 
 if [ "$CONTEXT_BUDGET_MODE" = "none" ]; then
   cp "$RAW_OUTPUT" "$FINAL_OUTPUT"
-elif [ "$CONTEXT_BUDGET_MODE" = "claude" ]; then
-  : "${HF_CHECKPOINT:?HF_CHECKPOINT is required for CONTEXT_BUDGET_MODE=claude}"
+elif [ "$CONTEXT_BUDGET_MODE" = "claude" ] || [ "$CONTEXT_BUDGET_MODE" = "deepseek" ]; then
+  : "${HF_CHECKPOINT:?HF_CHECKPOINT is required for semantic context summarization}"
   SUMMARY_CACHE_ROOT=${SUMMARY_CACHE_ROOT:-$OUTPUT_ROOT/summary_cache}
   python drug_agent/scripts/compact_rl_context.py \
     --input "$RAW_OUTPUT" \
@@ -38,12 +38,16 @@ elif [ "$CONTEXT_BUDGET_MODE" = "claude" ]; then
     --max-response-tokens "${ROLLOUT_MAX_RESPONSE_LEN:-16384}" \
     --max-context-tokens "${ROLLOUT_MAX_CONTEXT_LEN:-262144}" \
     --summary-max-tokens "${SUMMARY_MAX_TOKENS:-32768}" \
-    --semantic-summarizer claude \
+    --semantic-summarizer "$CONTEXT_BUDGET_MODE" \
     --summary-cache-root "$SUMMARY_CACHE_ROOT" \
     --claude-bin "${CLAUDE_BIN:-claude}" \
+    --dsh-bin "${DSH_BIN:-dsh}" \
+    --dsh-node-bin "${DSH_NODE_BIN:-node}" \
+    --dsh-model "${DSH_MODEL:-deepseek-v4-flash}" \
+    --dsh-provider "${DSH_PROVIDER:-${CC_SWITCH_PROVIDER:-dsv4flash}}" \
     --llm-timeout-sec "${LLM_TIMEOUT_SEC:-600}" \
     --llm-max-attempts "${LLM_MAX_ATTEMPTS:-3}"
 else
-  echo "CONTEXT_BUDGET_MODE must be none or claude; got $CONTEXT_BUDGET_MODE" >&2
+  echo "CONTEXT_BUDGET_MODE must be none, claude, or deepseek; got $CONTEXT_BUDGET_MODE" >&2
   exit 2
 fi

@@ -22,6 +22,10 @@ def run_all(
     adjudication_mode: str = "claude_cc",
     max_workers: int = 1,
     resume: bool = False,
+    harness: str = "claude",
+    dsh_bin: str = "dsh",
+    dsh_node_bin: str = "node",
+    dsh_model: str = "deepseek-v4-flash",
 ) -> dict[str, Any]:
     config = build_config(
         project_root=project_root,
@@ -30,11 +34,16 @@ def run_all(
         api_key=api_key,
         skills_root=skills_root,
         model_name=adjudication_mode,
+        harness=harness,
+        dsh_bin=dsh_bin,
+        dsh_node_bin=dsh_node_bin,
+        dsh_model=dsh_model,
     )
 
     status: dict[str, Any] = {
         "run_id": run_id,
         "run_dir": str(config.paths.run_dir),
+        "harness": harness,
         "steps": {},
     }
 

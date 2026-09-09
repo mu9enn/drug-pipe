@@ -102,12 +102,15 @@ profile/config hash 与 prompt hash 写入 manifest。
 
 ## Raw Trace 与执行目录
 
-每次 Claude CLI invocation 都以 `--verbose --output-format stream-json` 运行。不可变 raw stream
+Claude Code invocation 以 `--verbose --output-format stream-json` 运行；DeepSeek Harness invocation
+保存未压缩、`packChunks=false` 的 canonical session JSONL。两种不可变 raw trajectory 都
 保存在外层 rollout metadata 目录的 `attempts/attempt_NNNN/complete_session.jsonl`；选中的
 attempt 再按字节复制到该 sample 的顶层 `complete_session.jsonl`。`question.json`、`prompt.txt`、
 `run_meta.json`、selected-attempt manifest 等采集文件也只在外层目录。
 `run_meta.json` 与 selected-attempt manifest 都记录 question、user prompt、system prompt、selected raw
-session 和 source dataset 的 SHA-256；新采集样本进入 semantic 前必须全部互相匹配。
+session 和 source dataset 的 SHA-256；新采集样本进入 semantic 前必须全部互相匹配。DSH raw
+事件使用 `assistant/message`、`tool/call`、`tool/result`、`turn/end`；cleaning parser 只在内存中
+投影到既有事件模型，不重写 raw 文件。
 任一 hash 或 selected-attempt 绑定缺失时同样 fail closed，不自动降级为旧采集格式。
 
 每个 `complete_session.jsonl` 都有 `complete_session.pretty.json` 阅读副本。raw 中若混有 Claude CLI
@@ -219,22 +222,26 @@ sample ID 确定性加入与已用 MolClaw 工具等量的 distractors。adapter
 
 ## Structured ToolRL View
 
-ToolRL 每个 semantic assistant decision 派生一行 `drug_agent_toolrl_decision_v1`，包含历史
+ToolRL 每个 semantic assistant decision 派生一行 `drug_agent_qwen35_toolrl_decision_v8`，包含历史
 `prompt`、同一 deployment-visible `tools`、结构化 `label.target_assistant`、
 `target_tool_calls|target_final_answer` 和 provenance metadata。它不从 rendered text 反向解析 teacher
 decision。
 
-Decision row 只是监督目标的存储粒度，不是 RL sampling 的原子单位。正式 ToolRL training view 必须先按
-`metadata.source_id` 收齐一条 trajectory 的全部 `0..trajectory_decision_count-1` decisions；任一
-decision 因长度无效时拒绝整条 trajectory。随后将一条或多条完整 trajectory 打包为固定大小的 rollout
-batch，写入 `trajectory_batch_id/position/decision_count`。禁止拆 trajectory、复制单个 decision 补齐，
-也禁止 batch 内 `A0,B0,A1,B1` 式交错。
+筛选后的 decision 按 `trajectory_index, decision_ordinal` 恢复原始顺序。允许 ordinal 缺号，也允许一个
+trajectory 跨 rollout batch 边界；读取顺序是 `A1,A3,A6,B2,B5,...`，不能全局 shuffle 或按 selector
+分数排序。Slime 要求固定 RBS，因此尾批由 data source 在 epoch 边界继续读取下一 epoch 的确定性前缀；
+任何 selected decision 都不会因整除问题被永久删除。每个 decision 独立生成 4 个候选并形成自己的
+GRPO 比较组，不与其他 decision 的候选混组。后续 decision 始终读取母数据中的真实历史，而不是此前
+训练时临时生成的回答。
 
-Slime 使用 trajectory-aware data source：`--rollout-shuffle` 只打乱完整 batch 的顺序，batch 内始终按
-trajectory block 和 `decision_ordinal` 顺序读取。RBS 必须不小于最大 trajectory decision 数，并且所有
-准入 trajectory 必须能整条组合成精确 RBS；否则在 rollout 前 fail closed。Decision-level dynamic
-sampling filter 会破坏完整性，因此当前主线不允许启用。训练参数还必须满足
-`GBS = RBS × n_samples_per_prompt`，使一个完整 rollout batch 恰好由一次 optimizer update 消费。
+默认轻量 selector 只在结构兼容的 comparison scope 内，用 Qwen3-Embedding-0.6B + cosine
+complete-linkage 聚类。每组默认保留 `min(n, max(8, ceil(sqrt(n))))` 个真实代表。筛选描述和 embedding
+不替换训练 prompt/label，未选中只表示本次代表性下采样。长度审计用原生 Qwen template 精确统计；
+不截断工具参数或教师回答，也不再用固定 16K 阈值直接删 decision。
+
+可选总预算先保证每个 homogeneous cluster 至少一个代表，再分配额外名额。若严格预算会使 final
+answer 数量低于明确的数据目标，adapter 可配置 final 最低保留数；这个下限只改变组内代表配额，不
+绕过结构 scope、不改写记录，也不无条件保留所有 final。
 
 rollout/reward 使用当前 checkpoint 与当前 SGLang 版本实际支持的 native reasoning/tool parser。
 parser 名称是 launcher/serving 配置，不写入数据 schema；正式启动前必须通过 tokenizer-rendered

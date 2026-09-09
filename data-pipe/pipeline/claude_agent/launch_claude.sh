@@ -22,6 +22,10 @@ SKILLS_ROOT="${SKILLS_ROOT:-}"
 SYSTEM_PROMPT_FILE="${SYSTEM_PROMPT_FILE:-}"
 PROVIDER="${CC_SWITCH_PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
+DSH_BIN="${DSH_BIN:-dsh}"
+DSH_NODE_BIN="${DSH_NODE_BIN:-node}"
+DSH_MODEL="${DSH_MODEL:-deepseek-v4-flash}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 SKIP_PROVIDER_SWITCH=0
 SKIP_MCP_VERIFY=0
@@ -64,6 +68,14 @@ while [[ $# -gt 0 ]]; do
       PROVIDER="$2"; shift 2 ;;
     --claude-bin)
       CLAUDE_BIN="$2"; shift 2 ;;
+    --harness)
+      AGENT_HARNESS="$2"; shift 2 ;;
+    --dsh-bin)
+      DSH_BIN="$2"; shift 2 ;;
+    --dsh-node-bin)
+      DSH_NODE_BIN="$2"; shift 2 ;;
+    --dsh-model)
+      DSH_MODEL="$2"; shift 2 ;;
     --start-row)
       START_ROW="$2"; shift 2 ;;
     --end-row)
@@ -100,7 +112,11 @@ Shared options:
   --skills-root PATH
   --system-prompt-file NAME
   --provider ID                 (default: manual; set model via external cc-switch)
+  --harness claude|deepseek     (default: claude)
   --claude-bin PATH_OR_NAME     (default: claude)
+  --dsh-bin PATH_OR_NAME        (default: dsh)
+  --dsh-node-bin PATH_OR_NAME   (default: node; DSH requires Node 22.19.x or >=24)
+  --dsh-model MODEL             (default: deepseek-v4-flash)
   --skip-provider-switch
   --skip-mcp-verify
 EOF
@@ -116,11 +132,15 @@ if [[ "$TASK" != "vs" && "$TASK" != "ac" && "$TASK" != "pf" && "$TASK" != "e2e" 
   echo "[error] unsupported --task: $TASK" >&2
   exit 1
 fi
+if [[ "$AGENT_HARNESS" != "claude" && "$AGENT_HARNESS" != "deepseek" ]]; then
+  echo "[error] unsupported --harness: $AGENT_HARNESS" >&2
+  exit 1
+fi
 
 # Every task uses the same canonical MolClaw skills bundle. Dataset defaults
 # remain task-aware.
-: "${SKILLS_ROOT:=$PROJECT_ROOT/workdir-skills/molclaw-trajectory-execution}"
-: "${SYSTEM_PROMPT_FILE:=system_prompt.md}"
+: "${SKILLS_ROOT:=$PROJECT_ROOT/workdir-skills/molclaw-l1-workspace}"
+: "${SYSTEM_PROMPT_FILE:=$PROJECT_ROOT/data-pipe/pipeline/cleaning/prompts/qwen35_system.md}"
 if [[ "$TASK" == "vs" ]]; then
   : "${DATASET_CSV:=$REPO_DIR/molbench/molbench-vs-900.csv}"
 elif [[ "$TASK" == "e2e" ]]; then
@@ -218,7 +238,7 @@ if [[ ! -f "$SYSTEM_PROMPT_PATH" ]]; then
   echo "[error] system prompt not found: $SYSTEM_PROMPT_PATH" >&2
   exit 1
 fi
-echo "[route] task=${TASK} skills_root=${SKILLS_ROOT} system_prompt=${SYSTEM_PROMPT_FILE} mcp_server=${MCP_SERVER_NAME} mcp_scope=${MCP_SERVER_SCOPE}"
+echo "[route] harness=${AGENT_HARNESS} task=${TASK} skills_root=${SKILLS_ROOT} system_prompt=${SYSTEM_PROMPT_FILE} mcp_server=${MCP_SERVER_NAME} mcp_scope=${MCP_SERVER_SCOPE}"
 
 if [[ "$RUN_DATASET" -ne 1 ]]; then
   echo "[error] --run-dataset is required; use a one-row CSV for a single task" >&2
@@ -239,7 +259,11 @@ cmd=(
   --system-prompt-file "$SYSTEM_PROMPT_FILE"
   --results-root "$RESULTS_ROOT"
   --provider "$PROVIDER"
+  --harness "$AGENT_HARNESS"
   --claude-bin "$CLAUDE_BIN"
+  --dsh-bin "$DSH_BIN"
+  --dsh-node-bin "$DSH_NODE_BIN"
+  --dsh-model "$DSH_MODEL"
   --start-row "$START_ROW"
   --end-row "$END_ROW"
   --limit "$LIMIT"

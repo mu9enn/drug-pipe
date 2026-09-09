@@ -1,1 +1,3 @@
 Read `source_trajectory.json`, `cleaning_context.json`, and `editable_reasoning.json`. Remove teacher-runtime/L2/L3/CLAUDE narration and repeated no-information reasoning while preserving scientific decisions, evidence, parameters, failures, alternatives, replanning, and any already-grounded path references. Provide one concise task-level plan targeting the first decision. Write only `semantic_reasoning_patch.json` using schema `semantic_reasoning_patch_v1`.
+
+If cleaning_context.json requests answer recovery, follow the skill’s optional answer_recovery protocol. Otherwise preserve the final answer.

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from pipeline.output_contracts import normalize_task_prompt
 
 from pipeline.claude_agent.run_claude import (
     Sample,
@@ -51,6 +52,21 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 _prepare_claude_workdir(target, source_scene_dir=scene)
 
+    def test_deepseek_workdir_mirrors_scene_skills_for_dsh_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scene = root / "scene"
+            skill = scene / ".claude/skills/example/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("---\nname: example\ndescription: example\n---\n")
+            target = root / "attempt/workdir"
+            _prepare_claude_workdir(target, source_scene_dir=scene, harness="deepseek")
+            self.assertEqual(
+                (target / ".agents/skills/example/SKILL.md").read_text(),
+                skill.read_text(),
+            )
+            self.assertTrue((target / ".claude/skills/example/SKILL.md").is_file())
+
     def test_reads_numeric_molclaw_server_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             config = Path(td) / "mcp.json"
@@ -76,9 +92,9 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
             skills = root / "skills"
             skills.mkdir()
             (skills / "CLAUDE.md").write_text("test", encoding="utf-8")
-            (skills / ".claude/skills/execute-molclaw-trajectory").mkdir(parents=True)
-            (skills / ".claude/skills/execute-molclaw-trajectory/SKILL.md").write_text(
-                "---\nname: execute-molclaw-trajectory\ndescription: Test skill.\n---\n",
+            (skills / ".claude/skills/L1_tools/test-tool").mkdir(parents=True)
+            (skills / ".claude/skills/L1_tools/test-tool/SKILL.md").write_text(
+                "---\nname: test-tool\ndescription: Test tool.\n---\n\n# Test tool\n",
                 encoding="utf-8",
             )
             prompt = root / "prompt.md"
@@ -109,7 +125,7 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     writer.writerow(
                         {
                             "question_id": index,
-                            "question": f"question {index}",
+                            "question": normalize_task_prompt(f"question {index}", "kg"),
                             "answer": "",
                             "raw_question_json": json.dumps(
                                 {"toolchain": {"tools": ["is_valid_smiles"]}}
@@ -123,7 +139,7 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                 "#!/usr/bin/env python3\n"
                 "import fcntl, json, os, sys, time\n"
                 "from pathlib import Path\n"
-                "if any(Path(name).exists() for name in ('question.json','prompt.txt','run_meta.json','complete_session.jsonl','attempts')): sys.exit(11)\n"
+                "if any(Path(name).exists() for name in ('prompt.txt','run_meta.json','complete_session.jsonl','attempts')): sys.exit(11)\n"
                 "state = Path(os.environ['FAKE_CLAUDE_STATE'])\n"
                 "with state.open('r+') as handle:\n"
                 " fcntl.flock(handle, fcntl.LOCK_EX); data=json.load(handle); data['active']+=1; data['peak']=max(data['peak'],data['active']); handle.seek(0); json.dump(data,handle); handle.truncate(); fcntl.flock(handle, fcntl.LOCK_UN)\n"
@@ -244,7 +260,7 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     rollout_index=0,
                     num_rollouts=1,
                     prompt="prompt",
-                    system_prompt="Invoke /execute-molclaw-trajectory.",
+                    system_prompt="Read relevant L1 guidance directly.",
                     source_scene_dir=skills,
                     provider="test",
                     claude_bin=str(fake),
@@ -288,8 +304,9 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                 "source_dataset_sha256",
             ):
                 self.assertEqual(binding[key], metadata[key])
-            attempt_one_workdir = attempts[0].parent / "workdir"
-            attempt_two_workdir = attempts[1].parent / "workdir"
+            attempt_one_workdir = Path(metadata["claude_attempts"][0]["workdir"])
+            attempt_two_workdir = Path(metadata["claude_attempts"][1]["workdir"])
+            self.assertNotIn(workdir, attempt_two_workdir.parents)
             self.assertTrue((attempt_one_workdir / "stale_result.md").is_file())
             self.assertFalse((attempt_two_workdir / "stale_result.md").exists())
             self.assertTrue((attempt_two_workdir / "selected_result.md").is_file())
@@ -356,7 +373,7 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     rollout_index=0,
                     num_rollouts=1,
                     prompt="prompt",
-                    system_prompt="Invoke /execute-molclaw-trajectory.",
+                    system_prompt="Read relevant L1 guidance directly.",
                     source_scene_dir=skills,
                     provider="test",
                     claude_bin=str(fake),
@@ -452,7 +469,7 @@ class RolloutAttemptCaptureTest(unittest.TestCase):
                     rollout_index=0,
                     num_rollouts=1,
                     prompt="prompt",
-                    system_prompt="Invoke /execute-molclaw-trajectory.",
+                    system_prompt="Read relevant L1 guidance directly.",
                     source_scene_dir=skills,
                     provider="test",
                     claude_bin=str(fake),

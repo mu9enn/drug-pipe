@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from pipeline.claude_agent.session_capture import (
     http_500_retry_delay,
+    run_deepseek_harness,
     run_stream_json,
     select_attempt,
     session_has_retryable_http_500,
@@ -151,8 +152,16 @@ def apply_reasoning_patch(
         )
         actions.append({"decision_id": first_id, "operation": "prepend_high_level_plan"})
     findings.extend(compare_immutable_facts(source, candidate))
+    if patch.get('answer_recovery'):
+        from pipeline.cleaning.answer_recovery import apply_answer_patch
+        try:
+            candidate = apply_answer_patch(candidate, patch['answer_recovery'])
+            actions.append({'operation': 'answer_recovery', **{k: v for k, v in patch['answer_recovery'].items() if k != 'answer'}})
+        except (ValueError, KeyError) as exc:
+            findings.append(f'invalid_answer_recovery:{exc}')
     findings.extend(validate_semantic_record(candidate)["errors"])
-    findings.extend(_reasoning_findings(candidate, first_id))
+    actions.extend({'operation': 'prose_warning', 'finding': item}
+                   for item in _reasoning_findings(candidate, first_id))
     if findings:
         return copy.deepcopy(source), list(dict.fromkeys(findings)), []
     return candidate, [], actions
@@ -165,6 +174,11 @@ def build_claude_patch_provider(
     timeout_sec: float,
     max_attempts: int = 3,
     require_high_level_plan: bool = True,
+    harness: str = "claude",
+    dsh_bin: str = "dsh",
+    dsh_node_bin: str = "node",
+    dsh_model: str = "deepseek-v4-flash",
+    dsh_provider: str | None = None,
 ) -> PatchProvider:
     system_prompt = LLM_CLEAN_SYSTEM_PROMPT.read_text(encoding="utf-8").strip()
     user_prompt = LLM_CLEAN_USER_PROMPT.read_text(encoding="utf-8").strip()
@@ -173,6 +187,19 @@ def build_claude_patch_provider(
         sample_dir = debug_root / _safe_name(str(source.get("id") or "sample"))
         sample_dir.mkdir(parents=True, exist_ok=True)
         shutil.copytree(LLM_CLEAN_SCENE_DIR / ".claude", sample_dir / ".claude", dirs_exist_ok=True)
+        if harness == "deepseek":
+            shutil.copytree(
+                LLM_CLEAN_SCENE_DIR / ".claude/skills",
+                sample_dir / ".agents/skills",
+                dirs_exist_ok=True,
+            )
+        binding_path = sample_dir / 'patch_input_sha256.txt'
+        binding = hashlib.sha256(_serialize({'source': source, 'context': context,
+            'system': system_prompt, 'user': user_prompt, 'model': dsh_model, 'harness': harness,
+            'skill': (LLM_CLEAN_SCENE_DIR / '.claude/skills/clean-drug-trajectory/SKILL.md').read_text()}).encode()).hexdigest()
+        if not binding_path.exists() or binding_path.read_text() != binding:
+            (sample_dir / 'semantic_reasoning_patch.json').unlink(missing_ok=True)
+        binding_path.write_text(binding)
         write_json(sample_dir / "source_trajectory.json", source)
         write_json(sample_dir / "cleaning_context.json", context)
         write_json(sample_dir / "editable_reasoning.json", _editable_reasoning(source))
@@ -200,7 +227,24 @@ def build_claude_patch_provider(
         http_500_streak = 0
         while non_retryable_attempts < max_attempts:
             patch_path.unlink(missing_ok=True)
-            attempt = run_stream_json(command, cwd=sample_dir, archive_root=sample_dir, timeout_sec=timeout_sec)
+            if harness == "deepseek":
+                attempt = run_deepseek_harness(
+                    user_prompt,
+                    system_prompt,
+                    cwd=sample_dir,
+                    archive_root=sample_dir,
+                    dsh_bin=dsh_bin,
+                    node_bin=dsh_node_bin,
+                    model=dsh_model,
+                    provider_id=dsh_provider,
+                    timeout_sec=timeout_sec,
+                )
+            elif harness == "claude":
+                attempt = run_stream_json(
+                    command, cwd=sample_dir, archive_root=sample_dir, timeout_sec=timeout_sec
+                )
+            else:
+                raise ValueError(f"unsupported harness: {harness}")
             selected = select_attempt(attempt, sample_dir / "complete_session.jsonl")
             report["claude_attempts"].append(attempt)
             findings: list[str] = []
@@ -236,6 +280,7 @@ def build_claude_patch_provider(
             )
             if retryable:
                 http_500_streak += 1
+                non_retryable_attempts += 1
                 time.sleep(http_500_retry_delay(http_500_streak))
                 continue
             non_retryable_attempts += 1
@@ -254,35 +299,32 @@ def clean_semantic(
     schema_errors = semantic_schema_findings(source)
     if schema_errors:
         raise ValueError(f"invalid semantic source {source.get('id')}: {schema_errors}")
-    patch, report = patch_provider(
-        source,
-        {"require_high_level_plan": require_high_level_plan, "patch_schema_version": PATCH_SCHEMA_VERSION},
-    )
-    if patch is None:
-        return {"record": None, "source": source, "audit": {**report, "status": "materialization_failed"}}
-    candidate, findings, actions = apply_reasoning_patch(
-        source,
-        patch,
-        require_high_level_plan=require_high_level_plan,
-    )
+    from pipeline.cleaning.answer_recovery import recover_answer, final_event
+    from pipeline.output_contracts import normalize_final_answer, task_constraints
+    working, recovery = recover_answer(source)
+    if recovery['status'] == 'quarantined':
+        return {'record': None, 'source': source, 'audit': recovery}
+    patch, report = patch_provider(working, {
+        'require_high_level_plan': require_high_level_plan, 'patch_schema_version': PATCH_SCHEMA_VERSION,
+        'answer_recovery_needed': recovery['status'] == 'pending',
+        'causal_rule': 'Each decision may use only the question and preceding observations; the initial plan may not use later results.',
+    })
+    candidate, findings, actions = (working, ['no_patch'], [])
+    if patch is not None:
+        candidate, findings, actions = apply_reasoning_patch(working, patch, require_high_level_plan=require_high_level_plan)
     if findings:
-        return {
-            "record": None,
-            "source": source,
-            "audit": {**report, "status": "materialization_failed", "findings": findings, "patch": patch},
-        }
-    return {
-        "record": candidate,
-        "source": source,
-        "audit": {
-            **report,
-            "status": "cleaned",
-            "actions": actions,
-            "source_sha256": _record_sha256(source),
-            "cleaned_sha256": _record_sha256(candidate),
-            "patch": patch,
-        },
-    }
+        candidate = working
+    task = candidate['metadata']['task_type']
+    try:
+        final_event(candidate)['final_answer'] = normalize_final_answer(final_event(candidate)['final_answer'], task,
+            constraints=task_constraints(candidate['user_task'], task))
+    except ValueError as exc:
+        return {'record': None, 'source': source, 'audit': {**report, 'status': 'answer_pending', 'reason': str(exc)}}
+    return {'record': candidate, 'source': source, 'audit': {
+        **report, 'status': 'retained_with_warning' if findings else 'cleaned',
+        'findings': findings, 'actions': actions, 'answer_recovery': recovery,
+        'source_sha256': _record_sha256(source), 'cleaned_sha256': _record_sha256(candidate), 'patch': patch,
+    }}
 
 
 def llm_clean(
@@ -296,6 +338,11 @@ def llm_clean(
     max_attempts: int = 3,
     require_high_level_plan: bool = True,
     patch_provider: PatchProvider | None = None,
+    harness: str = "claude",
+    dsh_bin: str = "dsh",
+    dsh_node_bin: str = "node",
+    dsh_model: str = "deepseek-v4-flash",
+    dsh_provider: str | None = None,
 ) -> dict[str, Any]:
     input_path = input_path.resolve()
     output_root = output_root.resolve()
@@ -309,6 +356,11 @@ def llm_clean(
         timeout_sec=timeout_sec,
         max_attempts=max_attempts,
         require_high_level_plan=require_high_level_plan,
+        harness=harness,
+        dsh_bin=dsh_bin,
+        dsh_node_bin=dsh_node_bin,
+        dsh_model=dsh_model,
+        dsh_provider=dsh_provider,
     )
     ordered: list[dict[str, Any] | None] = [None] * len(selected)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -346,6 +398,7 @@ def llm_clean(
         "cleaned_count": len(accepted),
         "pending_count": len(pending),
         "high_level_plan_enabled": require_high_level_plan,
+        "harness": harness,
         "status_hist": dict(statuses),
         "source_mother_dataset_preserved": True,
     }
@@ -358,6 +411,11 @@ def main() -> None:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--claude-bin", default="claude")
+    parser.add_argument("--harness", choices=("claude", "deepseek"), default=os.environ.get("AGENT_HARNESS", "claude"))
+    parser.add_argument("--dsh-bin", default=os.environ.get("DSH_BIN", "dsh"))
+    parser.add_argument("--dsh-node-bin", default=os.environ.get("DSH_NODE_BIN", "node"))
+    parser.add_argument("--dsh-model", default=os.environ.get("DSH_MODEL", "deepseek-v4-flash"))
+    parser.add_argument("--dsh-provider", default=os.environ.get("CC_SWITCH_PROVIDER", "dsv4flash"))
     parser.add_argument("--timeout-sec", type=float, default=300.0)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--max-workers", type=int, default=int(os.environ.get("MAX_WORKERS", "1") or 1))
@@ -372,6 +430,11 @@ def main() -> None:
         max_workers=args.max_workers,
         max_attempts=args.max_attempts,
         require_high_level_plan=True,
+        harness=args.harness,
+        dsh_bin=args.dsh_bin,
+        dsh_node_bin=args.dsh_node_bin,
+        dsh_model=args.dsh_model,
+        dsh_provider=args.dsh_provider,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

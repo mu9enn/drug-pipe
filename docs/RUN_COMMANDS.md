@@ -1,8 +1,10 @@
 # Run Commands
 
-以下只列当前主线。把示例路径替换为本机实际目录；大规模 Claude、MCP 与 GPU 命令应手动确认后运行。
+> 当前 SFT 发布和公平测评协议以 [EXPERIMENT_ALIGNMENT.md](EXPERIMENT_ALIGNMENT.md) 为准：512 条完整训练轨迹、默认 87 道测试题、保留全部 112 题做隔离。旧数据与旧结果属于历史实验。
 
-所有下列 Claude 主线命令会自动保留每次 invocation 的原始合并 stream：
+以下只列当前主线。把示例路径替换为本机实际目录；大规模 agent、MCP 与 GPU 命令应手动确认后运行。
+
+所有下列 agent 主线命令会自动保留每次 invocation 的原始轨迹：
 
 ```text
 <workdir>/attempts/attempt_NNNN/complete_session.jsonl
@@ -13,7 +15,30 @@ MCP-ready retry 会递增 `NNNN`，不会覆盖旧流；顶层
 `<workdir>/complete_session.jsonl` 是最终采用 attempt 的字节级副本，供现有 parser
 继续读取；同目录 `complete_session.pretty.json` 只用于人工阅读。raw 中的非 JSON Claude runtime
 diagnostic 会在 pretty 文件中变成带原始行号的显式 diagnostic record。不要编辑 attempt 文件或向
-其中追加 runner 诊断。该布局仅对新运行生效。
+其中追加 runner 诊断。DeepSeek Harness 保存的是它自己的 canonical durable session JSONL，
+不是伪装成 Claude schema 的 stream；下游 parser 会在内存中归一化，原始文件保持不变。
+该布局仅对新运行生效。
+
+### DeepSeek Harness
+
+五个 work-scene（tool-card、tool-edge、task-generation、trajectory-execution、prose-curation）
+和 `react-step-context-summarization` 都支持 `claude|deepseek` 选择。DSH 直连 OpenAI-compatible
+模型接口，不需要切换全局 `cc-switch` 状态：
+
+```bash
+export DSH_BIN=/absolute/path/to/dsh
+export DSH_NODE_BIN=/absolute/path/to/node   # Node 22.19.x or >=24
+
+bash pipeline/claude_agent/run_execute.sh \
+  --harness deepseek --provider dsv4flash --run-dataset \
+  --task kg --dataset-csv /path/to/tasks.csv
+```
+
+`--dsh-model` 默认是 `deepseek-v4-flash`。DSH MCP 临时 patch 权限为 `0600`，进程结束即删除；
+API key 和 MCP header 不写入 metadata。若 assistant 文本泄漏 DSML pseudo-markup，本次 attempt
+会以 `dsml_tool_call_leaked_as_text` 失败，避免把坏轨迹静默当成成功数据。凭据优先读取
+`DEEPSEEK_BASE_URL/DEEPSEEK_API_KEY`；未设置时按 `--provider` 从只读的
+`~/.cc-switch/cc-switch.db` 加载，因此不需要改变当前 provider。
 
 ## Tool-KG
 
@@ -34,7 +59,7 @@ bash scripts/run_full_pipeline.sh run_x --resume --max-workers 1
 
 ```bash
 PYTHONPATH=src python -m molclaw_kg.cli \
-  --project-root "$PWD" --run-id run_x --max-workers 4 \
+  --project-root "$PWD" --run-id run_x --max-workers 4 --harness deepseek \
   sample-questions --sampling-profile simple_default \
   --target-successes 10 --max-attempts 40 --seed 42
 ```
@@ -55,7 +80,7 @@ bash pipeline/claude_agent/run_execute.sh \
 ```
 
 执行 canonical KG tasks 时，Launcher 从 `data-pipe/.env` 读取 endpoint/auth，复制仓库根目录的
-`workdir-skills/molclaw-trajectory-execution/.claude` 到每个 task workspace，并通过 `--strict-mcp-config` 只注册 `molclaw-scp`。短 system prompt 与用户任务分别传给 Claude CLI：
+`workdir-skills/molclaw-trajectory-execution/.claude` 到每个 task workspace，并通过 `--strict-mcp-config` 只注册 `molclaw-scp`。完整执行 system prompt 与用户任务分别传给 Claude CLI：
 
 ```bash
 cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/data-pipe
@@ -114,7 +139,7 @@ CLI 的 `--max-workers`。Stage 3 支持 1–4 并发：主线程顺序规划 gr
 和重复配额，各 Claude worker 使用独立 runtime/workdir，最后按 attempt 序号归并。不要对同一
 run directory 同时启动多个 sampler。
 
-Raw → pre-clean native audit projection → semantic/Python clean → mandatory reasoning clean → Qwen3.5 SFT：
+Raw → pre-clean native audit projection → answer-contract validation/Python clean → mandatory reasoning clean → native skill augmentation → Qwen3.5 SFT：
 
 ```bash
 cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/data-pipe
@@ -123,6 +148,7 @@ DEPLOYMENT_TOOLS=/path/to/the/exact/student-visible-tool-manifest.json
 bash scripts/run_cleaning.sh \
   --results-root results/<run_dir> \
   --output-root results/cleaned \
+  --harness deepseek \
   --deployment-tool-set "$DEPLOYMENT_TOOLS" \
   --tool-visibility all
 ```
@@ -131,6 +157,12 @@ bash scripts/run_cleaning.sh \
 `--tool-visibility trajectory-plus-distractors`：保留六个本地工具、全部已用 MolClaw 工具及等量的
 deterministic distractors。Semantic 构建不读取这个 manifest，因此更换 visibility/manifest 只需重新
 materialize SFT，不必回到 raw。
+
+Claude runner 与 Python clean 共用 `pipeline/output_contracts.py` 这一份答案协议。runner 在调用
+Claude 之前即把题目规范成最终训练版本，写入 `question.json`、`prompt.txt` 并实际发送给 teacher；
+后续 clean 不再把 prompt A 改成 prompt B，只验证该 prompt 未漂移，并要求 teacher final 已严格遵循
+对应的 `answer_smiles` / `selected_smiles` / `ranked_smiles` / `result` 加 `evidence` 两字段 JSON。
+字段错误、额外 `task_type` 或缺失 evidence 的样本进入 `rejected.jsonl`，不会合成答案或伪造证据。
 
 默认输出：
 
@@ -151,6 +183,11 @@ results/cleaned/
 ├── qwen35_sft.jsonl
 ├── qwen35_sft.pretty.json
 └── materialization_manifest.json
+results/l1_augmented/
+├── semantic_trajectories.jsonl             # native skill 首次使用协议
+├── semantic_trajectories.pretty.json
+├── augmentation_audit.jsonl
+└── augmentation_manifest.json
 ```
 
 所有 `.jsonl` 仍是一行一个 record；同目录 `.pretty.json` 是等价的缩进 JSON array，只供人工阅读，
@@ -190,8 +227,52 @@ PROMPT_DATA="$SFT" \
 bash drug_agent/scripts/run_qwen3_5_4b_drug_sft_full.sh
 ```
 
-本轮不执行 loader、GPU/Ray 或训练 dry-run。历史 ToolRL/GAD/旧 serial 入口没有被提升为 structured
-SFT 主线。
+ToolRL v8 数据准备是独立主线，直接消费 semantic 与 Qwen adapter view，不经过旧 ReAct/XML：
+
+```bash
+cd /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime
+
+python -m drug_agent.scripts.materialize_toolrl_v8 \
+  --semantic /path/to/semantic_trajectories.jsonl \
+  --qwen-sft /path/to/qwen35_sft.jsonl \
+  --output-root /path/to/v8_toolrl/01_all_decisions
+
+python -m drug_agent.scripts.select_toolrl_v8 encode \
+  --input /path/to/v8_toolrl/01_all_decisions/all_decisions.jsonl \
+  --output-root /path/to/v8_toolrl/03_embedding_cache \
+  --model Qwen/Qwen3-Embedding-0.6B
+
+python -m drug_agent.scripts.select_toolrl_v8 calibrate \
+  --input /path/to/v8_toolrl/01_all_decisions/all_decisions.jsonl \
+  --embedding-root /path/to/v8_toolrl/03_embedding_cache \
+  --output /path/to/v8_toolrl/threshold_calibration.json \
+  --distance-thresholds 0.05 0.08 0.10 0.12 0.15
+```
+
+阈值必须查看实际 calibration 与最大组后再传给 `select`。正式输出保持 canonical trajectory 顺序，
+launcher 不传 `--rollout-shuffle`，默认每个 decision 生成 4 个候选。
+
+如果需要把 selected 数量约束到目标预算，必须同时满足“每个 homogeneous cluster 至少一个代表”。
+先提高 `--distance-threshold`，直到 cluster 数不超过预算，再设置 `--budget`；不能只给一个小于
+cluster 数的预算。严格预算可能把 final-answer supervision 压成每组一条，可用
+`--min-final-records` 保持明确的 final 下限。例如 12,634 条取约 20%：
+
+```bash
+python -m drug_agent.scripts.select_toolrl_v8 select \
+  --input /path/to/all_decisions.jsonl \
+  --embedding-root /path/to/embedding_cache \
+  --output-root /path/to/strict_20pct/selected \
+  --distance-threshold 0.35 \
+  --budget 2527 \
+  --min-final-records 121
+```
+
+这里 threshold 决定同质边界，budget 决定最终总量，min-final-records 防止总预算破坏目标类型覆盖。
+具体数值必须由当前数据的 threshold sweep 和类型分布重新计算，不是跨数据集常量。
+
+可选模型试答 selector 与默认 embedding 路径分离。`select_toolrl_v8_trials prepare` 只导出两次试答
+请求；当前 serving/parser/reward 环境需返回每次工具与参数内容正确度 `content_scores`。随后 `select`
+按内容差距优先、固定种子少量补取并恢复 canonical 顺序。预筛回答不得复用为正式 RL rollout。
 
 ## Online MCP debug
 

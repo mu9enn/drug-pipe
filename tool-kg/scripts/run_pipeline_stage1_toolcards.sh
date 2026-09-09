@@ -8,9 +8,10 @@ ALERT_RERUN=0
 MAX_ALERT_RERUN_ROUNDS=3
 MAX_WORKERS=1
 RESUME=0
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  echo "Usage: $0 [run_id] [--tool-ids-file <path>] [--alert-rerun] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--resume]"
+  echo "Usage: $0 [run_id] [--tool-ids-file <path>] [--alert-rerun] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--harness claude|deepseek] [--resume]"
   exit 0
 fi
 
@@ -37,12 +38,16 @@ while [[ $# -gt 0 ]]; do
       MAX_WORKERS="${2:-1}"
       shift 2
       ;;
+    --harness)
+      AGENT_HARNESS="${2:-claude}"
+      shift 2
+      ;;
     --resume)
       RESUME=1
       shift
       ;;
     --help|-h)
-      echo "Usage: $0 [run_id] [--tool-ids-file <path>] [--alert-rerun] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--resume]"
+      echo "Usage: $0 [run_id] [--tool-ids-file <path>] [--alert-rerun] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--harness claude|deepseek] [--resume]"
       exit 0
       ;;
     *)
@@ -83,6 +88,7 @@ run_cli() {
     --project-root "$PROJECT_ROOT" \
     --run-id "$RUN_ID" \
     --mode claude_cc \
+    --harness "$AGENT_HARNESS" \
     --max-workers "$MAX_WORKERS" \
     "${resume_args[@]}" \
     "$cmd" \

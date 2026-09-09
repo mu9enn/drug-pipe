@@ -23,6 +23,10 @@ def _base_parser() -> argparse.ArgumentParser:
     p.add_argument("--server-url", default=None)
     p.add_argument("--skills-root", default=None)
     p.add_argument("--mode", default="claude_cc", choices=["claude_cc"])
+    p.add_argument("--harness", default="claude", choices=["claude", "deepseek"])
+    p.add_argument("--dsh-bin", default="dsh")
+    p.add_argument("--dsh-node-bin", default="node")
+    p.add_argument("--dsh-model", default="deepseek-v4-flash")
     p.add_argument(
         "--max-workers",
         type=int,
@@ -124,6 +128,10 @@ def main() -> None:
             adjudication_mode=args.mode,
             max_workers=max(1, int(args.max_workers or 1)),
             resume=bool(args.resume),
+            harness=args.harness,
+            dsh_bin=args.dsh_bin,
+            dsh_node_bin=args.dsh_node_bin,
+            dsh_model=args.dsh_model,
         )
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
@@ -135,6 +143,10 @@ def main() -> None:
         api_key=args.api_key,
         skills_root=args.skills_root,
         model_name=args.mode,
+        harness=args.harness,
+        dsh_bin=args.dsh_bin,
+        dsh_node_bin=args.dsh_node_bin,
+        dsh_model=args.dsh_model,
     )
 
     if args.cmd == "snapshot":

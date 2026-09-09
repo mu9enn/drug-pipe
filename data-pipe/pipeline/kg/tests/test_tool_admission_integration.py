@@ -20,23 +20,22 @@ class ToolAdmissionIntegrationTest(unittest.TestCase):
             skills = root / "skills"
             skills.mkdir()
             (skills / "system_prompt.md").write_text(
-                "Invoke /execute-molclaw-trajectory.", encoding="utf-8"
+                "Read relevant L1 guidance directly before using unfamiliar tools.", encoding="utf-8"
             )
-            (skills / ".claude/skills/execute-molclaw-trajectory").mkdir(parents=True)
-            (skills / ".claude/skills/execute-molclaw-trajectory/SKILL.md").write_text(
-                "---\nname: execute-molclaw-trajectory\ndescription: Test skill.\n---\n",
+            (skills / ".claude/skills/L1_tools/test-tool").mkdir(parents=True)
+            (skills / ".claude/skills/L1_tools/test-tool/SKILL.md").write_text(
+                "---\nname: test-tool\ndescription: Test tool.\n---\n\n# Test tool\n",
                 encoding="utf-8",
             )
             event_log = root / "events.jsonl"
             fake_claude = root / "fake-claude"
             fake_claude.write_text(
                 "#!/usr/bin/env python3\n"
-                "import json, os, time\n"
+                "import json, os, sys, time\n"
                 "from pathlib import Path\n"
-                "question = json.loads(Path('question.json').read_text())\n"
-                "spec = question['kg_task_spec']\n"
-                "task_id = spec['task_id']\n"
-                "tool = spec['toolchain']['tools'][0]\n"
+                "prompt = sys.argv[sys.argv.index('-p') + 1]\n"
+                "task_id = next(name for name in ('foldx-1','foldx-2','boltz-1') if name in prompt)\n"
+                "tool = 'foldx_tool' if task_id.startswith('foldx') else 'pred_binding_affinity_boltz2'\n"
                 "log = Path(os.environ['ADMISSION_EVENT_LOG'])\n"
                 "def emit(event):\n"
                 "    with log.open('a', encoding='utf-8') as stream:\n"
@@ -102,6 +101,7 @@ class ToolAdmissionIntegrationTest(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertTrue(event_log.is_file(), process.stdout + "\n" + process.stderr)
             events = [
                 json.loads(line)
                 for line in event_log.read_text(encoding="utf-8").splitlines()

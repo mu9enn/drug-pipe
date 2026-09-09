@@ -7,7 +7,7 @@ description: Produce a restricted semantic reasoning patch without changing traj
 
 Read `source_trajectory.json`, `cleaning_context.json`, and `editable_reasoning.json` completely.
 
-The semantic trajectory is the authority. Only propose replacements for the `reasoning` field of an existing `assistant_decision`, identified by its exact `source_message_id`. Never change, synthesize, reorder, merge, or delete decisions, tool calls, arguments, observations, final responses, task text, resource references, or provenance.
+The semantic trajectory is the authority. Only propose replacements for the `reasoning` field of an existing `assistant_decision`, identified by its exact `source_message_id`. Never change, synthesize, reorder, merge, or delete decisions, tool calls, arguments, observations, task text, resource references, or provenance.
 
 Remove:
 
@@ -36,3 +36,11 @@ Write exactly one JSON file named `semantic_reasoning_patch.json`:
 ```
 
 Use an empty `reasoning_replacements` array when no reasoning needs editing. Do not modify any input file and do not write conversational output.
+
+When `answer_recovery_needed` is true, optionally add `answer_recovery` to the patch:
+```json
+{"answer_recovery":{"answer":{"result":"task-specific result","evidence":[]},"reasoning":"terminal scientific reasoning","evidence_locations":["existing event ID"],"level":"evidence_reconstruction"}}
+```
+Use the task's actual fields, candidate strings and count/ranking requirements. Use only this trajectory's conclusions, observations and result files already visible in its events. Never consult a standard answer or fill a choice merely to pass validation. Resolve equivalent SMILES only with unambiguous stereochemistry-preserving identity. A VS ranking may end with candidates whose priority remains unresolved; explain that limitation in ordinary scientific language, without claiming measured affinity. Drop no candidates or duplicate them. If execution stopped before any supported conclusion, omit recovery.
+
+The `level` and evidence event IDs are sidecar processing metadata. Never include recovery/audit status, processing counts or reconstruction narration in reasoning or final evidence. Retain scientific uncertainty and real failures. Every decision's replacement must use only the question and observations preceding that decision; the initial plan cannot anticipate later results. Do not rewrite an already valid final answer.

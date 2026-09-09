@@ -10,11 +10,12 @@ ENV_FILE="$ROOT_DIR/.env"
 SEED=""
 N_CASES=""
 MAX_WORKERS="${MAX_WORKERS:-1}"
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
 
 usage() {
   cat <<USAGE
 Usage:
-  bash scripts/run_molbench_workflow.sh --seed 609 --n-cases 1 [--max-workers 2]
+  bash scripts/run_molbench_workflow.sh --seed 609 --n-cases 1 [--max-workers 2] [--harness claude|deepseek]
 
 Description:
   1) Generate AC/VS/PF datasets under get-molbench/outputs/auto/{ac,vs,pf}
@@ -38,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-workers)
       MAX_WORKERS="$2"
+      shift 2
+      ;;
+    --harness)
+      AGENT_HARNESS="$2"
       shift 2
       ;;
     -h|--help)
@@ -177,9 +182,9 @@ else
     'export MOLCLAW_SCP_MCP_URL=%q MOLCLAW_SCP_MCP_AUTH_HEADER=%q MOLCLAW_SCP_MCP_AUTH=%q PYTHON_BIN=%q; ' \
     "$MOLCLAW_SCP_MCP_URL" "$MOLCLAW_SCP_MCP_AUTH_HEADER" "$MOLCLAW_SCP_MCP_AUTH" "$PYTHON_BIN"
 fi
-VS_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 vs $VS_CSV 1 $MAX_WORKERS"
-AC_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 ac $AC_CSV 1 $MAX_WORKERS"
-PF_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 pf $PF_CSV 1 $MAX_WORKERS"
+VS_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 vs $VS_CSV 1 $MAX_WORKERS $AGENT_HARNESS"
+AC_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 ac $AC_CSV 1 $MAX_WORKERS $AGENT_HARNESS"
+PF_CMD="$ENV_BOOTSTRAP bash $PIPELINE_DIR/claude_agent/test_flow_claude.sh $PROVIDER $CLAUDE_BIN 0 1 1 pf $PF_CSV 1 $MAX_WORKERS $AGENT_HARNESS"
 
 tmux send-keys -t pipe-vs-1:0 "$VS_CMD" C-m
 tmux send-keys -t pipe-ac-2:0 "$AC_CMD" C-m

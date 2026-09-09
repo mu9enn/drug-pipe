@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run MolBench tasks (VS/AC/PF/E2E/KG) with Claude CLI + cc-switch."""
+"""Run MolBench tasks (VS/AC/PF/E2E/KG) with a selectable agent harness."""
 from __future__ import annotations
 
 import argparse
@@ -13,20 +13,49 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from tqdm.auto import tqdm
 
 try:
-    from pipeline.claude_agent.session_capture import (
-        next_attempt_index,
-        run_stream_json,
-        select_attempt,
+    from pipeline.output_contracts import (
+        CONTRACT_VERSION,
+        normalize_task_prompt,
+        parsed_answer_values,
+        normalize_final_answer,
+        task_constraints,
     )
 except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
-    from session_capture import next_attempt_index, run_stream_json, select_attempt
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from pipeline.output_contracts import (
+        CONTRACT_VERSION,
+        normalize_task_prompt,
+        parsed_answer_values,
+        normalize_final_answer,
+        task_constraints,
+    )
+
+try:
+    from pipeline.claude_agent.session_capture import (
+        extract_assistant_text,
+        next_attempt_index,
+        run_deepseek_harness,
+        run_stream_json,
+        select_attempt,
+        session_format,
+    )
+except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
+    from session_capture import (
+        extract_assistant_text,
+        next_attempt_index,
+        run_deepseek_harness,
+        run_stream_json,
+        select_attempt,
+        session_format,
+    )
 
 try:
     from pipeline.kg.tool_admission import (
@@ -49,12 +78,6 @@ except ModuleNotFoundError:  # Direct script execution from launch_claude.sh.
         serial_tool_claims,
         task_spec_from_raw_question_json,
     )
-
-
-ANSWER_RE = re.compile(r"<answer>([\s\S]*?)</answer>", re.IGNORECASE)
-SOLUTION_RE = re.compile(r"<solution>([\s\S]*?)</solution>", re.IGNORECASE)
-SMILES_LINE_RE = re.compile(r"^[A-Za-z0-9@+\-\[\]\(\)=#$\\/%.]+$")
-SMILES_TOKEN_RE = re.compile(r"[A-Za-z0-9@+\-\[\]\(\)=#$\\/%.]{6,}")
 
 
 @dataclass
@@ -170,6 +193,26 @@ def _check_session_mcp_ready(
                 continue
             if not isinstance(obj, dict):
                 continue
+            if obj.get("type") == "tool/call":
+                data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
+                call_id = str(data.get("callId") or "").strip()
+                tool_name = str(data.get("name") or "").strip()
+                if call_id and tool_name.startswith("mcp__"):
+                    tool_uses[call_id] = tool_name
+            elif obj.get("type") == "tool/result":
+                data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
+                message = data.get("message") if isinstance(data.get("message"), dict) else {}
+                source = message.get("source") if isinstance(message.get("source"), dict) else {}
+                call_id = str(source.get("callId") or "").strip()
+                blocks = message.get("content") if isinstance(message.get("content"), list) else []
+                is_error = any(
+                    isinstance(block, dict)
+                    and block.get("type") == "tool-result"
+                    and block.get("isError") is True
+                    for block in blocks
+                )
+                if call_id and not is_error:
+                    completed_tool_result_ids.add(call_id)
             if obj.get("type") == "system" and obj.get("subtype") == "init":
                 init_obj = obj
             message = obj.get("message")
@@ -280,102 +323,8 @@ def _switch_provider(provider: str) -> None:
     return
 
 
-def _extract_answer_block(text: str) -> str:
-    raw = text or ""
-    m = ANSWER_RE.search(raw)
-    if m:
-        return m.group(1).strip()
-    m = SOLUTION_RE.search(raw)
-    if m:
-        return m.group(1).strip()
-    return ""
-
-
-def _extract_text_from_stream_jsonl(session_path: Path) -> str:
-    if not session_path.is_file():
-        return ""
-    chunks: list[str] = []
-    with session_path.open("r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(obj, dict):
-                continue
-            if obj.get("type") != "assistant":
-                continue
-            msg = obj.get("message")
-            if not isinstance(msg, dict):
-                continue
-            content = msg.get("content")
-            if isinstance(content, list):
-                for item in content:
-                    if not isinstance(item, dict):
-                        continue
-                    txt = item.get("text")
-                    if isinstance(txt, str) and txt.strip():
-                        chunks.append(txt)
-            elif isinstance(content, str) and content.strip():
-                chunks.append(content)
-    return "\n".join(chunks)
-
-
 def _extract_result_text_from_stream_jsonl(session_path: Path) -> str:
-    if not session_path.is_file():
-        return ""
-
-    last_result = ""
-    with session_path.open("r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(obj, dict):
-                continue
-            if str(obj.get("type") or "") != "result":
-                continue
-            result = obj.get("result")
-            if isinstance(result, str) and result.strip():
-                last_result = result.strip()
-    return last_result
-
-
-def _extract_code_block_text(raw: str) -> str:
-    text = (raw or "").strip()
-    if not text:
-        return ""
-    m = re.findall(r"```(?:[a-zA-Z0-9_+-]+)?\n([\s\S]*?)```", text)
-    if not m:
-        return ""
-    return "\n".join(s.strip() for s in m if s and s.strip()).strip()
-
-
-def _extract_json_blocks(raw: str) -> list[str]:
-    text = (raw or "").strip()
-    if not text:
-        return []
-    blocks: list[str] = []
-
-    # Capture JSON arrays/objects inside markdown code blocks first.
-    for code in re.findall(r"```(?:json|JSON)?\n([\s\S]*?)```", text):
-        s = code.strip()
-        if s.startswith("[") or s.startswith("{"):
-            blocks.append(s)
-
-    # Generic greedy extraction for list/object fragments.
-    for m in re.findall(r"(\[[\s\S]*?\]|\{[\s\S]*?\})", text):
-        s = m.strip()
-        if s:
-            blocks.append(s)
-    return blocks
+    return extract_assistant_text(session_path, final_only=True)
 
 
 def _parse_json_list(raw: str) -> list[str]:
@@ -421,234 +370,6 @@ def _parse_lines_or_json(raw: str) -> list[str]:
         if s:
             lines.append(s)
     return lines
-
-
-def _filter_smiles_like(lines: list[str], keep_original_if_empty: bool = False) -> list[str]:
-    out = [s for s in lines if SMILES_LINE_RE.match(s) and any(ch.isalpha() for ch in s)]
-    if out:
-        return out
-    return lines if keep_original_if_empty else []
-
-
-@lru_cache(maxsize=1)
-def _load_rdkit_chem() -> Any | None:
-    try:
-        from rdkit import Chem  # type: ignore
-
-        return Chem
-    except Exception:
-        return None
-
-
-def _canonical_if_valid(smiles_list: list[str]) -> list[str]:
-    if not smiles_list:
-        return []
-    chem = _load_rdkit_chem()
-    if chem is None:
-        return smiles_list
-
-    out: list[str] = []
-    seen: set[str] = set()
-    for s in smiles_list:
-        mol = chem.MolFromSmiles(s)
-        if mol is None:
-            continue
-        c = chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
-        if c not in seen:
-            seen.add(c)
-            out.append(c)
-    return out
-
-
-def _extract_smiles_tokens(raw: str) -> list[str]:
-    text = (raw or "").strip()
-    if not text:
-        return []
-    candidates = [tok.strip("`\"'.,;:") for tok in SMILES_TOKEN_RE.findall(text)]
-    candidates = [x for x in candidates if _looks_like_smiles_token(x)]
-    return candidates
-
-
-def _looks_like_smiles_token(token: str) -> bool:
-    s = (token or "").strip()
-    if not s:
-        return False
-    if not any(ch.isalpha() for ch in s):
-        return False
-    # Avoid common English tokens that appear in logs.
-    if re.fullmatch(r"[A-Za-z_]+", s):
-        return False
-    # Typical SMILES tends to include at least one structural marker.
-    markers = set("[]()=#@\\/+-.0123456789")
-    return any(ch in markers for ch in s)
-
-
-def _try_parse_answer_array(answer_block: str) -> tuple[list[str] | None, str | None]:
-    if not answer_block:
-        return None, "no <answer>/<solution> block found"
-    block = answer_block.strip()
-    parsed = None
-    first_error: str | None = None
-
-    def _load_candidate(text: str) -> Any:
-        s = (text or "").strip()
-        if not s:
-            raise json.JSONDecodeError("empty", s, 0)
-        return json.loads(s)
-
-    candidates: list[str] = [block]
-    try:
-        candidates.append(bytes(block, "utf-8").decode("unicode_escape").strip())
-    except Exception:
-        pass
-
-    for cand in candidates:
-        try:
-            parsed = _load_candidate(cand)
-        except json.JSONDecodeError as e:
-            if first_error is None:
-                first_error = str(e)
-            l = cand.find("[")
-            r = cand.rfind("]")
-            if l != -1 and r != -1 and r > l:
-                sub = cand[l : r + 1].strip()
-                try:
-                    parsed = _load_candidate(sub)
-                except json.JSONDecodeError:
-                    continue
-                else:
-                    break
-            continue
-        else:
-            break
-
-    if parsed is None:
-        return None, f"answer is not valid JSON: {first_error or 'unknown parse error'}"
-
-    if isinstance(parsed, str):
-        try:
-            parsed = json.loads(parsed)
-        except json.JSONDecodeError as e:
-            return None, f"answer JSON string is not a valid JSON array: {e}"
-    if not isinstance(parsed, list):
-        return None, "answer JSON is not an array"
-    if not all(isinstance(x, str) for x in parsed):
-        return None, "answer array contains non-string entries"
-    return [str(x).strip() for x in parsed if str(x).strip()], None
-
-
-def _parse_answer_by_task(task: str, answer_block: str) -> tuple[list[str], str | None]:
-    if task == "vs":
-        parsed, err = _try_parse_answer_array(answer_block)
-        return parsed or [], err
-
-    if task in {"e2e", "kg"}:
-        text = (answer_block or "").strip()
-        return ([text] if text else []), None
-
-    parsed = _filter_smiles_like(_parse_lines_or_json(answer_block), keep_original_if_empty=False)
-    if task == "ac":
-        if not parsed:
-            return [], "empty answer for AC"
-        return [parsed[0]], None
-
-    if not parsed:
-        return [], "empty answer for PF"
-    return parsed, None
-
-
-def _collect_parse_candidates(
-    *,
-    task: str,
-    answer_block: str,
-    result_text: str,
-    session_text: str,
-    raw_transcript: str,
-) -> list[tuple[str, str]]:
-    candidates: list[tuple[str, str]] = []
-
-    def _add(source: str, text: str) -> None:
-        s = (text or "").strip()
-        if s:
-            candidates.append((source, s))
-
-    _add("answer_tag", answer_block)
-    _add("result_code_block", _extract_code_block_text(result_text))
-    _add("result_text", result_text)
-
-    for blk in _extract_json_blocks(result_text):
-        _add("result_json_block", blk)
-    for blk in _extract_json_blocks(session_text):
-        _add("session_json_block", blk)
-
-    _add("session_text", session_text)
-    _add("transcript_text", raw_transcript)
-
-    if task in {"ac", "pf"}:
-        # Last resort: pull SMILES-like tokens from assistant outputs.
-        _add("result_smiles_tokens", "\n".join(_extract_smiles_tokens(result_text)))
-        _add("session_smiles_tokens", "\n".join(_extract_smiles_tokens(session_text)))
-
-    # De-duplicate while preserving order.
-    uniq: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for src, txt in candidates:
-        key = f"{src}\n{txt}"
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append((src, txt))
-    return uniq
-
-
-def _parse_answer_with_fallback(
-    *,
-    task: str,
-    answer_block: str,
-    result_text: str,
-    session_text: str,
-    raw_transcript: str,
-) -> tuple[list[str], str | None, str, list[dict[str, Any]], int]:
-    attempts: list[dict[str, Any]] = []
-    raw_answer_len = len((answer_block or "").strip())
-
-    if task in {"e2e", "kg"}:
-        for source, text in (
-            ("answer_tag", answer_block),
-            ("result_text", result_text),
-            ("session_text", session_text),
-            ("transcript_text", raw_transcript),
-        ):
-            s = (text or "").strip()
-            attempts.append({"source": source, "error": None, "count": 1 if s else 0})
-            if s:
-                return [s], None, source, attempts, raw_answer_len
-        return [], None, "none", attempts, raw_answer_len
-
-    first_err: str | None = None
-    api_err_text = (result_text or "").strip() or (session_text or "").strip() or (answer_block or "").strip()
-    if "API Error:" in api_err_text:
-        return [], "api_error_response", "api_error", [{"source": "api_error", "error": "api_error_response", "count": 0}], raw_answer_len
-
-    for source, text in _collect_parse_candidates(
-        task=task,
-        answer_block=answer_block,
-        result_text=result_text,
-        session_text=session_text,
-        raw_transcript=raw_transcript,
-    ):
-        parsed, err = _parse_answer_by_task(task, text)
-        if task in {"ac", "pf"}:
-            parsed = _canonical_if_valid(parsed)
-        if task == "ac" and parsed:
-            parsed = [parsed[0]]
-        attempts.append({"source": source, "error": err, "count": len(parsed)})
-        if parsed:
-            return parsed, None, source, attempts, raw_answer_len
-        if first_err is None and err:
-            first_err = err
-
-    return [], first_err or f"no parseable {task} answer found", "none", attempts, raw_answer_len
 
 
 def _parse_pf_gt(raw: str) -> list[str]:
@@ -759,19 +480,8 @@ def _load_samples(dataset_csv: Path, task: str) -> list[Sample]:
 
 
 def _build_user_prompt(question_text: str, task: str) -> str:
-    label_map = {
-        "vs": "Question payload (MolBench-VS):",
-        "ac": "Question payload (MolBench-AC):",
-        "pf": "Question payload (MolBench-PF):",
-        "e2e": "Question payload (MolBench-E2E):",
-        "kg": "Question payload (KG-Sampled Task):",
-    }
-    return (
-        label_map[task]
-        + "\n"
-        + question_text.strip()
-        + "\n"
-    )
+    prefix = (Path(__file__).resolve().parents[3] / "workdir-skills/molclaw-l1-workspace/prompt_prefix.md").read_text().strip()
+    return prefix + "\n\n# Task\n\n" + question_text.strip()
 
 
 def _run_one(
@@ -783,10 +493,32 @@ def _run_one(
     attempt_index: int | None = None,
     mcp_config_file: Path | None = None,
     strict_mcp_config: bool = False,
+    harness: str = "claude",
+    dsh_bin: str = "dsh",
+    dsh_node_bin: str = "node",
+    dsh_model: str = "deepseek-v4-flash",
+    dsh_provider: str | None = None,
 ) -> dict[str, Any]:
+    if harness == "deepseek":
+        return run_deepseek_harness(
+            prompt,
+            system_prompt,
+            cwd=workdir,
+            archive_root=archive_root or workdir,
+            attempt_index=attempt_index,
+            dsh_bin=dsh_bin,
+            node_bin=dsh_node_bin,
+            model=dsh_model,
+            mcp_config_file=mcp_config_file,
+            provider_id=dsh_provider,
+            scientific_collection=True,
+        )
+    if harness != "claude":
+        raise ValueError(f"unsupported harness: {harness}")
     cmd = [
         claude_bin,
         "--dangerously-skip-permissions",
+        "--tools", "Bash,Read,Write,Edit,Grep,Glob,Skill",
         "--verbose",
         "--output-format",
         "stream-json",
@@ -818,8 +550,9 @@ def _prepare_claude_workdir(
     target: Path,
     *,
     source_scene_dir: Path,
+    harness: str = "claude",
 ) -> None:
-    """Populate an execution cwd exclusively from the selected scene payload."""
+    """Populate an isolated execution cwd from the selected scene payload."""
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise RuntimeError(f"Claude execution cwd must be an empty directory before scene projection: {target}")
     target.mkdir(parents=True, exist_ok=True)
@@ -831,6 +564,12 @@ def _prepare_claude_workdir(
             _copy_tree(item, destination)
         else:
             shutil.copy2(item, destination)
+    if harness == "claude" and (target / ".agents/skills").is_dir():
+        shutil.copytree(target / ".agents/skills", target / ".claude/skills", dirs_exist_ok=True)
+    if harness == "deepseek" and (target / ".claude/skills").is_dir() and not (target / ".agents/skills").exists():
+        # DSH discovers project skills under .agents; keep .claude intact
+        # because existing scene instructions and evidence paths refer to it.
+        shutil.copytree(target / ".claude/skills", target / ".agents/skills")
 
 
 def _promote_attempt_workdir(
@@ -900,6 +639,10 @@ def _run_single_rollout(
     strict_mcp_config: bool,
     source_dataset_sha256: str,
     system_prompt_sha256: str,
+    harness: str = "claude",
+    dsh_bin: str = "dsh",
+    dsh_node_bin: str = "node",
+    dsh_model: str = "deepseek-v4-flash",
 ) -> RolloutResult:
     workdir = _rollout_dir(sample_root, num_rollouts, rollout_index)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -949,16 +692,17 @@ def _run_single_rollout(
     while True:
         mcp_attempts += 1
         archive_attempt_index = next_attempt_index(workdir)
-        attempt_workdir = (
-            workdir
-            / "attempts"
-            / f"attempt_{archive_attempt_index:04d}"
-            / "workdir"
-        )
+        # Keep label-bearing archives outside the execution cwd and its ancestors.
+        execution_root = Path(os.environ.get("DRUG_PIPE_EXECUTION_ROOT", "/tmp/drug-pipe-execution"))
+        attempt_workdir = execution_root / hashlib.sha256(str(workdir.resolve()).encode()).hexdigest()[:20] / f"attempt_{archive_attempt_index:04d}"
         _prepare_claude_workdir(
             attempt_workdir,
             source_scene_dir=source_scene_dir,
+            harness=harness,
         )
+        (attempt_workdir / "question.json").write_text(json.dumps({
+            "task": task, "question_text": sample.question_text, "candidates": sample.candidates,
+        }, ensure_ascii=False, indent=2))
         cli_meta = _run_one(
             claude_bin=claude_bin,
             prompt=prompt,
@@ -968,6 +712,11 @@ def _run_single_rollout(
             attempt_index=archive_attempt_index,
             mcp_config_file=mcp_config_file,
             strict_mcp_config=strict_mcp_config,
+            harness=harness,
+            dsh_bin=dsh_bin,
+            dsh_node_bin=dsh_node_bin,
+            dsh_model=dsh_model,
+            dsh_provider=provider,
         )
         claude_attempts.append(cli_meta)
         attempt_session_path = Path(str(cli_meta["session_file"]))
@@ -1016,26 +765,17 @@ def _run_single_rollout(
     if enforce_mcp_ready and not mcp_ready and int(cli_meta.get("return_code", 0)) == 0:
         cli_meta["return_code"] = 98
 
-    session_text = _extract_text_from_stream_jsonl(session_path)
-    answer_block = _extract_answer_block(session_text)
-    result_text = _extract_result_text_from_stream_jsonl(session_path)
-    raw_transcript = session_path.read_text(encoding="utf-8", errors="ignore") if session_path.exists() else ""
-    if not answer_block:
-        answer_block = _extract_answer_block(raw_transcript)
-    if not answer_block and task in {"ac", "pf", "e2e", "kg"}:
-        # The canonical MolClaw prompt may omit XML tags; fall back to final result text.
-        answer_block = _extract_code_block_text(result_text) or result_text or session_text
-
-    parsed_answer, parse_error, parse_source, parse_attempts, raw_answer_len = _parse_answer_with_fallback(
-        task=task,
-        answer_block=answer_block,
-        result_text=result_text,
-        session_text=session_text,
-        raw_transcript=raw_transcript,
-    )
-    if task in {"e2e", "kg"}:
-        # E2E keeps raw final output and does not enforce parse-error gating.
+    answer_block = _extract_result_text_from_stream_jsonl(session_path)
+    raw_answer_len = len(answer_block)
+    parse_source = "final_assistant_message"
+    try:
+        normalized = normalize_final_answer(answer_block, task, constraints=task_constraints(sample.question_text, task))
+        parsed_answer = parsed_answer_values(normalized, task)
         parse_error = None
+    except ValueError as exc:
+        parsed_answer = []
+        parse_error = str(exc)
+    parse_attempts = [{"source": parse_source, "error": parse_error, "count": len(parsed_answer)}]
     if enforce_mcp_ready and not mcp_ready:
         parsed_answer = []
         parse_error = f"mcp_not_ready:{mcp_ready_reason}"
@@ -1065,6 +805,7 @@ def _run_single_rollout(
 
     run_meta = {
         "task": task,
+        "harness": harness,
         "provider": provider,
         "sample_dir": str(workdir),
         "session_file": str(session_path),
@@ -1080,6 +821,7 @@ def _run_single_rollout(
         "mcp_snapshot": mcp_snapshot,
         "mcp_tool_timeout_ms": mcp_tool_timeout_ms,
         "claude_attempts": claude_attempts,
+        "harness_attempts": claude_attempts,
         "selected_claude_attempt": int(cli_meta["attempt_index"]),
         "selected_attempt_workdir": str(selected_attempt_workdir),
         "selected_session_byte_count": selected_session["byte_count"],
@@ -1220,14 +962,18 @@ def _check_run_completeness(run_dir: Path, num_rollouts: int, task: str) -> dict
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run MolBench tasks with Claude CLI and stream-json logs.")
+    parser = argparse.ArgumentParser(description="Run MolBench tasks with Claude Code or DeepSeek Harness.")
     parser.add_argument("--task", choices=["vs", "ac", "pf", "e2e", "kg"], default="vs")
     parser.add_argument("--dataset-csv", default="molbench/molbench-vs-900.csv")
-    parser.add_argument("--skills-root", default="../workdir-skills/molclaw-trajectory-execution")
+    parser.add_argument("--skills-root", default="../workdir-skills/molclaw-l1-workspace")
     parser.add_argument("--results-root", default="results")
     parser.add_argument("--system-prompt-file", default="", help="Optional prompt filename under skills root")
     parser.add_argument("--provider", default=os.environ.get("CC_SWITCH_PROVIDER", "manual"))
     parser.add_argument("--claude-bin", default=os.environ.get("CLAUDE_BIN", "claude"))
+    parser.add_argument("--harness", choices=("claude", "deepseek"), default=os.environ.get("AGENT_HARNESS", "claude"))
+    parser.add_argument("--dsh-bin", default=os.environ.get("DSH_BIN", "dsh"))
+    parser.add_argument("--dsh-node-bin", default=os.environ.get("DSH_NODE_BIN", "node"))
+    parser.add_argument("--dsh-model", default=os.environ.get("DSH_MODEL", "deepseek-v4-flash"))
     parser.add_argument("--start-row", type=int, default=1, help="1-based row index in CSV")
     parser.add_argument("--end-row", type=int, default=0, help="1-based inclusive row index; 0 means all")
     parser.add_argument("--limit", type=int, default=0, help="max number of rows after slicing; 0 means no limit")
@@ -1278,7 +1024,7 @@ def main() -> None:
         if not mcp_config_file.is_absolute():
             mcp_config_file = (repo_root / mcp_config_file).resolve()
 
-    default_prompt_name = "system_prompt.md"
+    default_prompt_name = str(repo_root / "pipeline/cleaning/prompts/qwen35_system.md")
     prompt_name = args.system_prompt_file.strip() or default_prompt_name
     prompt_path = Path(prompt_name)
     if prompt_path.is_absolute():
@@ -1292,7 +1038,7 @@ def main() -> None:
         raise FileNotFoundError(f"dataset csv not found: {dataset_csv}")
     if not system_prompt_file.is_file():
         raise FileNotFoundError(f"system prompt file not found: {system_prompt_file}")
-    if not (source_scene_dir / ".claude").is_dir():
+    if not any((source_scene_dir / name / "skills").is_dir() for name in (".claude", ".agents")):
         raise FileNotFoundError(f"scene skill payload not found: {source_scene_dir / '.claude'}")
     if mcp_config_file is not None and not mcp_config_file.is_file():
         raise FileNotFoundError(f"mcp config file not found: {mcp_config_file}")
@@ -1302,6 +1048,9 @@ def main() -> None:
     source_dataset_sha256 = hashlib.sha256(dataset_csv.read_bytes()).hexdigest()
     system_prompt_sha256 = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()
     all_samples = _load_samples(dataset_csv, args.task)
+    from pipeline.benchmark_release import require_training_task
+    for sample in all_samples:
+        require_training_task(sample.question_text, args.task)
 
     selected = [s for s in all_samples if s.row_number >= args.start_row]
     if args.end_row and args.end_row >= args.start_row:
@@ -1328,6 +1077,8 @@ def main() -> None:
 
     run_config = {
         "task": args.task,
+        "harness": args.harness,
+        "dsh_model": args.dsh_model if args.harness == "deepseek" else None,
         "provider": args.provider,
         "dataset_csv": str(dataset_csv),
         "source_dataset_sha256": source_dataset_sha256,
@@ -1352,6 +1103,7 @@ def main() -> None:
             else None
         ),
         "timestamp": ts,
+        "answer_contract_version": CONTRACT_VERSION,
     }
     (run_dir / "run_config.json").write_text(json.dumps(run_config, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -1421,7 +1173,7 @@ def main() -> None:
                     }
                 )
         print(
-            f"[run] selected_tasks={len(selected)} total_claude_invocations={len(jobs)} "
+            f"[run] selected_tasks={len(selected)} total_agent_invocations={len(jobs)} "
             f"max_workers={max_workers}",
             flush=True,
         )
@@ -1481,6 +1233,10 @@ def main() -> None:
                         strict_mcp_config=bool(args.strict_mcp_config),
                         source_dataset_sha256=source_dataset_sha256,
                         system_prompt_sha256=system_prompt_sha256,
+                        harness=args.harness,
+                        dsh_bin=args.dsh_bin,
+                        dsh_node_bin=args.dsh_node_bin,
+                        dsh_model=args.dsh_model,
                     )
                     active[future] = job
                 if not active:

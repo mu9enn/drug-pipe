@@ -6,9 +6,10 @@ RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 MAX_ALERT_RERUN_ROUNDS=3
 MAX_WORKERS=1
 RESUME=0
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  echo "Usage: $0 [run_id] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--resume]"
+  echo "Usage: $0 [run_id] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--harness claude|deepseek] [--resume]"
   exit 0
 fi
 
@@ -27,12 +28,16 @@ while [[ $# -gt 0 ]]; do
       MAX_WORKERS="${2:-1}"
       shift 2
       ;;
+    --harness)
+      AGENT_HARNESS="${2:-claude}"
+      shift 2
+      ;;
     --resume)
       RESUME=1
       shift
       ;;
     --help|-h)
-      echo "Usage: $0 [run_id] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--resume]"
+      echo "Usage: $0 [run_id] [--max-alert-rerun-rounds <n>] [--max-workers <n>] [--harness claude|deepseek] [--resume]"
       exit 0
       ;;
     *)
@@ -49,6 +54,7 @@ stage1_args=(
   --alert-rerun
   --max-alert-rerun-rounds "$MAX_ALERT_RERUN_ROUNDS"
   --max-workers "$MAX_WORKERS"
+  --harness "$AGENT_HARNESS"
 )
 if [[ "$RESUME" -eq 1 ]]; then
   stage1_args+=(--resume)
@@ -61,6 +67,7 @@ stage2_args=(
   --alert-rerun
   --max-alert-rerun-rounds "$MAX_ALERT_RERUN_ROUNDS"
   --max-workers "$MAX_WORKERS"
+  --harness "$AGENT_HARNESS"
 )
 if [[ "$RESUME" -eq 1 ]]; then
   stage2_args+=(--resume)

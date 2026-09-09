@@ -544,6 +544,73 @@ def _compute_pair_metrics(
     }
 
 
+def _call_identity(call: dict[str, Any], config: dict[str, Any]) -> str:
+    name = canonical_tool_name(call.get("tool_name") or call.get("name"), config)
+    arguments = canonical_argument_map(call.get("arguments") or {}, tool_name=name, config=config)
+    return json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _teacher_order_bonus(
+    pred_calls: list[dict[str, Any]],
+    gold_calls: list[dict[str, Any]],
+    pairs: list[ToolCallScore],
+    *,
+    content_correctness: float,
+    weight: float,
+    config: dict[str, Any],
+) -> dict[str, float | int]:
+    """Reward pairwise order agreement after order-insensitive matching.
+
+    Identical calls are not comparable because assigning identities to their
+    occurrences would create an artificial order penalty.
+    """
+    comparable = 0
+    consistent = 0
+    for left_index, left in enumerate(pairs):
+        for right in pairs[left_index + 1 :]:
+            if _call_identity(pred_calls[left.pred_index], config) == _call_identity(pred_calls[right.pred_index], config):
+                continue
+            if _call_identity(gold_calls[left.gold_index], config) == _call_identity(gold_calls[right.gold_index], config):
+                continue
+            comparable += 1
+            pred_order = left.pred_index < right.pred_index
+            gold_order = left.gold_index < right.gold_index
+            consistent += pred_order == gold_order
+    order_agreement = consistent / comparable if comparable else 0.0
+    correctness = clamp(float(content_correctness), 0.0, 1.0)
+    bonus = max(0.0, float(weight)) * correctness * order_agreement
+    return {
+        "order_comparable_pairs": comparable,
+        "order_consistent_pairs": consistent,
+        "order_agreement": order_agreement,
+        "order_content_correctness": correctness,
+        "order_bonus_weight": max(0.0, float(weight)),
+        "order_bonus": bonus,
+    }
+
+
+def _apply_teacher_order_bonus(
+    out: dict[str, Any],
+    pred_calls: list[dict[str, Any]],
+    gold_calls: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    pairs = _pair_tool_calls(pred_calls, gold_calls, config=config)
+    metrics = _tool_reward_components(pred_calls, gold_calls, config=config)
+    order = _teacher_order_bonus(
+        pred_calls,
+        gold_calls,
+        pairs,
+        content_correctness=float(metrics.get("tool_call_score") or 0.0),
+        weight=float(os.environ.get("TOOLRL_ORDER_BONUS_LAMBDA", "0.1")),
+        config=config,
+    )
+    out["score"] = float(out.get("score") or 0.0) + float(order["order_bonus"])
+    out.setdefault("components", {}).update(order)
+    out.setdefault("diagnostics", {})["teacher_order_is_preference_not_unique_correctness"] = True
+    return out
+
+
 def _tool_reward_components(pred_calls: list[dict[str, Any]], gold_calls: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     pair_scores = _pair_tool_calls(pred_calls, gold_calls, config=config)
     metrics = _compute_pair_metrics(pred_calls, gold_calls, pair_scores)
@@ -996,6 +1063,7 @@ def _reward_one(args, sample: Any, **kwargs) -> dict[str, Any]:
         else:
             out = _hierarchical_tool_reward(sample, parsed, pred_calls, gold_calls, config, tools_schema)
             out["diagnostics"]["reward_mode"] = "v8_baseline"
+            out = _apply_teacher_order_bonus(out, pred_calls, gold_calls, config)
         out = _attach_protocol_diagnostics(out, parsed)
         out = _apply_truncation_guard(sample, out)
         if not isinstance(sample.metadata, dict):

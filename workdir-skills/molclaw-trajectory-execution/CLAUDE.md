@@ -13,10 +13,7 @@ The system uses a three-level hierarchy that agents read top-down:
 ```
 L3_methodology/   ← Read first: strategic principles (2 files)
 L2_workflows/     ← Read second: step-by-step protocol for the task domain (14 files)
-L1_tools/         ← Read on-demand: individual tool specifications (60 directories)
-LR_research/      ← Read for research workflows (1 file)
-auto-generated-skills/  ← Crystallized skills from prior runs; check skill-index.md
-                         Currently contains only skill-index.md
+L1_tools/         ← Read on-demand: individual tool specifications
 ```
 
 The skill directories shown above live directly under this repository root.
@@ -43,110 +40,33 @@ Step-by-step protocols in `L2_workflows/`:
 - `12-skill-crystallization.md`
 - `13-draft-workflow-authoring.md`
 
-### LR — Research
-Research workflows in `LR_research/workflows/`:
-- `deep-research.md`
-
 ### L1 — Tools
-Individual tool specs in `L1_tools/` (60 directories, each containing a `SKILL.md`). Some directories include supplementary files — see notes below. Full list:
 
-**Molecular descriptors & properties:**
-- `molclaw-mol-basic-metrics` — MW, formula, atom counts
-- `molclaw-mol-hydrophobicity-metrics` — LogP, molar refractivity
-- `molclaw-mol-hbond-metrics` — H-bond donors/acceptors
-- `molclaw-mol-charge-metrics` — Gasteiger charges
-- `molclaw-mol-complexity-metrics` — complexity descriptors
-- `molclaw-mol-structure-metrics` — rotatable bonds, rings
-- `molclaw-mol-topology-metrics` — TPSA, topological features
-- `molclaw-mol-similarity` — molecular similarity metrics
-- `molclaw-mol-opt-physchem` — physicochemical optimization
-- `molclaw-drug-likeness` — QED, Lipinski rules
-- `molclaw-admet` — 90+ ADMET endpoints (CYP inhibition, hERG, solubility, etc.)
-
-**Docking & scoring:**
-- `molclaw-quickvina-docking` — QuickVina2-GPU molecular docking
-- `molclaw-diffdock-auto` — DiffDock blind docking *(skill documentation exists, but DiffDock is not enabled in the current 81-tool MCP deployment)*
-- `molclaw-karmadock-tool` — KarmaDock large-scale docking
-- `molclaw-docking-screening` — unified docking workflow
-- `molclaw-equiscore-docking` — EquiScore rescoring (docking context)
-- `molclaw-equiscore-tool` — EquiScore rescoring (standalone)
-- `molclaw-boltz2-affinity` — Boltz-2 binding affinity prediction
-- `molclaw-hdock-tool` — HDOCK protein-protein docking
-
-**Protein structure prep & analysis:**
-- `molclaw-protein-structure-retrieve` — retrieve structures from PDB
-- `molclaw-protein-sequence-retrieve` — retrieve protein sequences
-- `molclaw-pdbfixer` — PDB structure repair
-- `molclaw-fix-pdb` — advanced PDB fixing
-- `molclaw-foldx-tool` — FoldX-based protein structure analysis and mutation energy evaluation
-- `molclaw-extract-chains` — chain extraction
-- `molclaw-pulchura-rebuild` — structure rebuilding
-- `molclaw-pack-sidechains` — sidechain packing
-- `molclaw-fpocket` — fpocket binding-pocket detection
-- `molclaw-fpocket-toolkit-base` — fpocket base toolkit
-- `molclaw-p2rank` — P2Rank pocket prediction
-
-**Interaction analysis (ProLIF & visualization):**
-- `molclaw-prolif-docking` — interaction fingerprints for docking poses
-- `molclaw-prolif-pdb` — interaction analysis on PDB structures
-- `molclaw-prolif-md` — MD trajectory interaction fingerprints
-- `molclaw-prolif-protein-protein` — protein-protein interaction analysis
-- `molclaw-prolif-tool` — general ProLIF tool
-- `molclaw-interaction-visualizer` — render interaction diagrams (PNG/SVG) from ProLIF results *(also contains `molclaw_interaction_visualizer.py` Python implementation)*
-
-**MD simulation & free energy:**
-- `molclaw-protein-openmm` — OpenMM MD simulations
-- `molclaw-protein-ligand-mmpbsa` — MM-PBSA binding free energy (protein-ligand) *(also has `reference_fix_pdb.md`, `reference_prepare_complex.md`, `reference_run_mmpbsa.md`, `reference_analyze_mmpbsa.md`)*
-- `molclaw-protein-protein-mmpbsa` — MM-PBSA binding free energy (protein-protein) *(also has `reference_fix_pdb.md`, `reference_prepare_protein_md.md`, `reference_gmx_mmpbsa_propro.md`, `reference_analyze_mmpbsa.md`)*
-
-**Structure & sequence prediction / design:**
-- `molclaw-chai1-predict` — Chai-1 structure prediction
-- `molclaw-esmfold` — ESMFold structure prediction
-- `molclaw-proteinmpnn-tool` — ProteinMPNN sequence design
-- `molclaw-evobind-tool` — EvoBind de novo peptide design
-- `molclaw-chroma-toolkit` — Chroma protein scaffold generation
-- `molclaw-openawsem-tool` — OpenAWSEM protein folding
-- `molclaw-goca-tool` — protein optimization
-- `molclaw-run-bioemu` — biostructure emulation
-
-**Generative molecular design:**
-- `molclaw-denovo-sampling` — de novo molecule generation
-- `molclaw-mol2mol-sampling` — Mol2Mol generative model
-- `molclaw-peptide-sampling` — peptide generation/sampling
-- `molclaw-rgroup-sampling` — R-group replacement
-- `molclaw-linker-sampling` — linker design
-- `molclaw-smiles-fg-editor` — functional group editing
-- `molclaw-dleps` — DLEPS generative model
-
-**Utilities:**
-- `molclaw-compound-retrieve` — compound lookup
-- `molclaw-smiles-valid-check` — SMILES validation
-- `molclaw-sequence-valid-check` — sequence validation
-- `molclaw-file-transfer` — file management
-- `molclaw-scp-server` — SCP server integration
-- `molclaw-skill-template-writer` — scaffold new SKILL.md files for tool documentation
+Each directory immediately below `L1_tools/` is one currently available L1
+skill and contains its authoritative `SKILL.md`. Treat those directory names as
+the live catalog; do not rely on a duplicated static list or infer that a
+documented tool is deployed. Select a tool from the native MCP catalog, then
+read the matching L1 document before its first use.
 
 ## Root-Level Files
 
 - **`CLAUDE.md`** — this file; project guidance for Claude Code
-- **`system_prompt.md`** — short runtime instruction that invokes `/execute-molclaw-trajectory`
-- **`.claude/skills/execute-molclaw-trajectory/`** — progressively loaded execution protocol, logging contract, and result contract
+- **`system_prompt.md`** — complete runtime execution, logging, and result contract
 
 ## Execution Framework
 
-The agent execution framework is defined by `/execute-molclaw-trajectory` and its `references/execution_protocol.md`. It specifies:
+The agent execution framework is defined directly by `system_prompt.md`. It specifies:
 
-1. **5-phase execution:** read skills → plan → self-check → execute → synthesize
+1. **Execution flow:** triage and read selected guidance → plan → execute → synthesize and verify
 2. **File naming conventions:** sequential (`step01_`, `step02_`), iterative (`round01_`, `round02_`), retry (`_retry1`)
 3. **Required outputs:** `result.md` (final summary) and `run_log.md` (step-by-step log, written incrementally)
 
-### Key enforcement rules from the trajectory-execution skill
+### Key enforcement rules from the system prompt
 
 - **Data integrity:** Every number in `result.md` must be programmatically verified from source files before writing. Three mandatory checkpoints: after each tool call (A), before each round summary (B), and before final report (C).
 - **Docking constraints:** Vina/QuickVina scores MUST be negative. Minimum box size is 25 Å per dimension. For the current QuickVina2-GPU deployment, progressive enlargement on failure is 25 → 30 → 40 → 47.625 Å before switching to the currently enabled KarmaDock service. DiffDock must not be selected unless it is re-enabled in the MCP deployment.
 - **File collection:** ALL structure files (PDB, PDBQT, SDF, CIF) and visualization images (PNG, SVG) generated by tools MUST be downloaded to local workspace using `molclaw-file-transfer`. Verify with `ls -la` after each download.
 - **Residue numbering:** When referencing specific residues, build an explicit mapping table between UniProt canonical, PDB author, and tool-internal numbering schemes. Check `DBREF` records in PDB files for the offset.
-- **Literature values:** Must be labeled `⚠️ LITERATURE VALUE` and only used after exhausting all computational alternatives.
 
 ## Core Architectural Principles
 

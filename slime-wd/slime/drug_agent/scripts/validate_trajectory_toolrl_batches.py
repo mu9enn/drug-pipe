@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Validate that ToolRL rows are packed as complete trajectory batches."""
+"""Validate canonical, non-shuffled v8 ToolRL decision traversal."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any
 
-from drug_agent.toolrl.trajectory_batching import validate_packed_decision_batches
+from drug_agent.toolrl.trajectory_batching import validate_trajectory_order
 
 
 def _metadata(record: dict[str, Any]) -> dict[str, Any]:
@@ -17,7 +18,7 @@ def _metadata(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_file(input_path: Path, rollout_batch_size: int) -> dict[str, Any]:
-    records: list[dict[str, Any]] = []
+    metadata_rows: list[dict[str, Any]] = []
     with input_path.open(encoding="utf-8") as source:
         for line_number, line in enumerate(source, 1):
             if not line.strip():
@@ -25,20 +26,21 @@ def validate_file(input_path: Path, rollout_batch_size: int) -> dict[str, Any]:
             record = json.loads(line)
             if not isinstance(record, dict):
                 raise ValueError(f"{input_path}:{line_number}: row is not an object")
-            records.append(record)
-    batches = validate_packed_decision_batches(
-        records,
-        metadata_of=_metadata,
-        rollout_batch_size=rollout_batch_size,
-    )
-    source_ids = {str(_metadata(record).get("source_id") or "") for record in records}
+            metadata_rows.append(_metadata(record))
+    validate_trajectory_order(metadata_rows, metadata_of=lambda value: value)
+    source_ids = {str(metadata.get("source_id") or "") for metadata in metadata_rows}
+    batch_count = math.ceil(len(metadata_rows) / rollout_batch_size) if metadata_rows else 0
+    tail_size = len(metadata_rows) % rollout_batch_size
     return {
         "status": "pass",
-        "records": len(records),
+        "records": len(metadata_rows),
         "trajectories": len(source_ids),
-        "trajectory_batches": len(batches),
+        "rollout_batches_including_tail": batch_count,
+        "tail_batch_size": tail_size or (rollout_batch_size if metadata_rows else 0),
         "rollout_batch_size": rollout_batch_size,
-        "sampling_unit": "complete_trajectory",
+        "sampling_order": "canonical_trajectory_then_decision_ordinal",
+        "trajectory_may_cross_batch_boundary": True,
+        "selection_holes_allowed": True,
     }
 
 

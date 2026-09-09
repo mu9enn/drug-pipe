@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
 import unittest
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from drug_agent.context_summary import ClaudeContextSummarizer, build_source_inventory, validate_context_summary
 
@@ -106,6 +109,41 @@ class ContextSummaryContractTest(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertFalse(first_audit["calls"][0]["cache_hit"])
             self.assertTrue(second_audit["calls"][0]["cache_hit"])
+
+    def test_deepseek_provider_writes_and_caches_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            node = root / "node"
+            node.write_text("#!/bin/sh\nprintf 'v24.19.0\\n'\n", encoding="utf-8")
+            node.chmod(0o755)
+            fake = root / "fake-dsh"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os\n"
+                "from pathlib import Path\n"
+                "request=json.loads(Path('context_request.json').read_text())\n"
+                "result={'schema_version':'react_context_summary_v1','source_context_sha256':request['source_context_sha256'],'events':[],'unresolved_state':[]}\n"
+                "Path('context_summary.json').write_text(json.dumps(result))\n"
+                "session=Path(os.environ['DSH_HOME'])/'sessions/project/s/session.jsonl'\n"
+                "session.parent.mkdir(parents=True)\n"
+                "rows=[{'type':'session','version':0},{'type':'assistant/message','data':{'message':{'id':'a','content':[{'type':'text','text':'done'}]}}},{'type':'turn/end','data':{'reason':{'kind':'completed'}}}]\n"
+                "session.write_text(''.join(json.dumps(row)+'\\n' for row in rows))\n"
+                "print('done')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            provider = ClaudeContextSummarizer(
+                cache_root=root / "cache", harness="deepseek", dsh_bin=str(fake),
+                dsh_node_bin=str(node), timeout_sec=5,
+            )
+            with patch.dict(os.environ, {
+                "DEEPSEEK_BASE_URL": "https://example.invalid/v1",
+                "DEEPSEEK_API_KEY": "secret",
+            }):
+                first, audit = provider.summarize(self.messages)
+            self.assertEqual(first["schema_version"], "react_context_summary_v1")
+            self.assertEqual(audit["harness"], "deepseek")
+            self.assertTrue(next((root / "cache").glob("entries/*/attempt-1/.agents/skills"), None))
 
 
 if __name__ == "__main__":

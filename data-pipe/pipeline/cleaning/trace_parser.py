@@ -36,6 +36,86 @@ def safe_load_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _dsh_arguments(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {"raw": value}
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+    return {}
+
+
+def _normalize_dsh_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project canonical DSH events into the established Claude event model."""
+    normalized: list[dict[str, Any]] = []
+    for event in events:
+        event_type = event.get("type")
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        line = int(event.get("_line_no") or -1)
+        if event_type == "assistant/message":
+            message = data.get("message") if isinstance(data.get("message"), dict) else {}
+            content: list[dict[str, Any]] = []
+            for block in message.get("content") if isinstance(message.get("content"), list) else []:
+                if not isinstance(block, dict):
+                    continue
+                kind = block.get("type")
+                if kind == "tool-call":
+                    content.append({
+                        "type": "tool_use",
+                        "id": str(block.get("id") or block.get("toolCallId") or ""),
+                        "name": str(block.get("name") or ""),
+                        "input": _dsh_arguments(block.get("arguments")),
+                    })
+                elif kind == "reasoning":
+                    content.append({"type": "thinking", "thinking": str(block.get("text") or "")})
+                elif kind == "text":
+                    content.append({"type": "text", "text": str(block.get("text") or "")})
+            normalized.append({
+                "type": "assistant",
+                "message": {
+                    "id": str(message.get("id") or f"dsh-message-{event.get('seq', line)}"),
+                    "role": "assistant",
+                    "content": content,
+                },
+                "_line_no": line,
+                "_source_format": "dsh-session-jsonl-v0",
+            })
+        elif event_type == "tool/result":
+            message = data.get("message") if isinstance(data.get("message"), dict) else {}
+            source = message.get("source") if isinstance(message.get("source"), dict) else {}
+            for block in message.get("content") if isinstance(message.get("content"), list) else []:
+                if not isinstance(block, dict) or block.get("type") != "tool-result":
+                    continue
+                normalized.append({
+                    "type": "user",
+                    "message": {"role": "user", "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": str(
+                            block.get("toolCallId") or source.get("callId") or ""
+                        ),
+                        "content": block.get("content"),
+                        "is_error": bool(block.get("isError")),
+                    }]},
+                    "_line_no": line,
+                    "_source_format": "dsh-session-jsonl-v0",
+                })
+        elif event_type == "turn/end":
+            reason = data.get("reason") if isinstance(data.get("reason"), dict) else {}
+            kind = str(reason.get("kind") or "")
+            normalized.append({
+                "type": "result",
+                "subtype": "success" if kind == "completed" else kind or "error",
+                "is_error": kind != "completed",
+                "terminal_reason": kind,
+                "_line_no": line,
+                "_source_format": "dsh-session-jsonl-v0",
+            })
+    return normalized
+
+
 def load_session_events(path: Path) -> tuple[list[dict[str, Any]], int, bool]:
     if not path.is_file():
         return [], 0, False
@@ -63,6 +143,8 @@ def load_session_events(path: Path) -> tuple[list[dict[str, Any]], int, bool]:
                 events.append(value)
             else:
                 malformed += 1
+    if any(event.get("type") in {"turn/start", "assistant/message", "tool/call"} for event in events):
+        events = _normalize_dsh_events(events)
     return events, malformed, last_nonempty.startswith("[runner-error]")
 
 

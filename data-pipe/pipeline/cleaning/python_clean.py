@@ -20,6 +20,7 @@ from pipeline.cleaning.trace_parser import (
     source_labels,
     terminal_execution_findings,
 )
+from pipeline.output_contracts import CONTRACT_VERSION, normalize_final_answer, normalize_task_prompt, task_constraints
 
 
 CAPTURE_HASH_KEYS = (
@@ -127,6 +128,31 @@ def clean_sample(
     except (SemanticConstructionError, ValueError) as exc:
         audit.update(status="rejected", reasons=["semantic_construction_failed"], error=str(exc))
         return {"semantic": None, "audit": audit}
+
+    try:
+        from pipeline.benchmark_release import require_training_task
+        require_training_task(semantic["user_task"], task, source_task_ids=tuple(semantic.get("metadata", {}).get("source_task_ids", [])))
+        # An invalid final is a recovery candidate, not an execution failure.
+        from pipeline.cleaning.answer_recovery import recover_answer
+        semantic, recovery = recover_answer(semantic)
+        audit['answer_recovery'] = recovery
+        if recovery['status'] == 'quarantined':
+            raise ValueError(recovery['reason'])
+        expected_task = normalize_task_prompt(semantic["user_task"], task)
+        if semantic["user_task"] != expected_task:
+            raise ValueError(
+                "source prompt does not use the canonical answer contract; "
+                "collect the trajectory with the current Claude runner"
+            )
+        final_event = next(
+            event for event in semantic["events"] if event.get("final_answer") is not None
+        )
+        if recovery['status'] != 'pending':
+            final_event["final_answer"] = normalize_final_answer(final_event["final_answer"], task, constraints=task_constraints(semantic["user_task"], task))
+    except (StopIteration, ValueError) as exc:
+        audit.update(status="rejected", reasons=["answer_contract_invalid"], error=str(exc))
+        return {"semantic": None, "audit": audit}
+    semantic.setdefault("metadata", {})["answer_contract_version"] = CONTRACT_VERSION
     invariants = validate_semantic_record(semantic)
     if not invariants["ok"]:
         raise RuntimeError(f"semantic builder violated invariants: {invariants['errors']}")

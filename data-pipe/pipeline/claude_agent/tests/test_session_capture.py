@@ -2,20 +2,50 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from pipeline.claude_agent.run_claude import _extract_result_text_from_stream_jsonl
 from pipeline.claude_agent.session_capture import (
+    _deepseek_environment,
+    extract_assistant_text,
     http_500_retry_delay,
+    run_deepseek_harness,
     run_stream_json,
     select_attempt,
+    session_format,
     session_has_retryable_http_500,
 )
 
 
 class SessionCaptureTest(unittest.TestCase):
+    def test_resolves_deepseek_credentials_from_named_cc_switch_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            database = Path(td) / "cc-switch.db"
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    "CREATE TABLE providers (id TEXT, app_type TEXT, settings_config TEXT)"
+                )
+                connection.execute(
+                    "INSERT INTO providers VALUES (?, ?, ?)",
+                    ("dsv4flash", "claude", json.dumps({"env": {
+                        "ANTHROPIC_BASE_URL": "https://example.invalid",
+                        "ANTHROPIC_API_KEY": "secret",
+                    }})),
+                )
+            with patch.dict(os.environ, {
+                "CC_SWITCH_DB": str(database),
+                "DEEPSEEK_BASE_URL": "",
+                "DEEPSEEK_API_KEY": "",
+            }):
+                resolved = _deepseek_environment("dsv4flash")
+            self.assertEqual(resolved["DEEPSEEK_BASE_URL"], "https://example.invalid/v1")
+            self.assertEqual(resolved["DEEPSEEK_API_KEY"], "secret")
+
     def _fake_claude(self, root: Path, body: str) -> Path:
         executable = root / "fake-claude"
         executable.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
@@ -68,7 +98,7 @@ class SessionCaptureTest(unittest.TestCase):
             self.assertEqual(canonical.read_bytes(), expected)
             self.assertEqual(selected["sha256"], hashlib.sha256(expected).hexdigest())
             self.assertTrue(attempt["raw_session_valid"])
-            self.assertEqual(_extract_result_text_from_stream_jsonl(canonical), "ok")
+            self.assertEqual(_extract_result_text_from_stream_jsonl(canonical), "")  # Runtime result is not an assistant answer.
             attempt_pretty = json.loads(Path(attempt["pretty_session_file"]).read_text())
             canonical_pretty = json.loads(Path(selected["pretty_session_file"]).read_text())
             self.assertEqual(attempt_pretty, canonical_pretty)
@@ -109,7 +139,7 @@ class SessionCaptureTest(unittest.TestCase):
             )
             command = [str(fake), "--verbose", "--output-format", "stream-json"]
             attempt = run_stream_json(command, cwd=root, archive_root=root)
-            payload = json.loads(_extract_result_text_from_stream_jsonl(Path(attempt["session_file"])))
+            payload = json.loads(json.loads(Path(attempt["session_file"]).read_text())["result"])
             self.assertEqual(payload["concurrency"], "2")
             self.assertEqual(payload["background_disabled"], "1")
 
@@ -184,6 +214,75 @@ class SessionCaptureTest(unittest.TestCase):
                 '"is_error":true',
                 Path(attempt["session_file"]).read_text(),
             )
+
+    def test_deepseek_harness_captures_canonical_session_without_secret_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workdir = root / "workdir"
+            workdir.mkdir()
+            (workdir / ".git").mkdir()
+            node = root / "node"
+            node.write_text("#!/bin/sh\nprintf 'v24.19.0\\n'\n", encoding="utf-8")
+            node.chmod(0o755)
+            fake = root / "fake-dsh"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os\n"
+                "from pathlib import Path\n"
+                "session=Path(os.environ['DSH_HOME'])/'sessions/project/session-1/session.jsonl'\n"
+                "session.parent.mkdir(parents=True)\n"
+                "rows=[\n"
+                " {'type':'session','version':0},\n"
+                " {'type':'assistant/message','data':{'message':{'content':[{'type':'text','text':'done'}]}}},\n"
+                " {'type':'turn/end','data':{'reason':{'kind':'completed'}}},\n"
+                "]\n"
+                "session.write_text(''.join(json.dumps(row)+'\\n' for row in rows))\n"
+                "print('done')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            mcp = root / "mcp.json"
+            mcp.write_text(json.dumps({"mcpServers": {"test": {
+                "type": "http", "url": "https://example.invalid/mcp",
+                "headers": {"Authorization": "secret-mcp-token"},
+            }}}), encoding="utf-8")
+            with patch.dict(os.environ, {
+                "DEEPSEEK_BASE_URL": "https://example.invalid/v1",
+                "DEEPSEEK_API_KEY": "secret-model-token",
+            }):
+                attempt = run_deepseek_harness(
+                    "prompt", "system", cwd=workdir, archive_root=workdir,
+                    dsh_bin=str(fake), node_bin=str(node), mcp_config_file=mcp,
+                )
+            session = Path(attempt["session_file"])
+            self.assertEqual(attempt["return_code"], 0)
+            self.assertEqual(session_format(session), "dsh-session-jsonl-v0")
+            self.assertEqual(extract_assistant_text(session, final_only=True), "done")
+            self.assertFalse(any(session.parent.glob("*.patch.yml")))
+            artifacts = "".join(
+                path.read_text(encoding="utf-8", errors="ignore")
+                for path in session.parent.rglob("*") if path.is_file()
+            )
+            self.assertNotIn("secret-mcp-token", artifacts)
+            self.assertNotIn("secret-model-token", artifacts)
+
+    def test_deepseek_harness_rejects_unsupported_node_before_creating_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            node = root / "node"
+            node.write_text("#!/bin/sh\nprintf 'v18.20.0\\n'\n", encoding="utf-8")
+            node.chmod(0o755)
+            fake = self._fake_claude(root, "")
+            with patch.dict(os.environ, {
+                "DEEPSEEK_BASE_URL": "https://example.invalid/v1",
+                "DEEPSEEK_API_KEY": "secret-model-token",
+            }):
+                with self.assertRaisesRegex(RuntimeError, "requires Node"):
+                    run_deepseek_harness(
+                        "prompt", "system", cwd=root, archive_root=root,
+                        dsh_bin=str(fake), node_bin=str(node),
+                    )
+            self.assertFalse((root / "attempts").exists())
 
 
 if __name__ == "__main__":

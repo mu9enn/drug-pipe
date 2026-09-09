@@ -46,7 +46,7 @@ if [ ! -f "$MODEL_ARGS_FILE" ]; then
 fi
 source "$MODEL_ARGS_FILE"
 
-PROMPT_DATA=${PROMPT_DATA:?PROMPT_DATA must point to a trajectory-batched ToolRL JSONL file}
+PROMPT_DATA=${PROMPT_DATA:?PROMPT_DATA must point to a canonically ordered ToolRL decision JSONL file}
 if [ ! -f "$PROMPT_DATA" ]; then
   echo "PROMPT_DATA not found: $PROMPT_DATA" >&2
   exit 2
@@ -71,8 +71,9 @@ REWARD_KEY=${REWARD_KEY:-score}
 
 NUM_ROLLOUT=${NUM_ROLLOUT:-2}
 ROLLOUT_BATCH_SIZE=${ROLLOUT_BATCH_SIZE:-8}
-N_SAMPLES_PER_PROMPT=${N_SAMPLES_PER_PROMPT:-2}
-TOOLRL_REWARD_MODE=${TOOLRL_REWARD_MODE:-official}
+N_SAMPLES_PER_PROMPT=${N_SAMPLES_PER_PROMPT:-4}
+TOOLRL_REWARD_MODE=${TOOLRL_REWARD_MODE:-v8_baseline}
+export TOOLRL_ORDER_BONUS_LAMBDA=${TOOLRL_ORDER_BONUS_LAMBDA:-0.1}
 ADVANTAGE_ESTIMATOR=${ADVANTAGE_ESTIMATOR:-grpo}
 NORMALIZE_ADVANTAGES=${NORMALIZE_ADVANTAGES:-0}
 DYNAMIC_SAMPLING_FILTER_PATH=${DYNAMIC_SAMPLING_FILTER_PATH:-}
@@ -103,7 +104,7 @@ COLOCATE_OFFLOAD_ROLLOUT=${COLOCATE_OFFLOAD_ROLLOUT:-1}
 # train-only SFT so SGLang can restore its weights/cache beside the actor.
 OPTIMIZER_CPU_OFFLOAD=${TOOLRL_OPTIMIZER_CPU_OFFLOAD:-${OPTIMIZER_CPU_OFFLOAD:-0}}
 OPTIMIZER_OFFLOAD_FRACTION=${TOOLRL_OPTIMIZER_OFFLOAD_FRACTION:-${OPTIMIZER_OFFLOAD_FRACTION:-}}
-GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-8}
+GLOBAL_BATCH_SIZE=${GLOBAL_BATCH_SIZE:-32}
 NUM_EPOCH=${NUM_EPOCH:-1}
 LR=${LR:-1e-6}
 MIN_LR=${MIN_LR:-0.0}
@@ -154,7 +155,7 @@ if [ "$MODEL_PARALLEL_SIZE" -le 0 ] || [ $((NUM_GPUS % MODEL_PARALLEL_SIZE)) -ne
 fi
 
 if [ -n "$DYNAMIC_SAMPLING_FILTER_PATH" ]; then
-  echo "Trajectory-atomic sampling does not support decision-level dynamic filtering" >&2
+  echo "Canonical sequential sampling does not support decision-level dynamic filtering" >&2
   exit 2
 fi
 python drug_agent/scripts/validate_trajectory_toolrl_batches.py \
@@ -216,7 +217,7 @@ if [ "$BATCHES_PER_ROLLOUT" -le 0 ]; then
   exit 2
 fi
 if [ "$GLOBAL_BATCH_SIZE" -ne "$BATCHES_PER_ROLLOUT" ]; then
-  echo "Trajectory-atomic ToolRL requires one optimizer update per complete rollout batch: GBS=$GLOBAL_BATCH_SIZE RBS*n=$BATCHES_PER_ROLLOUT" >&2
+  echo "Sequential ToolRL requires one optimizer update per rollout batch: GBS=$GLOBAL_BATCH_SIZE RBS*n=$BATCHES_PER_ROLLOUT" >&2
   exit 2
 fi
 if [ -n "$ROLLOUT_LONG_RESPONSE_LEN" ]; then
@@ -276,8 +277,6 @@ TOOLRL_ARGS=(
   --apply-chat-template-kwargs "$APPLY_CHAT_TEMPLATE_KWARGS"
   --sglang-reasoning-parser "$DRUG_AGENT_NATIVE_REASONING_PARSER"
   --sglang-tool-call-parser "$DRUG_AGENT_NATIVE_TOOL_PARSER"
-  --rollout-shuffle
-
   --advantage-estimator "$ADVANTAGE_ESTIMATOR"
   --entropy-coef "$ENTROPY_COEF"
   --eps-clip "${EPS_CLIP:-0.2}"
@@ -561,6 +560,7 @@ RUNTIME_ENV_JSON="{
     ,\"DRUG_AGENT_TRAINING_OFFLINE\": \"1\"
     ,\"DRUG_AGENT_ALLOW_TOOL_ENV\": \"0\"
     ,\"TOOLRL_REWARD_MODE\": \"${TOOLRL_REWARD_MODE}\"
+    ,\"TOOLRL_ORDER_BONUS_LAMBDA\": \"${TOOLRL_ORDER_BONUS_LAMBDA}\"
     ,\"SLIME_VERIFY_FIRST_STEP_PARAMS\": \"${SLIME_VERIFY_FIRST_STEP_PARAMS:-0}\"
     ,\"SLIME_VERIFY_FIRST_UPDATE_EQUAL\": \"${SLIME_VERIFY_FIRST_UPDATE_EQUAL:-0}\"
     ,\"SLIME_LORA_SKIP_BASE_SYNC\": \"${SLIME_LORA_SKIP_BASE_SYNC:-0}\"

@@ -99,6 +99,11 @@ def main() -> None:
                 }
             )
 
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from pipeline.publish_training_tasks import publish_csv
+    publish_csv(out_csv, "e2e")
+
     manifest = {
         "generated_at": datetime.now().isoformat(),
         "questions_dir": str(questions_dir),

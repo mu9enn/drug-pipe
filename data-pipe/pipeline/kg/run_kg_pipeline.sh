@@ -11,6 +11,7 @@ KG_TASK_FILE=""
 N_CASES=""
 PROVIDER="${PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
 NUM_ROLLOUTS="${NUM_ROLLOUTS:-1}"
 PARALLEL_ROLLOUTS="${PARALLEL_ROLLOUTS:-1}"
 MAX_WORKERS="${MAX_WORKERS:-2}"
@@ -27,6 +28,7 @@ Options:
   --n-cases N                  Number of tasks to run from the head of JSONL
   --provider NAME              Default: manual (set model via external cc-switch)
   --claude-bin BIN             Default: claude
+  --harness claude|deepseek    Default: claude
   --num-rollouts N             Default: 1
   --parallel-rollouts N        Default: 1
   --max-workers N              Concurrent KG invocations (1-4). Default: 2
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --n-cases) N_CASES="${2:-}"; shift 2 ;;
     --provider) PROVIDER="${2:-}"; shift 2 ;;
     --claude-bin) CLAUDE_BIN="${2:-}"; shift 2 ;;
+    --harness) AGENT_HARNESS="${2:-}"; shift 2 ;;
     --num-rollouts) NUM_ROLLOUTS="${2:-}"; shift 2 ;;
     --parallel-rollouts) PARALLEL_ROLLOUTS="${2:-}"; shift 2 ;;
     --max-workers) MAX_WORKERS="${2:-}"; shift 2 ;;
@@ -185,6 +188,7 @@ CMD=(
   --results-root "$RESULTS_ROOT"
   --provider "$PROVIDER"
   --claude-bin "$CLAUDE_BIN"
+  --harness "$AGENT_HARNESS"
   --limit 0
   --num-rollouts "$NUM_ROLLOUTS"
   --parallel-rollouts "$PARALLEL_ROLLOUTS"
@@ -211,7 +215,7 @@ if [[ -z "$RESULTS_DIR" ]]; then
 fi
 RESULTS_DIR="$(realpath "$RESULTS_DIR")"
 
-"$PYTHON_BIN" - "$SELECTED_JSONL" "$RESULTS_DIR" "$MANIFEST_JSON" "$KG_TASK_FILE" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$MAX_WORKERS" "$SKIP_PROVIDER_SWITCH" <<'PY'
+"$PYTHON_BIN" - "$SELECTED_JSONL" "$RESULTS_DIR" "$MANIFEST_JSON" "$KG_TASK_FILE" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$MAX_WORKERS" "$SKIP_PROVIDER_SWITCH" "$AGENT_HARNESS" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -228,6 +232,7 @@ num_rollouts = int(sys.argv[8])
 parallel_rollouts = int(sys.argv[9])
 max_workers = int(sys.argv[10])
 skip_provider_switch = int(sys.argv[11])
+harness = sys.argv[12]
 
 selected = []
 with selected_path.open("r", encoding="utf-8", errors="ignore") as f:
@@ -289,6 +294,7 @@ manifest = {
     "task": "kg",
     "kg_task_file": str(kg_task_file),
     "provider": provider,
+    "harness": harness,
     "claude_bin": claude_bin,
     "num_rollouts": num_rollouts,
     "parallel_rollouts": parallel_rollouts,

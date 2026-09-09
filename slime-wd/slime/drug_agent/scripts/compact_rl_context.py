@@ -7,6 +7,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -540,9 +541,13 @@ def main() -> None:
     parser.add_argument("--summary-max-tokens", type=int, default=32768)
     parser.add_argument("--max-response-tokens", type=int, default=16384)
     parser.add_argument("--max-context-tokens", type=int, default=262144)
-    parser.add_argument("--semantic-summarizer", choices=("none", "claude"), default="none")
+    parser.add_argument("--semantic-summarizer", choices=("none", "claude", "deepseek"), default="none")
     parser.add_argument("--summary-cache-root", type=Path)
     parser.add_argument("--claude-bin", default="claude")
+    parser.add_argument("--dsh-bin", default=os.environ.get("DSH_BIN", "dsh"))
+    parser.add_argument("--dsh-node-bin", default=os.environ.get("DSH_NODE_BIN", "node"))
+    parser.add_argument("--dsh-model", default=os.environ.get("DSH_MODEL", "deepseek-v4-flash"))
+    parser.add_argument("--dsh-provider", default=os.environ.get("CC_SWITCH_PROVIDER", "dsv4flash"))
     parser.add_argument("--llm-timeout-sec", type=float, default=600.0)
     parser.add_argument("--llm-max-attempts", type=int, default=3)
     parser.add_argument("--excluded", type=Path)
@@ -554,14 +559,19 @@ def main() -> None:
     excluded_path = args.excluded or args.output.with_suffix(args.output.suffix + ".excluded.jsonl")
     excluded_path.parent.mkdir(parents=True, exist_ok=True)
     summarizer = None
-    if args.semantic_summarizer == "claude":
+    if args.semantic_summarizer in {"claude", "deepseek"}:
         if args.summary_cache_root is None:
-            raise SystemExit("--summary-cache-root is required for --semantic-summarizer claude")
+            raise SystemExit("--summary-cache-root is required for semantic summarization")
         summarizer = ClaudeContextSummarizer(
             cache_root=args.summary_cache_root,
             claude_bin=args.claude_bin,
             timeout_sec=args.llm_timeout_sec,
             max_attempts=args.llm_max_attempts,
+            harness=args.semantic_summarizer,
+            dsh_bin=args.dsh_bin,
+            dsh_node_bin=args.dsh_node_bin,
+            dsh_model=args.dsh_model,
+            dsh_provider=args.dsh_provider,
         )
     input_records = records = compacted_count = original_max = output_max = 0
     row_audits = []

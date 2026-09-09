@@ -85,6 +85,9 @@ def main() -> None:
         src.rename(dst)
     else:
         raise FileNotFoundError(f"VS generator output not found: {src}")
+    sys.path.insert(0, str(project_root.parent))
+    from pipeline.publish_training_tasks import publish_csv
+    publish_csv(dst, "vs")
     print(f"Wrote: {dst}")
 
 

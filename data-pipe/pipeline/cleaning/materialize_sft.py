@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from collections import Counter
 from pathlib import Path
@@ -26,6 +27,7 @@ def materialize_sft(
     *,
     deployment_tool_set: Path,
     system_prompt: str,
+    user_prompt_prefix: str = "",
     tool_visibility: str = "all",
 ) -> dict[str, Any]:
     tools = load_deployment_tool_set(deployment_tool_set)
@@ -37,6 +39,7 @@ def materialize_sft(
             row,
             deployment_tools=tools,
             system_prompt=system_prompt,
+            user_prompt_prefix=user_prompt_prefix,
             tool_visibility=tool_visibility,
         )
         for row in semantic
@@ -53,6 +56,8 @@ def materialize_sft(
         "input_count": len(semantic),
         "sft_count": len(sft),
         "tool_visibility": tool_visibility,
+        "system_prompt_sha256": hashlib.sha256(system_prompt.strip().encode()).hexdigest(),
+        "user_prompt_prefix_sha256": hashlib.sha256(user_prompt_prefix.strip().encode()).hexdigest(),
         "deployment_tool_set": str(tools.source_path),
         "deployment_tool_set_sha256": tools.sha256,
         "tool_count_histogram": dict(Counter(str(len(row["tools"])) for row in sft)),
@@ -74,6 +79,7 @@ def main() -> None:
     prompt = parser.add_mutually_exclusive_group(required=True)
     prompt.add_argument("--system-prompt")
     prompt.add_argument("--system-prompt-file", type=Path)
+    parser.add_argument("--user-prompt-prefix-file", type=Path)
     args = parser.parse_args()
     system_prompt = args.system_prompt or args.system_prompt_file.read_text(encoding="utf-8")
     print(
@@ -83,6 +89,11 @@ def main() -> None:
                 args.output_root,
                 deployment_tool_set=args.deployment_tool_set,
                 system_prompt=system_prompt,
+                user_prompt_prefix=(
+                    args.user_prompt_prefix_file.read_text(encoding="utf-8")
+                    if args.user_prompt_prefix_file
+                    else ""
+                ),
                 tool_visibility=args.tool_visibility,
             ),
             ensure_ascii=False,

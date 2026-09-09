@@ -40,6 +40,8 @@ Read `simple_context.json`, `previous_output.json`, and `semantic_feedback.json`
 
 Read `raw_output.txt` and `output_schema.json`. Convert the prior answer into one valid object without changing its scientific meaning or adding tools, identifiers, values, facts, or missing inputs. Remove formatting and internal toolchain leakage. Return `reject` if the original task is not self-contained.
 
+The generated task must separately specify the solver's final answer: one JSON object containing exactly `result` (the requested non-null result or deliverables) and `evidence` (an array of observed evidence, which may be empty). Put this requirement in both `public_question_text` and `question_payload.expected_output`. This is distinct from your own question-generation JSON envelope.
+
 ## Return the result
 
 Return exactly one compact JSON object matching `output_schema.json`. For success, populate `public_question_text`, `question_payload.task`, `question_payload.inputs`, `question_payload.expected_output`, and `rationale`. For rejection, use an empty public question and payload plus a non-empty rationale.

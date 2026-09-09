@@ -131,3 +131,19 @@ slime-wd/outputs/slime_drug_agent_data/*
 tmp/
 tmp_test_claude/
 minitest_*/
+
+# Pinned small benchmark protocol releases; model/running data remain ignored.
+!slime-wd/molbench/
+slime-wd/molbench/*
+!slime-wd/molbench/aligned/
+!slime-wd/molbench/aligned/**
+!slime-wd/molbench/upstream/
+!slime-wd/molbench/upstream/**
+
+# Local runtime caches and scratch evaluation artifacts
+/data-pipe/.runtime/
+/slime-wd/molbench_ms2_002/
+
+# Published MO question contracts
+!slime-wd/molbench/aligned-mo/
+!slime-wd/molbench/aligned-mo/**

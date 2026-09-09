@@ -1,0 +1,25 @@
+llm-pi-ai:
+  providers:
+    slime-local:
+      displayName: SLIME / SGLang Local
+      apiKeyEnv: SLIME_LOCAL_API_KEY
+      api: openai-completions
+      baseURL: http://127.0.0.1:30000/v1
+      streamIdleTimeoutMs: 1800000
+      retryPolicy:
+        mode: normal
+        maxRetries: 0
+      compat:
+        supportsDeveloperRole: false
+        maxTokensField: max_tokens
+      models:
+        - id: __MODEL_ID__
+          name: __MODEL_NAME__
+          contextWindow: 262144
+          maxTokens: 16384
+          input:
+            - text
+
+agent-default-model:
+  provider: slime-local
+  model: __MODEL_ID__

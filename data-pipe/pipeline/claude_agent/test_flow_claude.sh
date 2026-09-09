@@ -12,7 +12,7 @@ cd "$REPO_DIR"
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  bash claude_agent/test_flow_claude.sh [provider] [claude_bin] [limit] [num_rollouts] [parallel_rollouts] [task] [dataset_csv] [skip_provider_switch] [max_workers]
+  bash claude_agent/test_flow_claude.sh [provider] [claude_bin] [limit] [num_rollouts] [parallel_rollouts] [task] [dataset_csv] [skip_provider_switch] [max_workers] [harness]
 
 Defaults:
   provider=manual
@@ -24,6 +24,7 @@ Defaults:
   dataset_csv=<repo>/molbench/molbench-<task>-900.csv (for e2e: <repo>/molbench/MolBench-E2E/e2e_dataset.csv; for kg: must be explicit)
   skip_provider_switch=0
   max_workers=0 (compatibility: use parallel_rollouts)
+  harness=claude
 EOF
   exit 0
 fi
@@ -37,6 +38,7 @@ TASK="${6:-vs}"
 DATASET_CSV="${7:-}"
 SKIP_PROVIDER_SWITCH="${8:-0}"
 MAX_WORKERS="${9:-0}"
+AGENT_HARNESS="${10:-${AGENT_HARNESS:-claude}}"
 
 TASK="$(echo "$TASK" | tr '[:upper:]' '[:lower:]')"
 if [[ "$TASK" != "vs" && "$TASK" != "ac" && "$TASK" != "pf" && "$TASK" != "e2e" && "$TASK" != "kg" ]]; then
@@ -95,6 +97,7 @@ CMD=(
   --results-root "$RESULTS_ROOT"
   --provider "$PROVIDER"
   --claude-bin "$CLAUDE_BIN"
+  --harness "$AGENT_HARNESS"
   --limit "$LIMIT"
   --num-rollouts "$NUM_ROLLOUTS"
   --parallel-rollouts "$PARALLEL_ROLLOUTS"

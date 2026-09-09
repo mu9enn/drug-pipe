@@ -1,0 +1,51 @@
+{
+  "upstream_commit": "180abb7679ffc5b1ca9974e7390e141d8098f642",
+  "suites": {
+    "mo-edit": [
+      {
+        "subtask": "add",
+        "count": 10,
+        "path": "data/molbench-mo/molbench-mo-edit/add.json",
+        "source_sha256": "6f91c85ab9d8125c487ae47d9acc006e3a1baba07a5dbdfc2b4902e2f6906cd0",
+        "output_sha256": "e379335cef7206107af7bf18ddd8b2c4a6d76ac04ca23cef6219651813052d3e"
+      },
+      {
+        "subtask": "delete",
+        "count": 9,
+        "path": "data/molbench-mo/molbench-mo-edit/delete.json",
+        "source_sha256": "e6921cb4820dc55478a391741e232157291f628b25b4fda35cd1bec804eaa1d4",
+        "output_sha256": "70ad2bce043cbac44f4caf8fc9b1ba99d7e2cfad4eac6fa54b40ef99f271de5b"
+      },
+      {
+        "subtask": "sub",
+        "count": 20,
+        "path": "data/molbench-mo/molbench-mo-edit/sub.json",
+        "source_sha256": "3f846a4f8aad991d3197532c6addccf5d210b726f8c230ba2d5f6cb9b0ff3fed",
+        "output_sha256": "ab0b3805cb8444c12c191d6c9fe51048d08fb4990dd8f2587814a8833e70dd7c"
+      }
+    ],
+    "mo-opt": [
+      {
+        "subtask": "logp",
+        "count": 11,
+        "path": "data/molbench-mo/molbench-mo-opt/logp.json",
+        "source_sha256": "e919e2eb75cd2e173f6a19453b9dbc0185953ed6f0ec79d309218931a25186cd",
+        "output_sha256": "713b435cda4ac8dc232167f82b44024abccca04b0ac287fe13696074dcbeb3cd"
+      },
+      {
+        "subtask": "qed",
+        "count": 20,
+        "path": "data/molbench-mo/molbench-mo-opt/qed.json",
+        "source_sha256": "4ca1f659538d08e3d22dd05db9e3f8c75815fa10110798fa5974751e683439bd",
+        "output_sha256": "210efd13bc7c057727eea7cd0dcfce864f5f8af0264c36d68378cb467fcc3b12"
+      },
+      {
+        "subtask": "solubility",
+        "count": 8,
+        "path": "data/molbench-mo/molbench-mo-opt/solubility.json",
+        "source_sha256": "0d327c9b83c6ebd8d284b86c301b2bac1a94d68e8f33bcaafc8cd92f7c3ee4f9",
+        "output_sha256": "44ba9e7ff0f7db45c09dcdddecf518780c6019a67881eaca4c470d02845f32da"
+      }
+    ]
+  }
+}

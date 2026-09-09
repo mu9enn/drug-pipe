@@ -55,10 +55,11 @@ GROUNDING_SELECTION=""
 MAX_REPEAT_TARGET=""
 MAX_REPEAT_COMPOUND=""
 MAX_WORKERS=1
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
 
 usage() {
   echo "Usage:"
-  echo "  Default simple profile: $0 <run_id> [--target-successes <N>] [--max-attempts <N>] [--max-workers <1-4>] [...]"
+  echo "  Default simple profile: $0 <run_id> [--target-successes <N>] [--max-attempts <N>] [--max-workers <1-4>] [--harness claude|deepseek] [...]"
 }
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "--help" || "$RUN_ID" == "-h" ]]; then
@@ -121,6 +122,10 @@ while [[ $# -gt 0 ]]; do
       MAX_WORKERS="${2:-}"
       shift 2
       ;;
+    --harness)
+      AGENT_HARNESS="${2:-claude}"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -172,6 +177,7 @@ cmd=(
   --project-root "$PROJECT_ROOT"
   --run-id "$RUN_ID"
   --mode claude_cc
+  --harness "$AGENT_HARNESS"
   --max-workers "$MAX_WORKERS"
   sample-questions
   --sampling-profile "$SAMPLING_PROFILE"

@@ -1,0 +1,587 @@
+{
+  "upstream_commit": "180abb7679ffc5b1ca9974e7390e141d8098f642",
+  "contract_version": "molbench_answer_contract_v4",
+  "suites": {
+    "ms1": {
+      "count": 50,
+      "source_sha256": "d13d55edcbdcfa42a7930ec3842bbf4b8af79071b2fa6282789f62d2326e02b1",
+      "output_sha256": "516aa48da584455d58a3fe7d173713a10b9e2c79784dacb7282dec440c34bdd8",
+      "constraints": [
+        {
+          "id": "molbench_ms1_001",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_002",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_003",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_004",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_005",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_006",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_007",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_008",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_009",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_010",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_011",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_012",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_013",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_014",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_015",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_016",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_017",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_018",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_019",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_020",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_021",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_022",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_023",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_024",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_025",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_026",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_027",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_028",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_029",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_030",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_031",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_032",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_033",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_034",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_035",
+          "exact_count": null,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_036",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_037",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_038",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_039",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_040",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_041",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_042",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_043",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_044",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_045",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_046",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_047",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_048",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_049",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms1_050",
+          "exact_count": 1,
+          "complete_ranking": false
+        }
+      ]
+    },
+    "ms2": {
+      "count": 37,
+      "source_sha256": "00fa9acc709fcd185029f8b7e0da22a702a18f35d8e472734f1389980781ae2d",
+      "output_sha256": "78eda21aa28bb51ecf8ab8db0c61c80eabb6955dbce464966ce74b1f660d17e1",
+      "constraints": [
+        {
+          "id": "molbench_ms2_001",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_002",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_003",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_004",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_005",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_006",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_007",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_008",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_009",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_010",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_011",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_012",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_013",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_014",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_015",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_016",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_017",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_018",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_019",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_020",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_021",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_022",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_023",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_024",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_025",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_026",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_027",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_028",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_029",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_030",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_031",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_032",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_033",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_034",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_035",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_036",
+          "exact_count": 1,
+          "complete_ranking": false
+        },
+        {
+          "id": "molbench_ms2_037",
+          "exact_count": 1,
+          "complete_ranking": false
+        }
+      ]
+    },
+    "ms3": {
+      "count": 25,
+      "source_sha256": "1ae7f0e4818a648068826234fcc7937a4cd17e24d938bde5a0ee36d51d803bb4",
+      "output_sha256": "23a4568abad46c02a09c0013d4c09542587f93ac37c9b8ab67c1834dcfd69e72",
+      "constraints": [
+        {
+          "id": "molbench_ms3_001",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_002",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_003",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_004",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_005",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_006",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_007",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_008",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_009",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_010",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_011",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_012",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_013",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_014",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_015",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_016",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_017",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_018",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_019",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_020",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_021",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_022",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_023",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_024",
+          "exact_count": 60,
+          "complete_ranking": true
+        },
+        {
+          "id": "molbench_ms3_025",
+          "exact_count": 60,
+          "complete_ranking": true
+        }
+      ]
+    }
+  }
+}

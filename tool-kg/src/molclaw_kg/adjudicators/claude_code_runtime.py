@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -14,6 +15,13 @@ from typing import Any
 
 from ..io_utils import sha256_file, sha256_text
 from ..settings import ProjectConfig
+
+DATA_PIPE_ROOT = Path(__file__).resolve().parents[4] / "data-pipe"
+if str(DATA_PIPE_ROOT) not in sys.path:
+    sys.path.insert(0, str(DATA_PIPE_ROOT))
+from pipeline.claude_agent.session_capture import (  # noqa: E402
+    run_deepseek_harness,
+)
 
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json|JSON)?\s*([\s\S]*?)```")
@@ -46,6 +54,19 @@ def extract_stream_result(raw_stream: str) -> tuple[str, str]:
         except json.JSONDecodeError:
             continue
         if not isinstance(obj, dict):
+            continue
+        if obj.get("type") == "assistant/message":
+            data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
+            message = data.get("message") if isinstance(data.get("message"), dict) else {}
+            content = message.get("content")
+            text = "".join(
+                str(item.get("text") or "")
+                for item in (content if isinstance(content, list) else [])
+                if isinstance(item, dict) and item.get("type") == "text"
+            ).strip()
+            if text:
+                assistant_chunks.append(text)
+                result_text = text
             continue
         if obj.get("type") == "assistant":
             message = obj.get("message")
@@ -132,6 +153,8 @@ def allocate_attempt(workdir: Path) -> tuple[int, Path]:
 
 def inspect_mcp_init(raw_stream: str, expected_server: str | list[str]) -> tuple[bool, str, dict[str, Any]]:
     init_obj: dict[str, Any] | None = None
+    dsh_calls: dict[str, str] = {}
+    dsh_results: set[str] = set()
     for line in raw_stream.splitlines():
         line = line.strip()
         if not line:
@@ -142,8 +165,39 @@ def inspect_mcp_init(raw_stream: str, expected_server: str | list[str]) -> tuple
             continue
         if not isinstance(obj, dict):
             continue
+        if obj.get("type") == "tool/call":
+            data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
+            call_id = str(data.get("callId") or "")
+            tool_name = str(data.get("name") or "")
+            if call_id and tool_name.startswith("mcp__"):
+                dsh_calls[call_id] = tool_name
+        elif obj.get("type") == "tool/result":
+            data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
+            message = data.get("message") if isinstance(data.get("message"), dict) else {}
+            source = message.get("source") if isinstance(message.get("source"), dict) else {}
+            call_id = str(source.get("callId") or "")
+            blocks = message.get("content") if isinstance(message.get("content"), list) else []
+            if call_id and not any(
+                isinstance(block, dict) and block.get("isError") is True for block in blocks
+            ):
+                dsh_results.add(call_id)
         if obj.get("type") == "system" and obj.get("subtype") == "init":
             init_obj = obj
+
+    expected_servers = [expected_server] if isinstance(expected_server, str) else list(expected_server)
+    observed = {
+        name: sorted(
+            tool for call_id, tool in dsh_calls.items()
+            if call_id in dsh_results and tool.startswith(f"mcp__{name}__")
+        )
+        for name in expected_servers
+    }
+    if init_obj is None and any(observed.values()):
+        return True, "observed_mcp_tool_result", {
+            "mcp_tools_count": len(dsh_calls),
+            "mcp_servers": {},
+            "observed_mcp_tool_results": observed,
+        }
 
     if init_obj is None:
         return False, "missing_system_init_event", {}
@@ -167,7 +221,6 @@ def inspect_mcp_init(raw_stream: str, expected_server: str | list[str]) -> tuple
         "mcp_tools_count": len(mcp_tools),
         "mcp_servers": status_by_name,
     }
-    expected_servers = [expected_server] if isinstance(expected_server, str) else list(expected_server)
     for name in expected_servers:
         if status_by_name.get(name) != "connected":
             got = status_by_name.get(name, "missing")
@@ -180,6 +233,7 @@ def inspect_mcp_init(raw_stream: str, expected_server: str | list[str]) -> tuple
 @dataclass
 class ClaudeCodeRunResult:
     ok: bool
+    harness: str
     return_code: int
     timed_out: bool
     latency_sec: float
@@ -207,6 +261,17 @@ class ClaudeCodeRuntime:
         self.config = config
         self.provider = os.getenv("MOLCLAW_AGENT_PROVIDER", os.getenv("CC_SWITCH_PROVIDER", "manual"))
         self.claude_bin = "claude"
+        self.harness = os.getenv(
+            "MOLCLAW_AGENT_HARNESS",
+            os.getenv("AGENT_HARNESS", getattr(config.runtime, "harness", "claude")),
+        )
+        if self.harness not in {"claude", "deepseek"}:
+            raise ValueError(f"unsupported agent harness: {self.harness}")
+        self.dsh_bin = os.getenv("DSH_BIN", getattr(config.runtime, "dsh_bin", "dsh"))
+        self.dsh_node_bin = os.getenv("DSH_NODE_BIN", getattr(config.runtime, "dsh_node_bin", "node"))
+        self.dsh_model = os.getenv(
+            "DSH_MODEL", getattr(config.runtime, "dsh_model", "deepseek-v4-flash")
+        )
         self.mcp_server_name = "molclaw-scp"
         self.mcp_server_url = (
             os.getenv("MOLCLAW_SCP_MCP_URL", "")
@@ -308,6 +373,12 @@ class ClaudeCodeRuntime:
 
             actual_workdir = (workdir or self.config.paths.root).resolve()
             actual_workdir.mkdir(parents=True, exist_ok=True)
+            if self.harness == "deepseek" and (actual_workdir / ".claude/skills").is_dir():
+                shutil.copytree(
+                    actual_workdir / ".claude/skills",
+                    actual_workdir / ".agents/skills",
+                    dirs_exist_ok=True,
+                )
             session_path = actual_workdir / "complete_session.jsonl"
             max_ready_retries = max(0, int(os.getenv("CLAUDE_MCP_READY_RETRIES", "2")))
             ready_retry_wait_sec = max(0.0, float(os.getenv("CLAUDE_MCP_READY_RETRY_WAIT_SEC", "2")))
@@ -325,41 +396,59 @@ class ClaudeCodeRuntime:
 
             while True:
                 mcp_attempts += 1
-                attempt_index, attempt_session_path = allocate_attempt(actual_workdir)
-                attempt_started = time.time()
-                attempt_failure: str | None = None
-                try:
-                    with attempt_session_path.open("wb") as session_f:
-                        proc = subprocess.run(
-                            cmd,
-                            cwd=str(actual_workdir),
-                            env=_claude_code_environment(),
-                            input=prompt.encode("utf-8"),
-                            stdout=session_f,
-                            stderr=subprocess.STDOUT,
-                            check=False,
-                            timeout=timeout_sec,
-                        )
-                        return_code = int(proc.returncode)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    return_code = 124
-                    attempt_failure = "timeout"
-                except FileNotFoundError:
-                    return_code = 127
-                    attempt_failure = "executable_not_found"
-
-                inspection = inspect_raw_session(attempt_session_path)
-                attempt_meta = {
-                    "attempt_index": attempt_index,
-                    "session_file": str(attempt_session_path),
-                    "return_code": return_code,
-                    "timed_out": timed_out,
-                    "timeout_sec": timeout_sec,
-                    "duration_sec": round(time.time() - attempt_started, 3),
-                    "failure": attempt_failure,
-                    **inspection,
-                }
+                if self.harness == "deepseek":
+                    attempt_meta = run_deepseek_harness(
+                        prompt,
+                        system_prompt or "You are a precise non-interactive agent.",
+                        cwd=actual_workdir,
+                        archive_root=actual_workdir,
+                        dsh_bin=self.dsh_bin,
+                        node_bin=self.dsh_node_bin,
+                        model=self.dsh_model,
+                        mcp_config_file=mcp_cfg,
+                        provider_id=self.provider,
+                        timeout_sec=timeout_sec,
+                    )
+                    attempt_session_path = Path(str(attempt_meta["session_file"]))
+                    return_code = int(attempt_meta["return_code"])
+                    timed_out = bool(attempt_meta["timed_out"])
+                    inspection = inspect_raw_session(attempt_session_path)
+                else:
+                    attempt_index, attempt_session_path = allocate_attempt(actual_workdir)
+                    attempt_started = time.time()
+                    attempt_failure: str | None = None
+                    try:
+                        with attempt_session_path.open("wb") as session_f:
+                            proc = subprocess.run(
+                                cmd,
+                                cwd=str(actual_workdir),
+                                env=_claude_code_environment(),
+                                input=prompt.encode("utf-8"),
+                                stdout=session_f,
+                                stderr=subprocess.STDOUT,
+                                check=False,
+                                timeout=timeout_sec,
+                            )
+                            return_code = int(proc.returncode)
+                    except subprocess.TimeoutExpired:
+                        timed_out = True
+                        return_code = 124
+                        attempt_failure = "timeout"
+                    except FileNotFoundError:
+                        return_code = 127
+                        attempt_failure = "executable_not_found"
+                    inspection = inspect_raw_session(attempt_session_path)
+                    attempt_meta = {
+                        "attempt_index": attempt_index,
+                        "harness": "claude",
+                        "session_file": str(attempt_session_path),
+                        "return_code": return_code,
+                        "timed_out": timed_out,
+                        "timeout_sec": timeout_sec,
+                        "duration_sec": round(time.time() - attempt_started, 3),
+                        "failure": attempt_failure,
+                        **inspection,
+                    }
                 claude_attempts.append(attempt_meta)
                 raw_stream = attempt_session_path.read_text(
                     encoding="utf-8", errors="ignore"
@@ -395,10 +484,15 @@ class ClaudeCodeRuntime:
         assistant_text, result_text = extract_stream_result(raw_stream)
         return ClaudeCodeRunResult(
             ok=(return_code == 0),
+            harness=self.harness,
             return_code=return_code,
             timed_out=timed_out,
             latency_sec=latency,
-            command=f"{' '.join(shlex.quote(x) for x in cmd)} <stdin:prompt>",
+            command=(
+                f"{self.dsh_bin} --profile headless --patch <ephemeral-patch> <prompt>"
+                if self.harness == "deepseek"
+                else f"{' '.join(shlex.quote(x) for x in cmd)} <stdin:prompt>"
+            ),
             provider=self.provider,
             provider_switch_ok=True,
             provider_switch_message=provider_msg,

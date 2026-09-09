@@ -38,16 +38,21 @@ class TrajectoryPathNormalizer:
         if l1_source in value:
             value = value.replace(
                 l1_source,
-                self._remember(l1_source, "skills/L1_tools", "l1_runtime_path"),
+                self._remember(l1_source, ".agents/skills", "l1_runtime_path"),
             )
         if ".claude/skills/L1_tools" in value:
             value = value.replace(
                 ".claude/skills/L1_tools",
                 self._remember(
                     ".claude/skills/L1_tools",
-                    "skills/L1_tools",
+                    ".agents/skills",
                     "l1_runtime_path",
                 ),
+            )
+        if "skills/L1_tools" in value:
+            value = value.replace(
+                "skills/L1_tools",
+                self._remember("skills/L1_tools", ".agents/skills", "l1_runtime_path"),
             )
 
         workspace_child = workspace + "/"

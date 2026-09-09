@@ -1,0 +1,117 @@
+{
+  "release": "/mnt/shared-storage-user/sdpdev-fs/sunxiangyu/drug_wd/drug_pipe_regular_v1_20260908",
+  "verified_sha256": {
+    "training/qwen35_sft_train.jsonl": "1f0ae23b80d3d59288fb84f4d7723211fdd19fabddf5564048d12880bb34a07b",
+    "semantic_trajectories.jsonl": "c215e380d25c64695989c28e907605c342012b25cd6c9ade650b6be2a96cdb5d"
+  },
+  "step_definition": "assistant decision rounds, including final answer; parallel calls count as one round",
+  "metrics": {
+    "steps": {
+      "count": 596,
+      "total": 11669,
+      "min": 3,
+      "mean": 19.578859060402685,
+      "median": 18.0,
+      "p90": 36.0,
+      "p95": 42.0,
+      "max": 74
+    },
+    "tool_calls": {
+      "count": 596,
+      "total": 20428,
+      "min": 2,
+      "mean": 34.2751677852349,
+      "median": 25.0,
+      "p90": 80.0,
+      "p95": 86.0,
+      "max": 129
+    },
+    "unique_tools": {
+      "count": 596,
+      "total": 6026,
+      "min": 2,
+      "mean": 10.110738255033556,
+      "median": 10.0,
+      "p90": 16.0,
+      "p95": 17.0,
+      "max": 27
+    },
+    "tokens": {
+      "count": 596,
+      "total": 45996469,
+      "min": 40361,
+      "mean": 77175.28355704698,
+      "median": 62831.0,
+      "p90": 121126.0,
+      "p95": 140383.25,
+      "max": 216783
+    },
+    "trainable_tokens": {
+      "count": 596,
+      "total": 14205406,
+      "min": 522,
+      "mean": 23834.573825503358,
+      "median": 12339.5,
+      "p90": 58768.0,
+      "p95": 74098.75,
+      "max": 157670
+    }
+  },
+  "tasks": [
+    {
+      "task_type": "AC",
+      "count": 100,
+      "mean_steps": 18.57,
+      "median_steps": 17.0,
+      "tokens": 5396583,
+      "trainable_tokens": 691819
+    },
+    {
+      "task_type": "PF",
+      "count": 144,
+      "mean_steps": 5.388888888888889,
+      "median_steps": 5.0,
+      "tokens": 7470659,
+      "trainable_tokens": 863707
+    },
+    {
+      "task_type": "VS",
+      "count": 97,
+      "mean_steps": 29.329896907216494,
+      "median_steps": 28.0,
+      "tokens": 9933388,
+      "trainable_tokens": 4131115
+    },
+    {
+      "task_type": "KG",
+      "count": 237,
+      "mean_steps": 24.122362869198312,
+      "median_steps": 22.0,
+      "tokens": 21957080,
+      "trainable_tokens": 8225920
+    },
+    {
+      "task_type": "E2E",
+      "count": 18,
+      "mean_steps": 26.333333333333332,
+      "median_steps": 24.5,
+      "tokens": 1238759,
+      "trainable_tokens": 292845
+    }
+  ],
+  "trajectories_with_parallel_calls": 568,
+  "explicit_error_observations": 2072,
+  "trajectories_with_explicit_errors": 365,
+  "unique_tools": 84,
+  "unique_loaded_skills": 52,
+  "context_coverage": {
+    "16384": 0,
+    "32768": 0,
+    "65536": 306,
+    "131072": 552,
+    "245760": 596
+  },
+  "steps_tokens_pearson": 0.7496101085773673,
+  "trainable_token_fraction": 0.30883688050054453,
+  "longest_10_percent_token_share": 0.188963026705376
+}

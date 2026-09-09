@@ -25,15 +25,10 @@ L1_SKILL_PATH_RE = re.compile(
 CLAUDE_RUNTIME_RE = re.compile(r"(?:^|[\s/\"'])CLAUDE\.md(?:$|[\s\"'])", re.IGNORECASE)
 TEACHER_SIDECARS = frozenset(
     {
-        "question.json", "prompt.txt", "system_prompt.md", "run_meta.json",
+        "prompt.txt", "system_prompt.md", "run_meta.json",
         "run_config.json", "complete_session.jsonl", "parsed_answer.json",
         "selected_attempt_artifacts.json", "completion_report.json",
     }
-)
-IMPORTANT_KEYS = (
-    "status", "state", "ok", "is_error", "error", "message", "msg", "summary",
-    "result", "results", "score", "scores", "value", "count", "artifact",
-    "output", "output_path", "output_file", "resource", "resources",
 )
 BASE64_RE = re.compile(r"^[A-Za-z0-9+/\r\n]+={0,2}$")
 
@@ -159,32 +154,6 @@ def _redact_blobs(value: Any) -> tuple[Any, int]:
     return value, 0
 
 
-def _bounded_value(value: Any, budget: int) -> Any:
-    """Summarize a nested value so retained evidence cannot defeat compaction."""
-    rendered = json.dumps(value, ensure_ascii=False, default=str)
-    if len(rendered) <= budget:
-        return value
-    if isinstance(value, dict):
-        keys = [key for key in IMPORTANT_KEYS if key in value] or list(value)[:5]
-        child_budget = max(128, budget // max(1, len(keys)))
-        return {
-            "compacted": True,
-            "retained": {key: _bounded_value(value[key], child_budget) for key in keys},
-            "omitted_keys": [str(key) for key in value if key not in keys][:100],
-        }
-    if isinstance(value, list):
-        child_budget = max(128, budget // 5)
-        return {
-            "compacted": True,
-            "item_count": len(value),
-            "items_head": [_bounded_value(item, child_budget) for item in value[:3]],
-            "items_tail": [_bounded_value(item, child_budget) for item in value[-2:]] if len(value) > 3 else [],
-        }
-    text = str(value)
-    preview = max(64, budget // 2)
-    return {"compacted": True, "text_head": text[:preview], "text_tail": text[-preview:]}
-
-
 def compact_observation(
     value: Any,
     max_chars: int,
@@ -195,6 +164,11 @@ def compact_observation(
     original = json.dumps(value, ensure_ascii=False, default=str)
     redacted, blob_count = _redact_blobs(value)
     redacted_text = json.dumps(redacted, ensure_ascii=False, default=str)
+    # Scientific structured observations retain candidate/metric/unit relationships.
+    # Only opaque blobs are redacted; the final token gate handles large records.
+    if isinstance(redacted, (dict, list)):
+        return redacted, ({'method': 'blob_redaction', 'original_size_chars': len(original),
+                           'blob_count': blob_count} if blob_count else None)
     limit = max_chars * 4 if preserve_skill_text else max_chars
     if len(redacted_text) <= limit:
         if not blob_count:
@@ -204,37 +178,15 @@ def compact_observation(
             "original_size_chars": len(original),
             "blob_count": blob_count,
         }
-    if isinstance(redacted, dict):
-        retained_keys = [key for key in IMPORTANT_KEYS if key in redacted]
-        child_budget = max(128, max_chars // max(1, len(retained_keys)))
-        retained = {key: _bounded_value(redacted[key], child_budget) for key in retained_keys}
-        compacted: Any = {
-            "compacted": True,
-            "original_size_chars": len(original),
-            "retained": retained,
-            "omitted_keys": [str(key) for key in redacted if key not in retained][:100],
-        }
-        method = "decision_fields"
-    elif isinstance(redacted, list):
-        child_budget = max(128, max_chars // 5)
-        compacted = {
-            "compacted": True,
-            "original_size_chars": len(original),
-            "item_count": len(redacted),
-            "items_head": [_bounded_value(item, child_budget) for item in redacted[:3]],
-            "items_tail": [_bounded_value(item, child_budget) for item in redacted[-2:]] if len(redacted) > 3 else [],
-        }
-        method = "list_head_tail"
-    else:
-        text = str(redacted)
-        preview = max(256, min(max_chars // 2, 2000))
-        compacted = {
-            "compacted": True,
-            "original_size_chars": len(original),
-            "text_head": text[:preview],
-            "text_tail": text[-preview:] if len(text) > preview else "",
-        }
-        method = "text_head_tail"
+    text = str(redacted)
+    preview = max(256, min(max_chars // 2, 2000))
+    compacted = {
+        "compacted": True,
+        "original_size_chars": len(original),
+        "text_head": text[:preview],
+        "text_tail": text[-preview:] if len(text) > preview else "",
+    }
+    method = "text_head_tail"
     if retained_evidence:
         compacted["downstream_evidence"] = retained_evidence
     return compacted, {
@@ -257,7 +209,9 @@ def _status(payload: Any, event_is_error: bool) -> tuple[str, bool]:
 def _unwrap_final(text: str) -> str:
     stripped = text.strip()
     match = re.fullmatch(r"<answer>\s*([\s\S]*?)\s*</answer>", stripped, flags=re.IGNORECASE)
-    return match.group(1).strip() if match else stripped
+    stripped = match.group(1).strip() if match else stripped
+    fenced = re.fullmatch(r"```(?:json|JSON)?\s*\n([\s\S]*?)\n```", stripped)
+    return fenced.group(1).strip() if fenced else stripped
 
 
 def _group_assistant_responses(events: list[dict[str, Any]]) -> list[AssistantResponse]:
@@ -418,7 +372,7 @@ def build_semantic_trajectory(
                     derived_ids.append(derived_id)
                     call = {
                         "name": "Read",
-                        "arguments": {"file_path": f"skills/{target}"},
+                        "arguments": {"file_path": f".agents/skills/{target.split('L1_tools/', 1)[1]}"},
                         "source_tool_use_id": derived_id,
                     }
                     retained_calls.append(call)

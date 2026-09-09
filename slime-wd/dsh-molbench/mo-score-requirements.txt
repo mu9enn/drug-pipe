@@ -1,0 +1,6 @@
+# Installed in a separate Python 3.10 venv with the login host's scientific dependencies.
+# PyTDC 1.1.15 imports rdkit.six; RDKit 2023.9.6 provides it and requires NumPy < 2.
+PyTDC==1.1.15
+fuzzywuzzy==0.18.0
+rdkit==2023.9.6
+numpy==1.26.4

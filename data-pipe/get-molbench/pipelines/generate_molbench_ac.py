@@ -54,6 +54,9 @@ def main() -> None:
         str(out_path),
     ]
     subprocess.run(cmd, check=True)
+    sys.path.insert(0, str(project_root.parent))
+    from pipeline.publish_training_tasks import publish_csv
+    publish_csv(out_path, "ac")
     print(f"Wrote: {out_path}")
 
 

@@ -1,4 +1,8 @@
+> 2026-09-08：常规样本处理要求、阶段分工及验证发布见 [DATA_PIPE_REGULAR_CLEANING.md](DATA_PIPE_REGULAR_CLEANING.md)。训练和 rjob 继续暂停。
+
 # Mainline
+
+> 当前 SFT 发布和公平测评协议以 [EXPERIMENT_ALIGNMENT.md](EXPERIMENT_ALIGNMENT.md) 为准：512 条完整训练轨迹、默认 87 道测试题、保留全部 112 题做隔离。旧数据与旧结果属于历史实验。
 
 ## Authorities
 
@@ -100,14 +104,21 @@ structured `messages` and `tools`, never rendered XML/text. Slime receives `--to
 `--loss-mask-type qwen3_5`, so system/user/tool observations are non-trainable and assistant
 reasoning/action/final spans are trainable.
 
-ToolRL is not materialized by the SFT pipeline. The existing ToolRL rows are derived directly from semantic assistant decisions. Their labels contain structured
-`target_assistant`, `target_tool_calls` or `target_final_answer`; no custom string parser reconstructs them.
-Rows remain decision-level records, but rollout sampling is trajectory-atomic: all ordinals for one `source_id`
-must be present, contiguous and contained in one rollout batch. A batch may contain multiple complete
-trajectories. Batch shuffling never shuffles individual decisions, and a trajectory is never split or padded with
-duplicated decisions. Capacity rejection also applies to the whole trajectory. ToolRL launch requires
-`global_batch_size == rollout_batch_size * n_samples_per_prompt`, so the complete rollout batch is not split across
-optimizer updates.
+ToolRL is not materialized by the SFT pipeline. V8 derives one structured row from each real semantic assistant
+decision. A multi-call response remains one target with ordered `target_tool_calls`; no custom string parser
+reconstructs it. The prompt contains only history before the current decision.
+
+The default selector embeds short, non-training descriptions with Qwen3-Embedding-0.6B, clusters only within
+explicitly compatible structural scopes using complete-linkage cosine distance, and retains multiple center/farthest
+representatives per homogeneous group. Selection never rewrites history or labels. Unselected rows are
+representative downsampling, not invalid or duplicate data.
+
+Selected rows retain canonical `trajectory_index, decision_ordinal` order. Ordinal holes are allowed, trajectories
+may cross rollout batch boundaries, and the final short batch is retained. The launcher must omit
+`--rollout-shuffle`; each decision independently owns its four-response GRPO group. Tool content matching remains
+order-insensitive one-to-one with multiplicity, with only a small content-gated pairwise teacher-order bonus.
+Length limits are chosen from native Qwen template/tokenizer audits and never implemented by truncating or deleting
+an otherwise valid teacher action.
 The native reasoning/tool parser names are required launcher configuration, not schema fields. The launcher must
 round-trip tokenizer-rendered targets through the installed SGLang parsers before starting Ray/GPU training.
 

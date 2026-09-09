@@ -8,6 +8,7 @@ import unittest
 
 from pipeline.cleaning.deployment_tools import DeploymentToolSet, LOCAL_TOOLS, load_deployment_tool_set
 from pipeline.cleaning.materialize_sft import materialize_sft
+from pipeline.output_contracts import normalize_task_prompt
 from pipeline.cleaning.sft_views import semantic_to_qwen35_sft
 
 
@@ -15,11 +16,11 @@ def semantic() -> dict:
     return {
         "schema_version": "drug_agent_semantic_trajectory_v1",
         "id": "sample",
-        "user_task": "task",
+        "user_task": normalize_task_prompt("task", "kg"),
         "events": [
             {"type": "assistant_decision", "source_message_id": "d1", "reasoning": "reason", "tool_calls": [{"name": "tool", "arguments": {}, "source_tool_use_id": "c1"}], "final_answer": None},
             {"type": "tool_observation", "name": "tool", "source_tool_use_id": "c1", "status": "success", "is_error": False, "content": "ok"},
-            {"type": "assistant_decision", "source_message_id": "d2", "reasoning": "done", "tool_calls": [], "final_answer": "answer"},
+            {"type": "assistant_decision", "source_message_id": "d2", "reasoning": "done", "tool_calls": [], "final_answer": '{"result":"answer","evidence":[]}'},
         ],
         "metadata": {"task_type": "kg", "source_session_sha256": "source-sha"},
     }
@@ -47,9 +48,15 @@ class ViewTest(unittest.TestCase):
 
     def test_structured_sft_preserves_semantic_decisions(self) -> None:
         tools = deployment_tools("tool")
-        sft = semantic_to_qwen35_sft(semantic(), deployment_tools=tools, system_prompt="system")
+        sft = semantic_to_qwen35_sft(
+            semantic(),
+            deployment_tools=tools,
+            system_prompt="system",
+            user_prompt_prefix="policy",
+        )
         self.assertEqual([message["role"] for message in sft["messages"]], ["system", "user", "assistant", "tool", "assistant"])
         self.assertEqual(sft["messages"][2]["tool_calls"][0]["function"]["arguments"], {})
+        self.assertEqual(sft["messages"][1]["content"], "policy\n\n# Task\n\n" + normalize_task_prompt("task", "kg"))
         self.assertNotIn("<thought>", str(sft))
 
     def test_dynamic_visibility_keeps_local_used_and_deterministic_distractor(self) -> None:
@@ -67,6 +74,28 @@ class ViewTest(unittest.TestCase):
         self.assertIn("tool", names)
         self.assertEqual(len(names - LOCAL_TOOLS - {"tool"}), 1)
         self.assertEqual(first["tools"], second["tools"])
+
+    def test_adapter_uses_harness_public_names_for_calls_and_observations(self) -> None:
+        rows = [
+            {"name": name.lower(), "raw_name": name, "description": "", "input_schema": {"type": "object"}}
+            for name in sorted(LOCAL_TOOLS)
+        ]
+        rows.append({
+            "name": "mcp__molclaw-scp__tool",
+            "raw_name": "tool",
+            "description": "",
+            "input_schema": {"type": "object"},
+        })
+        tools = DeploymentToolSet(tuple(rows), Path("dsh-tools.json"), "sha")
+        sft = semantic_to_qwen35_sft(
+            semantic(), deployment_tools=tools, system_prompt="system"
+        )
+        self.assertEqual(
+            sft["messages"][2]["tool_calls"][0]["function"]["name"],
+            "mcp__molclaw-scp__tool",
+        )
+        self.assertEqual(sft["messages"][3]["name"], "mcp__molclaw-scp__tool")
+        self.assertIn("read", {tool["function"]["name"] for tool in sft["tools"]})
 
     def test_materializer_reads_jsonl_rows_not_reader_tuple(self) -> None:
         with tempfile.TemporaryDirectory() as td:

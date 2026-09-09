@@ -12,6 +12,7 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 QUESTIONS=""
 PROVIDER="${PROVIDER:-manual}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+AGENT_HARNESS="${AGENT_HARNESS:-claude}"
 LIMIT="${LIMIT:-0}"
 NUM_ROLLOUTS="${NUM_ROLLOUTS:-1}"
 PARALLEL_ROLLOUTS="${PARALLEL_ROLLOUTS:-1}"
@@ -27,6 +28,7 @@ Options:
   --questions CSV_IDS          Comma-separated ids (e.g. E2E-Q03,E2E-Q05)
   --provider NAME              Default: manual (set model via external cc-switch)
   --claude-bin BIN             Default: claude
+  --harness claude|deepseek    Default: claude
   --limit N                    Default: 0 (no limit)
   --num-rollouts N             Default: 1
   --parallel-rollouts N        Default: 1
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --questions) QUESTIONS="${2:-}"; shift 2 ;;
     --provider) PROVIDER="${2:-}"; shift 2 ;;
     --claude-bin) CLAUDE_BIN="${2:-}"; shift 2 ;;
+    --harness) AGENT_HARNESS="${2:-}"; shift 2 ;;
     --limit) LIMIT="${2:-}"; shift 2 ;;
     --num-rollouts) NUM_ROLLOUTS="${2:-}"; shift 2 ;;
     --parallel-rollouts) PARALLEL_ROLLOUTS="${2:-}"; shift 2 ;;
@@ -102,7 +105,8 @@ bash "$TEST_FLOW" \
   "e2e" \
   "$DATASET_CSV" \
   "$SKIP_PROVIDER_SWITCH" \
-  "$MAX_WORKERS" | tee "$PIPELINE_LOG"
+  "$MAX_WORKERS" \
+  "$AGENT_HARNESS" | tee "$PIPELINE_LOG"
 rc=${PIPESTATUS[0]}
 set -e
 
@@ -117,7 +121,7 @@ if [[ -z "$results_dir" ]]; then
   exit 1
 fi
 
-"$PYTHON_BIN" - "$DATASET_META" "$MANIFEST_JSON" "$results_dir" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$LIMIT" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$MAX_WORKERS" "$SKIP_PROVIDER_SWITCH" <<'PY'
+"$PYTHON_BIN" - "$DATASET_META" "$MANIFEST_JSON" "$results_dir" "$PIPELINE_LOG" "$PROVIDER" "$CLAUDE_BIN" "$LIMIT" "$NUM_ROLLOUTS" "$PARALLEL_ROLLOUTS" "$MAX_WORKERS" "$SKIP_PROVIDER_SWITCH" "$AGENT_HARNESS" <<'PY'
 import json
 import sys
 from datetime import datetime
@@ -134,12 +138,14 @@ num_rollouts = int(sys.argv[8])
 parallel_rollouts = int(sys.argv[9])
 max_workers = int(sys.argv[10])
 skip_provider_switch = int(sys.argv[11])
+harness = sys.argv[12]
 
 meta = json.loads(dataset_meta.read_text(encoding="utf-8"))
 manifest = {
     "generated_at": datetime.now().isoformat(),
     "task": "e2e",
     "provider": provider,
+    "harness": harness,
     "claude_bin": claude_bin,
     "limit": limit,
     "num_rollouts": num_rollouts,

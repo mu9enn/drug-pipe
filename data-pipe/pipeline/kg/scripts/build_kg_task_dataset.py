@@ -374,6 +374,11 @@ def main() -> None:
                 }
             )
 
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from pipeline.publish_training_tasks import publish_csv
+    publish_csv(exec_csv, "kg")
+
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "kg_run_dir": str(kg_run_dir),

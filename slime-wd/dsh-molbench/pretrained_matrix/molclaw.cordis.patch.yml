@@ -1,0 +1,11 @@
+- insert:
+    - id: mcp-molclaw-scp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: molclaw-scp
+        transport: streamable-http
+        url: https://scp.intern-ai.org.cn/api/v1/mcp/2/DrugSDA-Tool
+        headers:
+          SCP-HUB-API-KEY: !!js process.env.MOLCLAW_SCP_API_KEY
+        toolCallTimeoutMs: 14400000
+        failOnStartupError: true

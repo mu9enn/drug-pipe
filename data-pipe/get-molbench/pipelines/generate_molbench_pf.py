@@ -115,6 +115,9 @@ def main() -> None:
             f"(best seed={best_seed}). Increase --retry-seeds or lower --n-cases."
         )
 
+    sys.path.insert(0, str(project_root.parent))
+    from pipeline.publish_training_tasks import publish_csv
+    publish_csv(out_path, "pf")
     print(f"Wrote: {out_path} (seed={best_seed}, rows={best_rows})")
 
 

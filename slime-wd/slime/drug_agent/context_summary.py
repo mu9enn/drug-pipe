@@ -178,6 +178,11 @@ class ClaudeContextSummarizer:
         timeout_sec: float = 600.0,
         max_attempts: int = 3,
         max_chunk_chars: int = 240_000,
+        harness: str = "claude",
+        dsh_bin: str = "dsh",
+        dsh_node_bin: str = "node",
+        dsh_model: str = "deepseek-v4-flash",
+        dsh_provider: str | None = None,
     ) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
@@ -186,6 +191,13 @@ class ClaudeContextSummarizer:
         self.timeout_sec = timeout_sec
         self.max_attempts = max_attempts
         self.max_chunk_chars = max_chunk_chars
+        if harness not in {"claude", "deepseek"}:
+            raise ValueError(f"unsupported harness: {harness}")
+        self.harness = harness
+        self.dsh_bin = dsh_bin
+        self.dsh_node_bin = dsh_node_bin
+        self.dsh_model = dsh_model
+        self.dsh_provider = dsh_provider
         self._schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         skill_material = "".join(
             path.read_text(encoding="utf-8")
@@ -243,6 +255,8 @@ class ClaudeContextSummarizer:
                     "prompt_version": SUMMARY_PROMPT_VERSION,
                     "mode": mode,
                     "output_max_tokens": output_max_tokens,
+                    "harness": self.harness,
+                    "dsh_model": self.dsh_model if self.harness == "deepseek" else None,
                 }
             ).encode("utf-8")
         ).hexdigest()
@@ -262,6 +276,7 @@ class ClaudeContextSummarizer:
             sys.path.insert(0, str(DATA_PIPE_ROOT))
         from pipeline.claude_agent.session_capture import (
             http_500_retry_delay,
+            run_deepseek_harness,
             run_stream_json,
             select_attempt,
             session_has_retryable_http_500,
@@ -278,6 +293,12 @@ class ClaudeContextSummarizer:
             workdir = entry_root / f"attempt-{invocation_number}"
             workdir.mkdir(parents=True, exist_ok=True)
             shutil.copytree(SCENE_DIR / ".claude", workdir / ".claude", dirs_exist_ok=True)
+            if self.harness == "deepseek":
+                shutil.copytree(
+                    SCENE_DIR / ".claude/skills",
+                    workdir / ".agents/skills",
+                    dirs_exist_ok=True,
+                )
             _write_json(
                 workdir / "context_request.json",
                 {
@@ -300,7 +321,22 @@ class ClaudeContextSummarizer:
                 "--tools", "Read,Write,Skill", "--allowedTools", "Read,Write,Skill",
                 "--system-prompt", system_prompt, "-p", user_prompt,
             ]
-            attempt = run_stream_json(command, cwd=workdir, archive_root=workdir, timeout_sec=self.timeout_sec)
+            if self.harness == "deepseek":
+                attempt = run_deepseek_harness(
+                    user_prompt,
+                    system_prompt,
+                    cwd=workdir,
+                    archive_root=workdir,
+                    dsh_bin=self.dsh_bin,
+                    node_bin=self.dsh_node_bin,
+                    model=self.dsh_model,
+                    provider_id=self.dsh_provider,
+                    timeout_sec=self.timeout_sec,
+                )
+            else:
+                attempt = run_stream_json(
+                    command, cwd=workdir, archive_root=workdir, timeout_sec=self.timeout_sec
+                )
             selected = select_attempt(attempt, workdir / "complete_session.jsonl")
             audit = {
                 "attempt": invocation_number,
@@ -442,6 +478,8 @@ class ClaudeContextSummarizer:
             "source_context_sha256": source_context_sha256,
             "skill_sha256": self.skill_sha256,
             "prompt_version": SUMMARY_PROMPT_VERSION,
+            "harness": self.harness,
+            "dsh_model": self.dsh_model if self.harness == "deepseek" else None,
             "map_chunks": len(chunks),
             "reduce_rounds": rounds,
             "budget_reductions": budget_reductions,

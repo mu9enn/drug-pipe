@@ -29,6 +29,12 @@ from .canonical_io import canonical_task, load_canonical_sampling_inputs, update
 from ..workdir_skills import install_scene, load_scene_prompt
 
 
+_DATA_PIPE = Path(__file__).resolve().parents[4] / "data-pipe"
+if str(_DATA_PIPE) not in sys.path:
+    sys.path.insert(0, str(_DATA_PIPE))
+from pipeline.output_contracts import CONTRACTS, normalize_task_prompt
+
+
 FANOUT_RUNTIME_PLACEHOLDER = "{{TARGET_FANOUT_RUNTIME_MINUTES}}"
 
 
@@ -594,6 +600,11 @@ def _execute_simple_attempt(
         })
         return base
     assert parsed is not None
+    if parsed["status"] == "success":
+        parsed["public_question_text"] = normalize_task_prompt(parsed["public_question_text"], "kg")
+        expected = parsed["question_payload"]["expected_output"]
+        expected_text = expected if isinstance(expected, str) else json.dumps(expected, ensure_ascii=False)
+        parsed["question_payload"]["expected_output"] = normalize_task_prompt(expected_text, "kg")
     public_text = str(parsed["public_question_text"])
     soft_warnings: list[str] = []
     leaks = _tool_leaks(public_text, nodes, cards)

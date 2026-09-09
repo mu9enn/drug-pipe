@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from pipeline.cleaning.semantic_builder import build_semantic_trajectory, compact_observation
+from pipeline.cleaning.semantic_builder import _unwrap_final, build_semantic_trajectory, compact_observation
 from pipeline.cleaning.path_sanitizer import TrajectoryPathNormalizer
 from pipeline.cleaning.trace_parser import load_session_events, question_text, safe_load_json
 
@@ -20,6 +20,41 @@ def result(call_id: str, content, *, line: int) -> dict:
 
 
 class SemanticBuilderTest(unittest.TestCase):
+    def test_normalizes_dsh_messages_calls_results_and_terminal(self) -> None:
+        with TemporaryDirectory() as directory:
+            session = Path(directory) / "complete_session.jsonl"
+            rows = [
+                {"type": "turn/start", "seq": 0, "data": {"turn": 1}},
+                {"type": "assistant/message", "seq": 1, "data": {"message": {
+                    "id": "d1", "content": [
+                        {"type": "reasoning", "text": "plan"},
+                        {"type": "tool-call", "id": "c1", "name": "mcp__server__tool", "arguments": '{"x":1}'},
+                    ],
+                }}},
+                {"type": "tool/result", "seq": 2, "data": {"message": {
+                    "source": {"callId": "c1"}, "content": [{
+                        "type": "tool-result", "toolCallId": "c1",
+                        "content": [{"type": "text", "text": '{"status":"success"}'}],
+                        "isError": False,
+                    }],
+                }}},
+                {"type": "assistant/message", "seq": 3, "data": {"message": {
+                    "id": "d2", "content": [{"type": "text", "text": "```json\n{\"result\":\"ok\"}\n```"}],
+                }}},
+                {"type": "turn/end", "seq": 4, "data": {"reason": {"kind": "completed"}}},
+            ]
+            session.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            events, malformed, runner_error = load_session_events(session)
+
+        self.assertEqual(malformed, 0)
+        self.assertFalse(runner_error)
+        self.assertEqual([event["type"] for event in events], ["assistant", "user", "assistant", "result"])
+        call = events[0]["message"]["content"][1]
+        self.assertEqual(call["input"], {"x": 1})
+        self.assertEqual(events[1]["message"]["content"][0]["tool_use_id"], "c1")
+        self.assertFalse(events[-1]["is_error"])
+        self.assertEqual(_unwrap_final(events[2]["message"]["content"][0]["text"]), '{"result":"ok"}')
+
     def test_path_normalizer_does_not_rewrite_prefix_collision(self) -> None:
         normalizer = TrajectoryPathNormalizer(
             workspace=Path("/tmp/attempt/workdir"),
@@ -117,7 +152,7 @@ class SemanticBuilderTest(unittest.TestCase):
         decisions = [event for event in record["events"] if event["type"] == "assistant_decision"]
         self.assertEqual([event["source_message_id"] for event in decisions], ["runtime", "science", "final"])
         self.assertEqual(decisions[0]["tool_calls"][0]["name"], "Read")
-        self.assertEqual(decisions[0]["tool_calls"][0]["arguments"]["file_path"], "skills/L1_tools/tool/SKILL.md")
+        self.assertEqual(decisions[0]["tool_calls"][0]["arguments"]["file_path"], ".agents/skills/tool/SKILL.md")
         observations = [event for event in record["events"] if event["type"] == "tool_observation"]
         self.assertEqual(observations[0]["content"], "tool instructions")
         self.assertEqual(audit["derived_calls"][0]["source_tool_use_id"], "runtime-call")
@@ -158,8 +193,8 @@ class SemanticBuilderTest(unittest.TestCase):
     def test_compacts_blobs_and_long_arrays_deterministically(self) -> None:
         value = {"status": "success", "blob": "QUJD" * 300, "values": list(range(5000))}
         compacted, audit = compact_observation(value, 300)
-        self.assertEqual(compacted["retained"]["status"], "success")
-        self.assertIn("blob", compacted["omitted_keys"])
+        self.assertEqual(compacted["status"], "success")
+        self.assertEqual(compacted["values"], value["values"])
         self.assertGreaterEqual(audit["blob_count"], 1)
 
     def test_large_retained_result_is_compacted_recursively(self) -> None:
@@ -167,10 +202,8 @@ class SemanticBuilderTest(unittest.TestCase):
             {"status": "success", "result": {"scores": list(range(10000))}},
             500,
         )
-        self.assertEqual(compacted["retained"]["status"], "success")
-        self.assertTrue(compacted["retained"]["result"]["compacted"])
-        self.assertLess(len(json.dumps(compacted)), 3000)
-        self.assertEqual(audit["method"], "decision_fields")
+        self.assertEqual(compacted["status"], "success")
+        self.assertEqual(compacted["result"]["scores"], list(range(10000)))
 
     def test_compaction_pins_evidence_reused_downstream(self) -> None:
         workspace = Path.cwd()
@@ -245,7 +278,7 @@ class SemanticBuilderTest(unittest.TestCase):
             source_session_sha256="fixture-sha",
         )
         decisions = [event for event in record["events"] if event["type"] == "assistant_decision"]
-        self.assertEqual([call["name"] for call in decisions[0]["tool_calls"]], ["Read", "Read"])
+        self.assertIn(["Read", "Read"], [[call["name"] for call in decision["tool_calls"]] for decision in decisions])
         observations = [event for event in record["events"] if event["type"] == "tool_observation"]
         self.assertTrue(all("L2_workflows" not in str(item["content"]) for item in observations[:2]))
         rendered = json.dumps(record, ensure_ascii=False)

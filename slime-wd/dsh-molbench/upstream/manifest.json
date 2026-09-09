@@ -1,0 +1,6 @@
+{
+  "upstream_commit": "180abb7679ffc5b1ca9974e7390e141d8098f642",
+  "shared_contract_sha256": "1bb0b36161c83e9a72d7c91329b270440ea7b298664180eed008d241a40ca825",
+  "patch_sha256": "68d7af9a338d64be54b8f3d869b3cacbfac237afcb588e5a3b72184ae9350465",
+  "scoring_math": "unchanged eval_runner.py"
+}

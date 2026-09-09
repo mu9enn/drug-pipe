@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from pipeline.cleaning.python_clean import python_clean
+from pipeline.output_contracts import normalize_task_prompt
 
 
 SLIME = Path(__file__).resolve().parents[4] / "slime-wd/slime"
@@ -21,13 +22,14 @@ class PythonCleanTest(unittest.TestCase):
             run = root / "run"
             sample = run / "row0001_idx1"
             sample.mkdir(parents=True)
-            (sample / "question.json").write_text('{"task":"kg","question":"Do task"}')
+            question = normalize_task_prompt("Do task", "kg")
+            (sample / "question.json").write_text(json.dumps({"task": "kg", "question": question}))
             (sample / "prompt.txt").write_text("prompt")
             (sample / "parsed_answer.json").write_text('{"parse_error":"collector parse failed"}')
             events = [
                 {"type": "assistant", "message": {"id": "d1", "content": [{"type": "tool_use", "id": "c1", "name": "tool", "input": {}}]}},
                 {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "c1", "content": {"status": "success"}}]}},
-                {"type": "assistant", "message": {"id": "d2", "content": [{"type": "text", "text": "answer"}]}},
+                {"type": "assistant", "message": {"id": "d2", "content": [{"type": "text", "text": '{"result":"answer","evidence":[]}'}]}},
                 {"type": "result", "subtype": "success", "is_error": False},
             ]
             session = sample / "complete_session.jsonl"
