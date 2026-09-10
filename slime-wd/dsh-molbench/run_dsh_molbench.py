@@ -582,7 +582,16 @@ def diagnostic_transcript(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def project_prediction(sample: Sample, final_text: str) -> tuple[Any, bool, str | None]:
-    from pipeline.output_contracts import ANSWER_KEYS
+    from pipeline.output_contracts import ANSWER_KEYS, strict_json_loads
+    if sample.suite == "ms3":
+        try:
+            payload = strict_json_loads(final_text)
+            ranking = payload.get("ranked_smiles") if isinstance(payload, dict) else None
+            if not isinstance(ranking, list) or not all(isinstance(value, str) for value in ranking):
+                raise ValueError("ranked_smiles must be a list of strings")
+            return ranking, True, None
+        except ValueError as exc:
+            return [], False, str(exc)
     task = SUITE_TASKS[sample.suite]
     empty = "" if task in {"ac", "mo-opt", "mo-edit"} else []
     try:
@@ -914,6 +923,7 @@ def materialize_scores(run_dir: Path, molbench_root: Path, samples: list[Sample]
         "publishable": publishable_records(records),
         "metrics": metrics,
         "projection_protocol": "structured_v8_strict_json",
+        "ms3_scoring_policy": "top3_list_v1: accept string lists without candidate/count/uniqueness gates; score original first three positions" if any(s.suite == "ms3" for s in samples) else None,
         "denominator_policy": "all selected samples; failed or missing tasks receive an empty prediction",
     }
     write_json(run_dir / "evaluation_summary.json", summary)

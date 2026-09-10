@@ -12,6 +12,7 @@ umask 002
 : "${LIMIT_PER_SUITE:=0}"
 : "${SUITES:=ms1 ms2}"
 : "${EVAL_SEED:=42}"
+: "${EVAL_MAX_WORKERS:=2}"
 read -r -a selected_suites <<< "$SUITES"
 suite_args=()
 for suite in "${selected_suites[@]}"; do suite_args+=(--suite "$suite"); done
@@ -266,7 +267,7 @@ log "dsh_ready pid=$dsh_pid"
 
 cd "$worker_root"
 /usr/bin/python3 -u dsh-molbench/run_dsh_molbench.py "${suite_args[@]}" \
-  --rollout-only --run-dir "$run_dir" --task-timeout-sec 14400 --max-workers 2 \
+  --rollout-only --run-dir "$run_dir" --task-timeout-sec 14400 --max-workers "$EVAL_MAX_WORKERS" \
   --model-provider slime-local --model-id "$MODEL_ID" --agent-preset "$agent_preset" \
   --skill-source "$skill_source" --limit-per-suite "$LIMIT_PER_SUITE" \
   --required-mcp-tools 81 --required-skill-count "$expected_skill_count" \
@@ -281,7 +282,7 @@ cd "$worker_root"
 for retry in 1 2; do
   /usr/bin/python3 -u dsh-molbench/run_dsh_molbench.py "${suite_args[@]}" \
     --rollout-only --resume --retry-infra-failed --run-dir "$run_dir" \
-    --task-timeout-sec 14400 --max-workers 2 --model-provider slime-local \
+    --task-timeout-sec 14400 --max-workers "$EVAL_MAX_WORKERS" --model-provider slime-local \
     --model-id "$MODEL_ID" --agent-preset "$agent_preset" --skill-source "$skill_source" \
     --limit-per-suite "$LIMIT_PER_SUITE" --required-mcp-tools 81 \
     --required-skill-count "$expected_skill_count" --system-prompt-file "$system_prompt_file" \

@@ -32,11 +32,27 @@ class ExtendedSuitesTest(unittest.TestCase):
             self.assertEqual(extract('Explanation\n' + text, 'unique_json_object'), text)
             self.assertIsNone(extract(text + '\n' + text, 'unique_json_object'))
 
-    def test_ms3_requires_complete_ranking(self):
+    def test_ms3_accepts_partial_repeated_and_outside_candidates(self):
         sample = next(s for s in self.samples if s.suite == 'ms3')
         candidates = task_constraints(sample.prompt, 'vs').candidates
         self.assertTrue(runner.project_prediction(sample, json.dumps({'ranked_smiles': candidates, 'evidence': []}))[1])
-        self.assertFalse(runner.project_prediction(sample, json.dumps({'ranked_smiles': candidates[:-1], 'evidence': []}))[1])
+        for ranking in [[], candidates[:3], [candidates[0], candidates[0], 'outside'], candidates[:-1]]:
+            self.assertTrue(runner.project_prediction(sample, json.dumps({'ranked_smiles': ranking}))[1])
+        self.assertFalse(runner.project_prediction(sample, '{"ranked_smiles":"not a list"}')[1])
+
+    def test_ms3_scores_original_top3_without_filtering(self):
+        sample = next(s for s in self.samples if s.suite == 'ms3')
+        hit = json.loads(sample.answer)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for ranking, expected in [(['outside', hit, hit], 2 / 3),
+                                      (['outside'] * 3 + [hit], 0.0),
+                                      ([hit], 1 / 3)]:
+                runner.write_json(root / 'results' / sample.task_id / 'record.json',
+                                  {'status': 'completed', 'final_text': json.dumps({'ranked_smiles': ranking})})
+                summary = runner.materialize_scores(root, runner.DEFAULT_MOLBENCH_ROOT, [sample])
+                metric = next(iter(summary['metrics'].values()))
+                self.assertAlmostEqual(metric['top3_hit_rate'], expected)
 
     def test_upstream_scoring_full_denominators_and_known_predictions(self):
         with tempfile.TemporaryDirectory() as tmp:

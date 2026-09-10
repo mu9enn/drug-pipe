@@ -93,3 +93,13 @@ the `qwen3_coder` tool parser, a 262144-token context and 16384-token response
 cap. SGLang enforces greedy decoding through preferred sampling parameters;
 DSH's stream-idle timeout is 30 minutes. Only classified transport/stream/MCP
 connection failures are eligible for two task-level retries.
+
+MS-3 scoring uses `top3_list_v1`: accept a JSON object's `ranked_smiles` string
+list without requiring 60 entries, uniqueness, candidate membership, or evidence.
+The upstream Top-3 metrics inspect the original first three positions, including
+repeated strings; unknown strings occupy their positions and do not match GT.
+No filtering, deduplication, or backfilling occurs. Full-list average rank remains
+an auxiliary upstream metric, not an acceptance gate. Published question text
+and SFT data validation are unchanged. The scoring policy is saved in the evaluation
+summary. Wrapper sensitivity scoring still reports its three extraction policies.
+`EVAL_MAX_WORKERS` controls task concurrency in the matrix launcher (default 2).

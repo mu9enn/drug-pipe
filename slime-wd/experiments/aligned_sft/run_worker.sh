@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 : "${RELEASE_ROOT:?}" "${RUN_ROOT:?}"
+export LR="${LR:-5e-6}" MIN_LR="${MIN_LR:-5e-7}"
 project=/root/slime_sxy/group-space/sunxiangyu/drug-pipe
 slime=$project/slime-wd/slime
 model=$project/slime-wd/data/Qwen3.5-9B
@@ -12,7 +13,7 @@ source /root/slime_sxy/group-space/sunxiangyu/slime_env/slime_env.sh
 export PYTHONPATH=$project/data-pipe:$slime:${PYTHONPATH:-}
 python "$project/slime-wd/experiments/aligned_sft/validate_release.py" "$RELEASE_ROOT"
 python - "$RELEASE_ROOT" "$model" "$RUN_ROOT" <<'PY'
-import hashlib,json,pathlib,sys,subprocess
+import hashlib,json,pathlib,sys,subprocess,os
 release,model,run=map(pathlib.Path,sys.argv[1:]);m=json.loads((release/'training/context_gate_manifest.json').read_text());pub=json.loads((release/'release_manifest.json').read_text())
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 assert m['ok'] and pub['context_gate']=='passed'
@@ -21,7 +22,9 @@ assert sha(model/'tokenizer_config.json')==m['tokenizer_config_sha256']
 count=m['accepted_count'];gbs=2 if count%2==0 else 1
 rbs=max(n for n in range(gbs,min(86,count)+1,gbs) if count%n==0)
 (run/'batch.env').write_text(f'GLOBAL_BATCH_SIZE={gbs}\nROLLOUT_BATCH_SIZE={rbs}\n')
-(run/'resolved_config.json').write_text(json.dumps({'release_sha256':sha(release/'release_manifest.json'),'train_sha256':m['output_sha256'],'count':count,'global_batch_size':gbs,'rollout_batch_size':rbs,'epochs':1,'lr':5e-6,'tp':4,'pp':2,'gpu_count':8,'model':str(model),'checkpoint_selection':'final_epoch_without_test_feedback'},indent=2)+'\n')
+lr, min_lr = float(os.environ['LR']), float(os.environ['MIN_LR'])
+assert 0 < min_lr <= lr
+(run/'resolved_config.json').write_text(json.dumps({'release_sha256':sha(release/'release_manifest.json'),'train_sha256':m['output_sha256'],'count':count,'global_batch_size':gbs,'rollout_batch_size':rbs,'epochs':1,'lr':lr,'min_lr':min_lr,'tp':4,'pp':2,'gpu_count':8,'model':str(model),'checkpoint_selection':'final_epoch_without_test_feedback'},indent=2)+'\n')
 PY
 python "$project/slime-wd/experiments/aligned_sft/capture_runtime.py" --model "$model" --output "$RUN_ROOT/runtime_snapshot.json"
 EXPECTED_GPUS=8 HF_CHECKPOINT="$model" bash "$slime/drug_agent/scripts/preflight_large_model_worker.sh"
@@ -32,7 +35,7 @@ export NUM_GPUS=8 TENSOR_MODEL_PARALLEL_SIZE=4 PIPELINE_MODEL_PARALLEL_SIZE=2 CO
 export EXPERT_MODEL_PARALLEL_SIZE=1 EXPERT_TENSOR_PARALLEL_SIZE=1
 export HF_CHECKPOINT=$model REF_LOAD=$ref MAX_TOKENS_PER_GPU=16384
 export RECOMPUTE_FULL=1 RECOMPUTE_NUM_LAYERS=1 RECOMPUTE_LOSS_FUNCTION=1 RECOMPUTE_VOCAB_LOG_PROBS=1 LOG_PROBS_CHUNK_SIZE=64 BALANCE_DATA=1
-export SFT_DEBUG_TRAIN_ONLY=1 SFT_DISABLE_OFFLOAD=1 LR=5e-6 MIN_LR=5e-7 LR_WARMUP_FRACTION=0.05
+export SFT_DEBUG_TRAIN_ONLY=1 SFT_DISABLE_OFFLOAD=1 LR_WARMUP_FRACTION=0.05
 launcher=$slime/drug_agent/scripts/run_qwen3_5_9b_drug_sft_full.sh
 probe_count=$(wc -l < "$RELEASE_ROOT/training/probes.jsonl")
 # The probe proves real learning and checkpoint serialization across length buckets.

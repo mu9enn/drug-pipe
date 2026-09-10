@@ -6,6 +6,7 @@ set -Eeuo pipefail
 : "${LIMIT_PER_SUITE:=0}"
 : "${SUITES:=ms1 ms2}"
 : "${EVAL_SEED:=42}"
+: "${EVAL_MAX_WORKERS:=2}"
 read -r -a selected_suites <<< "$SUITES"
 suite_args=()
 for suite in "${selected_suites[@]}"; do suite_args+=(--suite "$suite"); done
@@ -53,7 +54,7 @@ rjob submit --name="$JOB_NAME" --metadata-name="$JOB_NAME" --namespace="$namespa
   -e MODEL_DIR="$worker_model_dir" -e MODEL_ID="$MODEL_ID" -e MODEL_NAME="$MODEL_NAME" \
   -e GPU_COUNT="$GPU_COUNT" -e TP_SIZE="$TP_SIZE" \
   -e WORKSPACE_VARIANT="$WORKSPACE_VARIANT" -e RUN_NAME="$RUN_NAME" -e INFRA_NAME="$INFRA_NAME" \
-  -e LIMIT_PER_SUITE="$LIMIT_PER_SUITE" -e SUITES="$SUITES" -e EVAL_SEED="$EVAL_SEED" \
+  -e LIMIT_PER_SUITE="$LIMIT_PER_SUITE" -e SUITES="$SUITES" -e EVAL_SEED="$EVAL_SEED" -e EVAL_MAX_WORKERS="$EVAL_MAX_WORKERS" \
   -- bash -lc "exec $worker_driver" 2>&1 | tee "$infra_dir/rjob_submit.log"
 submitted=1
 

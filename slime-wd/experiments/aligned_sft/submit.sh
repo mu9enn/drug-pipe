@@ -17,6 +17,7 @@ rjob submit --name="$JOB_NAME" --metadata-name="$JOB_NAME" --namespace="$namespa
  --charged-group=ma4agismall_gpu --private-machine=group --gpu=8 --cpu=108 --memory=1060000 \
  -e NCCL_IB_DISABLE=1 -e DISTRIBUTED_JOB=true -e RJOB_NAME="$JOB_NAME" \
  -e RELEASE_ROOT="$worker_release" -e RUN_ROOT="$worker_run" \
+ -e LR="${LR:-5e-6}" -e MIN_LR="${MIN_LR:-5e-7}" \
  -- bash -lc "exec bash $worker_prefix/drug-pipe/slime-wd/experiments/aligned_sft/run_worker.sh" \
  > "$RUN_ROOT/submission.log" 2>&1
 while [[ ! -f "$RUN_ROOT/worker.exit" ]]; do
