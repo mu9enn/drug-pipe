@@ -2,7 +2,10 @@
 set -euo pipefail
 run_root="${1:?run root required}"
 mode="${2:?smoke or full required}"
-[[ "$mode" == smoke || "$mode" == full ]]
+eps="${3:?explicit eps required}"
+[[ "$mode" == smoke || "$mode" == full || "$mode" == experiment ]]
+[[ -f "$run_root/prepared/preparation_manifest.json" ]]
+[[ -x "$run_root/venv/bin/python" && -x "$run_root/bootstrap/bin/uv" ]]
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source /etc/profile.d/ssh-init.sh
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
@@ -14,4 +17,4 @@ exec rlaunch \
   --charged-group=ma4agismall_gpu --private-machine=group \
   --gpu=1 --cpu=24 --memory=98304 \
   -e NCCL_IB_DISABLE=1 -e DISTRIBUTED_JOB=true \
-  -- bash "$script_dir/run_nemo_worker.sh" "$run_root" "$mode"
+  -- bash "$script_dir/run_nemo_worker.sh" "$run_root" "$mode" "$eps"

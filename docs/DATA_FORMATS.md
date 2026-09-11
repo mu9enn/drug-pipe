@@ -234,14 +234,14 @@ trajectory 跨 rollout batch 边界；读取顺序是 `A1,A3,A6,B2,B5,...`，不
 GRPO 比较组，不与其他 decision 的候选混组。后续 decision 始终读取母数据中的真实历史，而不是此前
 训练时临时生成的回答。
 
-默认轻量 selector 只在结构兼容的 comparison scope 内，用 Qwen3-Embedding-0.6B + cosine
-complete-linkage 聚类。每组默认保留 `min(n, max(8, ceil(sqrt(n))))` 个真实代表。筛选描述和 embedding
-不替换训练 prompt/label，未选中只表示本次代表性下采样。长度审计用原生 Qwen template 精确统计；
-不截断工具参数或教师回答，也不再用固定 16K 阈值直接删 decision。
-
-可选总预算先保证每个 homogeneous cluster 至少一个代表，再分配额外名额。若严格预算会使 final
-answer 数量低于明确的数据目标，adapter 可配置 final 最低保留数；这个下限只改变组内代表配额，不
-绕过结构 scope、不改写记录，也不无条件保留所有 final。
+默认 selector 见 [NeMo 三步流程](NEMO_SELECTOR.md)。比较副本保留任务、当前完整决策和近期完整助手消息；
+公共系统消息单独保存并校验版本，所有工具返回（含 skill 返回）不进入比较文本，
+用 Qwen3-Embedding-8B 编码，再运行 NeMo 官方语义筛选。比较条件只从原生消息生成一次，工具决策可跨
+任务类型比较，最终回答仍按任务类别区分。一批只接受一个完整工具目录版本。
+比较副本不替换训练 prompt/tools/label；未入选不等于严格重复或坏数据。
+没有每组配额、固定 20% 预算或最终回答最低名额。旧 0.6B/complete-linkage 方法仅作为独立历史实验保留。
+训练长度使用独立绑定的原生 Qwen template/tokenizer 审计，不能用窗口长度代替；不截断工具参数或教师
+回答，也不以固定 16K 阈值直接删除 decision。现有 32K/64K 分档仍检查完整教师回答，超长记录单列。
 
 rollout/reward 使用当前 checkpoint 与当前 SGLang 版本实际支持的 native reasoning/tool parser。
 parser 名称是 launcher/serving 配置，不写入数据 schema；正式启动前必须通过 tokenizer-rendered

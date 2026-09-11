@@ -151,6 +151,7 @@ def main() -> None:
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--context-limit", type=int, default=262144)
     parser.add_argument("--generation-budgets", type=int, nargs="+", default=[16384, 32768, 65536])
+    parser.add_argument("--no-pretty", action="store_true")
     args = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     report, details = audit_lengths(
@@ -158,11 +159,13 @@ def main() -> None:
         generation_budgets=tuple(args.generation_budgets),
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
-    (args.output_root / "length_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with (args.output_root / "length_details.jsonl").open("w", encoding="utf-8") as output:
         for detail in details:
             output.write(json.dumps(detail, ensure_ascii=False, separators=(",", ":")) + "\n")
-    (args.output_root / "length_details.pretty.json").write_text(json.dumps(details, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report["details_sha256"] = sha256_file(args.output_root / "length_details.jsonl")
+    (args.output_root / "length_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if not args.no_pretty:
+        (args.output_root / "length_details.pretty.json").write_text(json.dumps(details, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

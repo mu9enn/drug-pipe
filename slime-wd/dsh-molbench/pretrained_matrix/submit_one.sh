@@ -7,6 +7,7 @@ set -Eeuo pipefail
 : "${SUITES:=ms1 ms2}"
 : "${EVAL_SEED:=42}"
 : "${EVAL_MAX_WORKERS:=2}"
+: "${EVAL_RECOVERY:=0}"
 read -r -a selected_suites <<< "$SUITES"
 suite_args=()
 for suite in "${selected_suites[@]}"; do suite_args+=(--suite "$suite"); done
@@ -18,13 +19,15 @@ run_dir=$login_root/outputs/dsh_molbench_evals/$RUN_NAME
 worker_driver=${WORKER_DRIVER:-/root/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/dsh-molbench/pretrained_matrix/run_worker.sh}
 worker_model_dir=${MODEL_DIR/\/home\/sunxiangyu\/slime_sxy/\/root\/slime_sxy}
 worker_model_dir=${worker_model_dir/\/mnt\/shared-storage-user\/sdpdev-fs\/sunxiangyu/\/root\/slime_sxy\/group-space\/sunxiangyu}
+worker_sample_ids=${SAMPLE_IDS_FILE:-}
+worker_sample_ids=${worker_sample_ids/\/home\/sunxiangyu\/slime_sxy/\/root\/slime_sxy}
 cpu_count=$((GPU_COUNT * 16))
 memory_mib=$((GPU_COUNT * 132500))
 tunnel_pid=
 submitted=0
 
 mkdir -p "$infra_dir"
-[[ ! -e "$run_dir/run_manifest.json" ]] || { echo "run already exists: $run_dir"; exit 1; }
+[[ "$EVAL_RECOVERY" == 1 || ! -e "$run_dir/run_manifest.json" ]] || { echo "run already exists: $run_dir"; exit 1; }
 log() { printf '[%s] %s\n' "$(date --iso-8601=seconds)" "$*" | tee -a "$infra_dir/orchestrator.log"; }
 cleanup() {
   local rc=$?
@@ -52,11 +55,22 @@ rjob submit --name="$JOB_NAME" --metadata-name="$JOB_NAME" --namespace="$namespa
   --gpu="$GPU_COUNT" --cpu="$cpu_count" --memory="$memory_mib" \
   -e NCCL_IB_DISABLE=1 -e DISTRIBUTED_JOB=true -e RJOB_NAME="$JOB_NAME" \
   -e MODEL_DIR="$worker_model_dir" -e MODEL_ID="$MODEL_ID" -e MODEL_NAME="$MODEL_NAME" \
-  -e GPU_COUNT="$GPU_COUNT" -e TP_SIZE="$TP_SIZE" \
+  -e GPU_COUNT="$GPU_COUNT" -e TP_SIZE="$TP_SIZE" -e SAMPLE_IDS_FILE="$worker_sample_ids" \
   -e WORKSPACE_VARIANT="$WORKSPACE_VARIANT" -e RUN_NAME="$RUN_NAME" -e INFRA_NAME="$INFRA_NAME" \
-  -e LIMIT_PER_SUITE="$LIMIT_PER_SUITE" -e SUITES="$SUITES" -e EVAL_SEED="$EVAL_SEED" -e EVAL_MAX_WORKERS="$EVAL_MAX_WORKERS" \
+  -e LIMIT_PER_SUITE="$LIMIT_PER_SUITE" -e SUITES="$SUITES" -e EVAL_SEED="$EVAL_SEED" -e EVAL_MAX_WORKERS="$EVAL_MAX_WORKERS" -e EVAL_RECOVERY="$EVAL_RECOVERY" \
   -- bash -lc "exec $worker_driver" 2>&1 | tee "$infra_dir/rjob_submit.log"
 submitted=1
+
+check_worker_failure() {
+  if [[ "$EVAL_RECOVERY" == 1 ]]; then
+    state=$(rjob get "$JOB_NAME" --namespace "$namespace" 2>&1 || true)
+    if grep -Eq "'failed': 1|'stopped': 1|OOMKilled|Evicted" <<< "$state"; then
+      printf '%s\n' "$state" > "$infra_dir/worker_lost.log"
+      touch "$infra_dir/worker_restart_required"
+      exit 1
+    fi
+  fi
+}
 
 log waiting_for_replica
 for attempt in $(seq 1 8640); do
@@ -77,6 +91,7 @@ ssh_opts=(-o BatchMode=yes -o ClearAllForwardings=yes -o ConnectTimeout=15 -o St
 log "waiting_for_worker target=$target"
 while ! ssh "${ssh_opts[@]}" "$target" true >> "$infra_dir/bootstrap.log" 2>&1; do
   [[ ! -f "$infra_dir/worker.exit" ]] || exit 1
+  check_worker_failure
   sleep 15
 done
 ssh "${ssh_opts[@]}" "$target" 'install -d -m 700 /root/.dsh'
@@ -96,6 +111,7 @@ tunnel_pid=$!
 
 for attempt in $(seq 1 2880); do
   [[ -f "$infra_dir/worker.exit" ]] && break
+  check_worker_failure
   sleep 60
 done
 [[ -f "$infra_dir/worker.exit" ]] || { log worker_timeout; exit 1; }

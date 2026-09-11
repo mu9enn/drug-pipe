@@ -60,12 +60,14 @@ ROLLOUT_HF_CHECKPOINT=${ROLLOUT_HF_CHECKPOINT:-$HF_CHECKPOINT}
 REF_LOAD=${REF_LOAD:-$DATA/Qwen3.5-0.8B_torch_dist}
 SAVE_DIR=${SAVE_DIR:-$DRUG_AGENT_RUNS_ROOT/Qwen3.5-0.8B_toolrl_grpo}
 SAVE_INTERVAL=${SAVE_INTERVAL:-1}
+SAVE_HF=${SAVE_HF:-}
 CHECKPOINT_KEEP_LAST=${CHECKPOINT_KEEP_LAST:-2}
 DISTRIBUTED_TIMEOUT_MINUTES=${DISTRIBUTED_TIMEOUT_MINUTES:-10}
 LOAD=${LOAD:-}
 TOOLRL_RESUME=${TOOLRL_RESUME:-0}
 
-ROLLOUT_FUNCTION_PATH=slime.rollout.sglang_rollout.generate_rollout
+ROLLOUT_FUNCTION_PATH=${ROLLOUT_FUNCTION_PATH:-slime.rollout.sglang_rollout.generate_rollout}
+LOAD_FORGE_ROLLOUT_DATA=${LOAD_FORGE_ROLLOUT_DATA:-}
 CUSTOM_RM_PATH=drug_agent.toolrl.molclaw_reward.reward_func
 REWARD_KEY=${REWARD_KEY:-score}
 
@@ -77,7 +79,7 @@ export TOOLRL_ORDER_BONUS_LAMBDA=${TOOLRL_ORDER_BONUS_LAMBDA:-0.1}
 ADVANTAGE_ESTIMATOR=${ADVANTAGE_ESTIMATOR:-grpo}
 NORMALIZE_ADVANTAGES=${NORMALIZE_ADVANTAGES:-0}
 DYNAMIC_SAMPLING_FILTER_PATH=${DYNAMIC_SAMPLING_FILTER_PATH:-}
-DATA_SOURCE_PATH=drug_agent.toolrl.trajectory_data_source.TrajectoryBatchDataSource
+DATA_SOURCE_PATH=${DATA_SOURCE_PATH:-drug_agent.toolrl.trajectory_data_source.TrajectoryBatchDataSource}
 USE_ROLLOUT_LOGPROBS=${USE_ROLLOUT_LOGPROBS:-0}
 ROLLOUT_MAX_RESPONSE_LEN=${ROLLOUT_MAX_RESPONSE_LEN:-2048}
 ROLLOUT_MAX_PROMPT_LEN=${ROLLOUT_MAX_PROMPT_LEN:-}
@@ -158,9 +160,11 @@ if [ -n "$DYNAMIC_SAMPLING_FILTER_PATH" ]; then
   echo "Canonical sequential sampling does not support decision-level dynamic filtering" >&2
   exit 2
 fi
-python drug_agent/scripts/validate_trajectory_toolrl_batches.py \
-  --input "$PROMPT_DATA" \
-  --rollout-batch-size "$ROLLOUT_BATCH_SIZE"
+if [ "$DATA_SOURCE_PATH" = "drug_agent.toolrl.trajectory_data_source.TrajectoryBatchDataSource" ]; then
+  python drug_agent/scripts/validate_trajectory_toolrl_batches.py \
+    --input "$PROMPT_DATA" \
+    --rollout-batch-size "$ROLLOUT_BATCH_SIZE"
+fi
 if [ "$VALIDATE_NATIVE_PARSER" = "1" ]; then
   python drug_agent/scripts/validate_qwen_native_toolrl_roundtrip.py \
     --input "$PROMPT_DATA" \
@@ -251,6 +255,9 @@ CKPT_ARGS=(--hf-checkpoint "$ROLLOUT_HF_CHECKPOINT" --ref-load "$REF_LOAD")
 if [ "${DISABLE_CHECKPOINT_SAVE:-0}" != "1" ]; then
   CKPT_ARGS+=(--save "$SAVE_DIR" --save-interval "$SAVE_INTERVAL" --save-retain-last "$CHECKPOINT_KEEP_LAST")
 fi
+if [ -n "$SAVE_HF" ]; then
+  CKPT_ARGS+=(--save-hf "$SAVE_HF")
+fi
 if [ -n "$LOAD" ]; then
   CKPT_ARGS+=(--load "$LOAD")
   if [ "$TOOLRL_RESUME" != "1" ]; then
@@ -292,6 +299,9 @@ TOOLRL_ARGS=(
   --global-batch-size "$GLOBAL_BATCH_SIZE"
   --balance-data
 )
+if [ -n "$LOAD_FORGE_ROLLOUT_DATA" ]; then
+  TOOLRL_ARGS+=(--load-forge-rollout-data "$LOAD_FORGE_ROLLOUT_DATA")
+fi
 if [ -n "$CUSTOM_GENERATE_FUNCTION_PATH" ]; then
   TOOLRL_ARGS+=(--custom-generate-function-path "$CUSTOM_GENERATE_FUNCTION_PATH")
 fi

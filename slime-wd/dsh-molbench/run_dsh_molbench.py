@@ -582,21 +582,12 @@ def diagnostic_transcript(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def project_prediction(sample: Sample, final_text: str) -> tuple[Any, bool, str | None]:
-    from pipeline.output_contracts import ANSWER_KEYS, strict_json_loads
-    if sample.suite == "ms3":
-        try:
-            payload = strict_json_loads(final_text)
-            ranking = payload.get("ranked_smiles") if isinstance(payload, dict) else None
-            if not isinstance(ranking, list) or not all(isinstance(value, str) for value in ranking):
-                raise ValueError("ranked_smiles must be a list of strings")
-            return ranking, True, None
-        except ValueError as exc:
-            return [], False, str(exc)
+    from pipeline.output_contracts import ANSWER_KEYS
     task = SUITE_TASKS[sample.suite]
     empty = "" if task in {"ac", "mo-opt", "mo-edit"} else []
     try:
         payload = json.loads(normalize_final_answer(
-            final_text, task, constraints=task_constraints(sample.prompt, task),
+            final_text, task, constraints=None if task == "vs" else task_constraints(sample.prompt, task),
         ))
         return payload[ANSWER_KEYS[task]], True, None
     except ValueError as exc:
@@ -613,9 +604,9 @@ def json_format_valid(sample: Sample, text: str) -> bool:
 
 def publishable_records(records: list[dict[str, Any]]) -> bool:
     return bool(records) and all(
-        record.get("status") == "completed"
+        not record.get("unresolved_infra") and (record.get("status") == "completed"
         or (record.get("status") == "failed" and record.get("failure_class") in
-            {"model_max_tokens", "model_or_protocol_failure"})
+            {"model_max_tokens", "model_or_protocol_failure"}))
         for record in records
     ) and all(record.get("protocol_verified") is True for record in records)
 
@@ -634,6 +625,7 @@ def run_sample(
     expected_system: str | None = None,
     expected_mcp_tools: int = 0,
     expected_skill_count: int = 0,
+    recover_infra: bool = False,
 ) -> dict[str, Any]:
     started = time.time()
     session_id = f"session-dsh-molbench-{uuid.uuid4()}"
@@ -752,7 +744,12 @@ def run_sample(
     if events:
         write_json(result_dir / "diagnostic_transcript.json", diagnostic_transcript(events))
     record.update({"finished_at": utc_now(), "elapsed_seconds": round(time.time() - started, 3)})
+    if recover_infra:
+        record["unresolved_infra"] = unresolved_infrastructure(events, record)
+        record["recovery_policy"] = "infra_v1"
     record["failure_class"] = failure_class(record)
+    if recover_infra:
+        record["retry_exhausted"] = bool(record.get("unresolved_infra")) and attempt >= 3
     write_json(result_dir / "record.json", record)
     return record
 
@@ -765,12 +762,93 @@ RETRYABLE_INFRA_TEXT = re.compile(
 )
 
 
+# Match actual error fields / tool observations, never assistant reasoning.
+INFRA_ERROR = re.compile(
+    r"fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENETUNREACH|"
+    r"connection (?:reset|refused|closed)|broken pipe|temporarily unavailable|"
+    r"stream idle timeout|timed out|TimeoutError|CUDA.*out of memory|"
+    r"OutOfMemoryError|OOMKilled|out_of_memory|out of memory|std::bad_alloc|"
+    r"(?:HTTP|status(?: code)?)\s*[:=]?\s*(?:408|429|500|502|503|504)\b",
+    re.IGNORECASE,
+)
+
+
+def unresolved_infrastructure(events: list[dict[str, Any]], record: dict[str, Any]) -> list[dict[str, Any]]:
+    calls = {}
+    unresolved = {}
+    for event in events:
+        data = event.get("data") or {}
+        if event.get("type") == "tool/call":
+            arguments = data.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except ValueError:
+                    pass
+            key = (data.get("name"), json.dumps(arguments, sort_keys=True, ensure_ascii=False))
+            calls[data.get("callId")] = key
+        if event.get("type") != "tool/result":
+            continue
+        message = data.get("message") or {}
+        call_id = (message.get("source") or {}).get("callId")
+        key = calls.get(call_id)
+        if key is None:
+            continue
+        blocks = message.get("content") or []
+        texts = [part.get("text", "") for block in blocks for part in block.get("content", [])]
+        business_failed = False
+        error_texts = []
+        for value in texts:
+            try:
+                payload = json.loads(value)
+            except ValueError:
+                error_texts.append(value)
+                continue
+            if isinstance(payload, dict):
+                diagnostics = payload.get("diagnostics") or {}
+                failed = payload.get("status") in ("error", "failed", False) if "status" in payload else False
+                failed = failed or bool(diagnostics.get("error_code"))
+                business_failed |= failed
+                if failed:
+                    error_texts.append(json.dumps({k: payload.get(k) for k in ("msg", "message", "error", "diagnostics")}))
+        failure_text = "\n".join(error_texts)
+        if INFRA_ERROR.search(failure_text):
+            unresolved[key] = {"tool": key[0], "call_id": call_id, "seq": event.get("seq"), "error": failure_text[:2000]}
+        elif not business_failed and not any(b.get("isError") for b in blocks) and not data.get("error"):
+            unresolved.pop(key, None)
+    reason = record.get("turn_reason") or {}
+    terminal_error = json.dumps(reason.get("error") or record.get("error") or "")
+    error = reason.get("error")
+    code = error.get("code") if isinstance(error, dict) else None
+    if INFRA_ERROR.search(terminal_error) or reason.get("kind") == "error" and code in {"TIMEOUT", "TRANSPORT", "MCP_CONNECTION"}:
+        unresolved[("terminal", "")] = {"tool": None, "error": terminal_error[:2000]}
+    return list(unresolved.values())
+
+
+def retry_eligible(record: dict[str, Any]) -> bool:
+    return record.get("failure_class") == "retryable_infra" and int(record.get("attempt", 1)) < 3
+
+
+def recover_task(run_once, reset, sleep=time.sleep) -> dict[str, Any]:
+    """First clean attempt wins; exhausted retries keep the last answer."""
+    while True:
+        record = run_once()
+        if not retry_eligible(record):
+            return record
+        sleep((60, 180)[int(record["attempt"]) - 1])
+        reset(record)
+
+
 def failure_class(record: dict[str, Any]) -> str | None:
+    if record.get("unresolved_infra"):
+        return "retryable_infra"
     if record.get("status") != "failed":
         return None
     reason = record.get("turn_reason")
     if isinstance(reason, dict) and reason.get("kind") == "max-tokens":
         return "model_max_tokens"
+    if record.get("recovery_policy") == "infra_v1":
+        return "unclassified_failure"
     if isinstance(reason, dict) and reason.get("kind") == "error":
         error = reason.get("error")
         if isinstance(error, dict) and str(error.get("code") or "") in RETRYABLE_INFRA_CODES:
@@ -790,6 +868,9 @@ def archive_failed_attempt(run_dir: Path, sample: Sample, record: dict[str, Any]
     attempt = int(record.get("attempt") or 1)
     archive = result_dir / "attempts" / f"attempt-{attempt}"
     archive.mkdir(parents=True, exist_ok=False)
+    workspace = Path(record.get("workdir", ""))
+    if record.get("recovery_policy") == "infra_v1" and workspace.is_dir() and str(workspace) != ".":
+        shutil.copytree(workspace, archive / "workspace", symlinks=True)
     for name in ("record.json", "diagnostic_transcript.json", "final_answer.txt"):
         source = result_dir / name
         if source.is_file():
@@ -920,10 +1001,11 @@ def materialize_scores(run_dir: Path, molbench_root: Path, samples: list[Sample]
         ),
         "infra_retry_count": sum(max(int(record.get("attempt") or 1) - 1, 0) for record in records),
         "infra_failure_count": sum(record.get("failure_class") == "retryable_infra" for record in records),
+        "retry_exhausted_count": sum(bool(r.get("retry_exhausted")) for r in records),
         "publishable": publishable_records(records),
         "metrics": metrics,
         "projection_protocol": "structured_v8_strict_json",
-        "ms3_scoring_policy": "top3_list_v1: accept string lists without candidate/count/uniqueness gates; score original first three positions" if any(s.suite == "ms3" for s in samples) else None,
+        "ms3_scoring_policy": "top3_list_v2: preserve original JSON fields/types; no candidate/count/uniqueness gates; score original first three positions" if any(s.suite == "ms3" for s in samples) else None,
         "denominator_policy": "all selected samples; failed or missing tasks receive an empty prediction",
     }
     write_json(run_dir / "evaluation_summary.json", summary)
@@ -972,6 +1054,7 @@ def materialize_rollout_summary(run_dir: Path, samples: list[Sample]) -> dict[st
         ),
         "infra_retry_count": sum(max(int(record.get("attempt") or 1) - 1, 0) for record in records),
         "infra_failure_count": sum(record.get("failure_class") == "retryable_infra" for record in records),
+        "retry_exhausted_count": sum(bool(r.get("retry_exhausted")) for r in records),
         "publishable": publishable_records(records),
         "scored": False,
         "scoring_instruction": "Run this runner with --score-only on the login host after rollout completion.",
@@ -1089,9 +1172,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate DSH + local Qwen on MolBench MS-1/MS-2/MS-3")
     parser.add_argument("--suite", action="append", choices=tuple(SUITE_TASKS), default=[])
     parser.add_argument("--limit-per-suite", type=int, default=0, help="0 means all selected samples")
+    parser.add_argument("--sample-ids-file", type=Path, help="JSON list of task IDs for a declared subset")
     parser.add_argument("--run-dir", type=Path)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--retry-infra-failed", action="store_true")
+    parser.add_argument("--recover-infra", action="store_true", help="Retry unresolved transient tool/turn failures, at most twice")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--score-only", action="store_true")
     parser.add_argument(
@@ -1146,16 +1231,30 @@ def main() -> int:
         run_dir = DEFAULT_RUNS_ROOT / f"dsh_qwen35_original_ms1_ms2_{stamp}"
     else:
         run_dir = args.run_dir.expanduser().resolve()
+    execution_settings = {'task_timeout_sec': args.task_timeout_sec, 'max_workers': args.max_workers,
+                          'max_infrastructure_retries': 2}
+    if args.recover_infra:
+        execution_settings['max_parallel_tool_calls'] = 1
     manifest_path = run_dir / "run_manifest.json"
+    selected_ids = None
+    if args.sample_ids_file:
+        selected_ids = json.loads(args.sample_ids_file.read_text())
+    elif manifest_path.exists() and (args.resume or args.score_only):
+        selected_ids = json.loads(manifest_path.read_text())["sample_ids"]
+    if selected_ids is not None:
+        if not isinstance(selected_ids, list) or not selected_ids or not all(isinstance(x, str) for x in selected_ids):
+            raise ValueError("sample IDs must be a nonempty JSON string list")
+        known = {sample.task_id for sample in samples}
+        if len(set(selected_ids)) != len(selected_ids) or set(selected_ids) - known:
+            raise ValueError("duplicate or unknown sample IDs")
+        samples = [sample for sample in samples if sample.task_id in set(selected_ids)]
     if manifest_path.exists() and not (args.resume or args.score_only):
         raise RuntimeError(f"run directory already exists; pass --resume: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if not args.score_only and manifest.get('execution_settings') != {
-                'task_timeout_sec': args.task_timeout_sec, 'max_workers': args.max_workers,
-                'max_infrastructure_retries': 2}:
+        if not args.score_only and manifest.get('execution_settings') != execution_settings:
             raise RuntimeError('execution budgets differ from the existing run')
         if manifest.get("benchmark_release_sha256") != sha256_file(molbench_root / "aligned/manifest.json"):
             raise RuntimeError("benchmark release changed; use a new run directory")
@@ -1177,9 +1276,13 @@ def main() -> int:
             args.model_provider, args.model_id, args.agent_preset,
             system_prompt_file, tokenizer_config, runtime_audit_file,
         )
+        if args.sample_ids_file:
+            manifest["evaluation_scope"] = "selected_questions_diagnostic"
+            manifest["sample_selection_sha256"] = sha256_file(args.sample_ids_file)
         manifest["execution_mode"] = "rollout-only" if args.rollout_only else "rollout-and-score"
-        manifest['execution_settings'] = {'task_timeout_sec': args.task_timeout_sec,
-                                          'max_workers': args.max_workers, 'max_infrastructure_retries': 2}
+        if args.recover_infra:
+            manifest['recovery_policy'] = 'infra_v1'
+        manifest['execution_settings'] = execution_settings
         if installed_preset is not None:
             preset_composition = installed_preset / "agent.cordis.yml"
             manifest["derived_agent_preset"] = {
@@ -1190,6 +1293,13 @@ def main() -> int:
             }
         manifest["source_files"] = [item for item in manifest["source_files"] if item is not None]
         write_json(manifest_path, manifest)
+
+    if not args.score_only and args.recover_infra != (manifest.get("recovery_policy") == "infra_v1"):
+        raise ValueError("resume must use the same recovery policy as the original run")
+    if args.recover_infra and manifest.get("recovery_policy") != "infra_v1":
+        raise ValueError("recovery policy changed; start a new run")
+    if args.recover_infra and args.max_workers != 1:
+        raise ValueError("infra recovery runs require --max-workers 1")
 
     workspace_payload = create_workspace_snapshot(run_dir, skill_source)
     prompt_prefix = (workspace_payload / "prompt_prefix.md").read_text(encoding="utf-8")
@@ -1208,13 +1318,18 @@ def main() -> int:
         pending: list[tuple[int, Sample]] = []
         for index, sample in enumerate(samples, 1):
             existing = load_record(run_dir, sample)
-            if existing and existing.get("status") == "completed":
+            if existing and existing.get("status") == "completed" and not (args.recover_infra and retry_eligible(existing)):
                 print(f"[{index}/{len(samples)}] {sample.task_id}: resume skip completed", flush=True)
                 continue
             if existing:
+                if args.recover_infra and existing.get("status") == "running":
+                    existing.update(status="failed", failure_class="retryable_infra", recovery_policy="infra_v1",
+                                    unresolved_infra=[{"error": "previous worker interrupted this attempt"}],
+                                    retry_exhausted=int(existing.get("attempt", 1)) >= 3)
+                    write_json(run_dir / "results" / sample.task_id / "record.json", existing)
                 existing_class = existing.get("failure_class") or failure_class(existing)
                 attempt = int(existing.get("attempt") or 1)
-                if not args.retry_infra_failed or existing_class != "retryable_infra" or attempt >= 3:
+                if not (args.retry_infra_failed or args.recover_infra) or existing_class != "retryable_infra" or attempt >= 3:
                     print(
                         f"[{index}/{len(samples)}] {sample.task_id}: resume skip failed "
                         f"class={existing_class} attempt={attempt}",
@@ -1249,32 +1364,52 @@ def main() -> int:
         def execute(item: tuple[int, Sample]) -> tuple[int, Sample, dict[str, Any]]:
             index, sample = item
             print(f"[{index}/{len(samples)}] {sample.task_id}: running", flush=True)
-            existing = load_record(run_dir, sample)
-            attempt = int(existing.get("attempt") or 0) + 1 if existing else 1
-            record = run_sample(
-                DshApi(args.dsh_url), run_dir, sample, workdirs[sample.task_id], args.task_timeout_sec,
-                args.model_provider, args.model_id, args.agent_preset, prompt_prefix, attempt,
-                system_prompt_file.read_text(encoding="utf-8").rstrip()
-                if args.required_mcp_tools or args.required_skill_count else None,
-                args.required_mcp_tools,
-                args.required_skill_count,
-            )
+            def once():
+                existing = load_record(run_dir, sample)
+                attempt = int(existing.get("attempt") or 0) + 1 if existing else 1
+                record = run_sample(
+                    DshApi(args.dsh_url), run_dir, sample, workdirs[sample.task_id], args.task_timeout_sec,
+                    args.model_provider, args.model_id, args.agent_preset, prompt_prefix, attempt,
+                    system_prompt_file.read_text(encoding="utf-8").rstrip()
+                    if args.required_mcp_tools or args.required_skill_count else None,
+                    args.required_mcp_tools,
+                    args.required_skill_count,
+                    args.recover_infra,
+                )
+                if args.recover_infra and any(f.get("tool") is None for f in record.get("unresolved_infra", [])):
+                    # The local model/DSH request failed: let the worker owner restore services.
+                    raise SystemExit(67)
+                return record
+
+            def reset(record):
+                archive_failed_attempt(run_dir, sample, record)
+                shutil.rmtree(workdirs[sample.task_id])
+                workdirs[sample.task_id] = prepare_workspace(run_dir, sample, workspace_payload)
+
+            record = recover_task(once, reset) if args.recover_infra else once()
             return index, sample, record
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as pool:
-            futures = [pool.submit(execute, item) for item in pending]
-            for future in concurrent.futures.as_completed(futures):
-                index, sample, record = future.result()
-                print(
-                    f"[{index}/{len(samples)}] {sample.task_id}: {record.get('status')} "
-                    f"valid={record.get('valid_output')} mcp_calls={len(record.get('mcp_tool_calls') or [])} "
-                    f"elapsed={record.get('elapsed_seconds')}s",
-                    flush=True,
-                )
-                if args.rollout_only:
-                    materialize_rollout_summary(run_dir, samples)
-                else:
-                    materialize_scores(run_dir, molbench_root, samples)
+        def report(result):
+            index, sample, record = result
+            print(
+                f"[{index}/{len(samples)}] {sample.task_id}: {record.get('status')} "
+                f"valid={record.get('valid_output')} mcp_calls={len(record.get('mcp_tool_calls') or [])} "
+                f"elapsed={record.get('elapsed_seconds')}s",
+                flush=True,
+            )
+            if args.rollout_only:
+                materialize_rollout_summary(run_dir, samples)
+            else:
+                materialize_scores(run_dir, molbench_root, samples)
+
+        if args.recover_infra:
+            for item in pending:
+                report(execute(item))
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as pool:
+                futures = [pool.submit(execute, item) for item in pending]
+                for future in concurrent.futures.as_completed(futures):
+                    report(future.result())
 
     if args.rollout_only:
         summary = materialize_rollout_summary(run_dir, samples)

@@ -37,19 +37,26 @@ def main():
         assert doc["current_call_tool_definitions"]==expected
         omitted=set(entry["window"]["omitted_message_indices"])
         assert all(row["prompt"][i]["role"] not in {"system","user","developer"} for i in omitted)
-        indices=[i for i in range(len(row["prompt"])) if i not in omitted]
+        excluded_system={i for i,m in enumerate(row["prompt"]) if m["role"] == "system"}
+        excluded_tool={i for i,m in enumerate(row["prompt"]) if m["role"] == "tool"}
+        assert excluded_system == set(entry["window"]["excluded_system_message_indices"])
+        assert excluded_tool == set(entry["window"]["excluded_tool_result_indices"])
+        system=stable_json([strip(row["prompt"][i]) for i in sorted(excluded_system)])
+        version=hashlib.sha256(system.encode()).hexdigest()
+        assert version in prep["public_system_versions"]
+        assert json.loads((root/"prepared/system_messages"/f"{version}.json").read_text()) == json.loads(system)
+        indices=[i for i in range(len(row["prompt"])) if i not in omitted | excluded_system | excluded_tool]
         history=doc["history_before_current_decision"]
         assert len(history)==len(indices)
-        # The current corpus triggers no explicit payload edits. Refuse to
-        # claim byte preservation if future data require a different audit.
-        assert not entry["window"]["payload_edits"]
+        assert all(m["role"] not in {"system","tool"} for m in history)
         assert history==[strip(row["prompt"][i]) for i in indices]
         counts["windowed_eligible"]+=bool(omitted)
     assert not audit and next(copies,None) is None
     report={"counts":dict(counts),"source_sha256":prep["input_sha256"],
-            "current_target_and_definitions_exact":True,"all_user_system_constraints_exact":True,
+            "current_target_and_definitions_exact":True,"all_user_developer_constraints_exact":True,
+            "common_system_saved_separately":True,"no_tool_results_in_encoding":True,
             "retained_history_messages_exact_in_original_order":True,
-            "payload_edits":0,"training_source_unchanged":True,
+            "training_source_unchanged":True,
             "embedding_not_yet_asserted_by_this_check":True}
     (root/"window_integrity_validation.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))

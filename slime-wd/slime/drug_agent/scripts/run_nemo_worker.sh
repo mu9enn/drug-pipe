@@ -4,7 +4,8 @@ set -euo pipefail
 # The allocation runs this foreground workload and exits on success or failure.
 run_root="${1:?run root required}"
 mode="${2:?smoke or full required}"
-[[ "$mode" == smoke || "$mode" == full ]]
+eps="${3:?explicit eps required}"
+[[ "$mode" == smoke || "$mode" == full || "$mode" == experiment ]]
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 export PATH="$run_root/venv/bin:$PATH"
@@ -25,5 +26,10 @@ python -c 'import torch; assert torch.cuda.is_available(); assert torch.cuda.dev
 "$run_root/bootstrap/bin/uv" pip freeze --python "$run_root/venv/bin/python" > "$run_root/environment_frozen.txt"
 extra=()
 if [[ "$mode" == smoke ]]; then extra+=(--smoke); fi
-python -m drug_agent.scripts.run_nemo_toolrl encode --run-root "$run_root" "${extra[@]}"
-python -m drug_agent.scripts.run_nemo_toolrl dedup --run-root "$run_root" "${extra[@]}"
+# The previous encoder stalled without raising. Bound each real workload so a
+# hung backend cannot reserve the GPU indefinitely; completed caches survive.
+timeout --kill-after=60s 4h python -m drug_agent.scripts.run_nemo_toolrl encode --run-root "$run_root" "${extra[@]}"
+timeout --kill-after=60s 12h python -m drug_agent.scripts.run_nemo_toolrl dedup --run-root "$run_root" --eps "$eps" "${extra[@]}"
+if [[ "$mode" == experiment ]]; then
+  timeout --kill-after=60s 30m python -m drug_agent.scripts.sweep_nemo_thresholds --run-root "$run_root"
+fi

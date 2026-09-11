@@ -1,0 +1,778 @@
+{
+  "orig-l1": {
+    "counts": {
+      "mcp__molclaw-scp__pred_binding_affinity_boltz2": 89,
+      "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess": 38,
+      "mcp__molclaw-scp__calculate_mol_hydrophobicity": 3,
+      "mcp__molclaw-scp__calculate_mol_hbond": 1,
+      "mcp__molclaw-scp__visualize_protein": 3,
+      "mcp__molclaw-scp__karmadock_tool": 5,
+      "mcp__molclaw-scp__fix_pdb": 23,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name": 24,
+      "mcp__molclaw-scp__retrieve_protein_sequence": 53,
+      "mcp__molclaw-scp__pred_mol_admet": 5,
+      "mcp__molclaw-scp__calculate_mol_basic_info": 16,
+      "mcp__molclaw-scp__prolif_pdb": 1,
+      "mcp__molclaw-scp__retrieve_smiles_by_compoundname": 2,
+      "mcp__molclaw-scp__calculate_mol_complexity": 1,
+      "mcp__molclaw-scp__calculate_pdb_basic_info": 8,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id": 47,
+      "mcp__molclaw-scp__pred_protein_structure_esmfold": 5,
+      "mcp__molclaw-scp__convert_smiles_to_format": 4,
+      "mcp__molclaw-scp__hdock_tool": 3,
+      "mcp__molclaw-scp__fpocket_toolkit": 23,
+      "mcp__molclaw-scp__calculate_mol_drug_chemistry": 10,
+      "mcp__molclaw-scp__calculate_morgan_fingerprint_similarity": 2,
+      "mcp__molclaw-scp__server_file_to_base64": 3,
+      "mcp__molclaw-scp__is_valid_smiles": 6,
+      "mcp__molclaw-scp__equiscore_pocket": 3,
+      "mcp__molclaw-scp__chai1_predict": 3,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id": 9,
+      "mcp__molclaw-scp__calculate_pdb_structural_geometry": 4,
+      "mcp__molclaw-scp__calculate_dleps_score": 2,
+      "mcp__molclaw-scp__pred_pocket_prank": 4,
+      "mcp__molclaw-scp__extract_pdb_chains": 6,
+      "mcp__molclaw-scp__visualize_molecule": 1,
+      "mcp__molclaw-scp__equiscore_pipeline": 2,
+      "mcp__molclaw-scp__protein_openmm_md": 1,
+      "mcp__molclaw-scp__interaction_visualizer": 1,
+      "mcp__molclaw-scp__openawsem_sim": 1,
+      "mcp__molclaw-scp__foldx_tool": 1,
+      "mcp__molclaw-scp__calculate_mol_topology": 1,
+      "mcp__molclaw-scp__extract_and_save_chains": 3
+    },
+    "task_counts": {
+      "mcp__molclaw-scp__pred_binding_affinity_boltz2": 17,
+      "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess": 10,
+      "mcp__molclaw-scp__calculate_mol_hydrophobicity": 3,
+      "mcp__molclaw-scp__calculate_mol_hbond": 1,
+      "mcp__molclaw-scp__visualize_protein": 3,
+      "mcp__molclaw-scp__karmadock_tool": 5,
+      "mcp__molclaw-scp__fix_pdb": 9,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name": 10,
+      "mcp__molclaw-scp__retrieve_protein_sequence": 10,
+      "mcp__molclaw-scp__pred_mol_admet": 4,
+      "mcp__molclaw-scp__calculate_mol_basic_info": 7,
+      "mcp__molclaw-scp__prolif_pdb": 1,
+      "mcp__molclaw-scp__retrieve_smiles_by_compoundname": 2,
+      "mcp__molclaw-scp__calculate_mol_complexity": 1,
+      "mcp__molclaw-scp__calculate_pdb_basic_info": 6,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id": 10,
+      "mcp__molclaw-scp__pred_protein_structure_esmfold": 4,
+      "mcp__molclaw-scp__convert_smiles_to_format": 3,
+      "mcp__molclaw-scp__hdock_tool": 3,
+      "mcp__molclaw-scp__fpocket_toolkit": 10,
+      "mcp__molclaw-scp__calculate_mol_drug_chemistry": 7,
+      "mcp__molclaw-scp__calculate_morgan_fingerprint_similarity": 2,
+      "mcp__molclaw-scp__server_file_to_base64": 3,
+      "mcp__molclaw-scp__is_valid_smiles": 4,
+      "mcp__molclaw-scp__equiscore_pocket": 3,
+      "mcp__molclaw-scp__chai1_predict": 3,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id": 7,
+      "mcp__molclaw-scp__calculate_pdb_structural_geometry": 3,
+      "mcp__molclaw-scp__calculate_dleps_score": 2,
+      "mcp__molclaw-scp__pred_pocket_prank": 3,
+      "mcp__molclaw-scp__extract_pdb_chains": 4,
+      "mcp__molclaw-scp__visualize_molecule": 1,
+      "mcp__molclaw-scp__equiscore_pipeline": 2,
+      "mcp__molclaw-scp__protein_openmm_md": 1,
+      "mcp__molclaw-scp__interaction_visualizer": 1,
+      "mcp__molclaw-scp__openawsem_sim": 1,
+      "mcp__molclaw-scp__foldx_tool": 1,
+      "mcp__molclaw-scp__calculate_mol_topology": 1,
+      "mcp__molclaw-scp__extract_and_save_chains": 1
+    },
+    "ms3_007": [
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id",
+        "arguments": "{\"pdb_id\":\"5J2Z\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 232
+      },
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id",
+        "arguments": "{\"pdb_id\":\"2V1O\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 284
+      },
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id",
+        "arguments": "{\"pdb_id\":\"CHEMBL4722\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 350
+      },
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name",
+        "arguments": "{\"gene_name\":\"AURKA\",\"organism\":\"9606\",\"sort_by\":\"length\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 448
+      },
+      {
+        "tool": "mcp__molclaw-scp__chai1_predict",
+        "arguments": "{\"mode\":\"sequence\",\"samples\":5,\"seq\":\"MTEYKLVVVGAGGVGKSALTIQLIQNHFVDEYDPTIEDSYRKQVVIDGETGELFLRCFAYGNT LLPLTGNKLAHTEYLGMNQWLDKLQSNEVNGGTF\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 524
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/tmp/aura_kinase.pdb\",\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"pocket_center_x\":15.5,\"pocket_center_y\":19.2,\"pocket_center_z\":25.8,\"pocket_size_x\":20,\"pocket_size_y\":20,\"pocket_size_z\":20}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 716
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/tmp/aura_kinase.pdb\",\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"pocket_center_x\":15.5,\"pocket_center_y\":19.2,\"pocket_center_z\":25.8,\"pocket_size_x\":20,\"pocket_size_y\":20,\"pocket_size_z\":20}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 887
+      },
+      {
+        "tool": "mcp__molclaw-scp__calculate_mol_basic_info",
+        "arguments": "{\"smiles_list\":[\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"Nc1ncc2cccc(-c3ccccc3)n12\",\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\",\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\",\"Nc1nc(=O)[nH]c2sccc12\",\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\",\"O=C(Nc1ccccc1)Nc1nccs1\",\"c1ccc2c(c1)[nH]c1cnccc12\",\"Nc1ncnc2sccc12\",\"NC(=O)Cn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"c1ccc(Nc2ccnc(Nc3ccccc3)n2)cc1\",\"O=C(NCc1ccc(Cl)c(Cl)c1)Nc1ccc2[nH]ncc2c1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1n[nH]c2ccc(-c3cncc(OCC(N)Cc4ccc(Cl)c(Cl)c4)c3)cc12\",\"CC(Nc1cncc(-n2cnc3ccccc32)n1)c1ccc(F)cc1\",\"COc1cc(-c2ccc3c(c2)Nc2ccc(CCOc4ccc(N5CCOCC5)cc4)cc2NC3=O)ccc1CC#N\",\"CC(=NNC(=N)N)c1cc(NC(=O)c2cccc(C(=O)Nc3cc(C(C)=NNC(=N)N)cc(C(C)=NNC(=N)N)c3)c2)cc(C(C)=NNC(=N)N)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3cccc4[nH]ncc34)cc2)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3ccc4nccnc4c3N)cc2)c1\",\"Cc1cc(-c2ncnc3[nH]ccc23)ccc1F\",\"CCn1c(C)c(-c2ccnc(Nc3cccc(OC)c3)n2)sc1=O\",\"c1ccc2c(c1)nnn2Cc1cn(-c2ccc3[nH]ncc3c2)nn1\",\"O=C1Cc2c([nH]c3ccc(Br)cc23)-c2ccccc2N1\",\"O=c1[nH]c2cc(Br)cnc2[nH]1\",\"CS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"Cc1n[nH]c2ccc(-c3cccnc3)cc12\",\"Nc1n[nH]c2nc(Cl)sc12\",\"Nc1nnc2cncc(Cl)n12\",\"CCS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1cc(C)c2c(n1)sc1c(N)ncnc12\",\"NC(=O)c1sc2c(Br)ccc(Cl)c2c1N\",\"N#CCC(C1CCCC1)n1cc(-c2ncnc3[nH]ccc23)cn1\",\"Nc1n[nH]c2ncc(Br)cc12\",\"CSc1c[nH]c2ncnc(NCCCO)c12\",\"NC(=O)c1cc2c(-c3ccc(Br)c(F)c3F)cncc2s1\",\"COc1cc(C=C(C#N)c2n[nH]c(N)c2C#N)ccc1O\",\"Cc1cc(C(N)=O)n2nc(C(C)(C)C)cc2n1\",\"Cc1cc2cc(-c3csc4c(-c5cccc(S(C)(=O)=O)c5)cnc(N)c34)ccc2[nH]1\",\"COc1cc(C(=O)O)c(Cl)cc1NC(=O)Nc1cnc(C#N)cn1\",\"CC(C)c1cc(=O)[nH]c2[nH][nH]c(=O)c12\",\"Nc1ncnc2c1c(-c1cccc(OCc3ccccc3)c1)cn2C1CCC(N2CCCC2)CC1\",\"Nc1ccc2c(C(=O)O)n(-c3ccccc3)nc2c1\",\"CCOc1nc(C(=O)NCc2ccc(S(N)(=O)=O)cc2)cc(N)c1C#N\",\"ON=C(c1nc2ccccc2[nH]1)c1nc2ccccc2[nH]1\",\"COc1c(-c2nc3ccccc3[nH]2)c(O)cc2oc(C)cc(=O)c12\",\"CC(=O)c1cccc(-c2ccc3nccn3n2)c1\",\"O=C1NC(=O)C(Nc2ccccc2)=C1Cl\",\"Nc1nonc1-n1nnc(C(=O)NN=Cc2cccs2)c1-c1cccs1\",\"COc1cccc(C(C)NC(=O)N2CC=C(c3c[nH]c4ncccc34)CC2)c1\",\"CC(C)(C)NC(=O)c1ccc2nc3[nH]c4ccccc4c3nc2c1\",\"CC(=O)Nc1ccc(-n2nc3ccc(N)nc3n2)cc1\",\"NCCn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\",\"N#Cc1ncc2nc1OCCCCCOc1cc(OCCO)c(Cl)cc1NC(=O)N2\",\"O=S(=O)(NCCNCC=Cc1ccc(Br)cc1)s1cccc2cnccc12\",\"Cc1ccccc1NC(=O)Nc1ccc2c(c1)CCc1sc3ncnc(N)c3c1-2\",\"Cc1c(C)n(Cc2ccccc2)c2ccc(C(=O)Nc3nc[nH]n3)cc12\",\"Cc1cc(=O)[nH]c2[nH]n(-c3ccccc3)c(=O)c12\",\"COc1cccc(S(=O)(=O)Nc2ccc3c(c2)C(=NO)c2ccccc2-3)c1\"]}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1356
+      },
+      {
+        "tool": "mcp__molclaw-scp__calculate_mol_drug_chemistry",
+        "arguments": "{\"smiles_list\":[\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"Nc1ncc2cccc(-c3ccccc3)n12\",\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\",\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\",\"Nc1nc(=O)[nH]c2sccc12\",\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\",\"O=C(Nc1ccccc1)Nc1nccs1\",\"c1ccc2c(c1)[nH]c1cnccc12\",\"Nc1ncnc2sccc12\",\"NC(=O)Cn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"c1ccc(Nc2ccnc(Nc3ccccc3)n2)cc1\",\"O=C(NCc1ccc(Cl)c(Cl)c1)Nc1ccc2[nH]ncc2c1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1n[nH]c2ccc(-c3cncc(OCC(N)Cc4ccc(Cl)c(Cl)c4)c3)cc12\",\"CC(Nc1cncc(-n2cnc3ccccc32)n1)c1ccc(F)cc1\",\"COc1cc(-c2ccc3c(c2)Nc2ccc(CCOc4ccc(N5CCOCC5)cc4)cc2NC3=O)ccc1CC#N\",\"CC(=NNC(=N)N)c1cc(NC(=O)c2cccc(C(=O)Nc3cc(C(C)=NNC(=N)N)cc(C(C)=NNC(=N)N)c3)c2)cc(C(C)=NNC(=N)N)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3cccc4[nH]ncc34)cc2)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3ccc4nccnc4c3N)cc2)c1\",\"Cc1cc(-c2ncnc3[nH]ccc23)ccc1F\",\"CCn1c(C)c(-c2ccnc(Nc3cccc(OC)c3)n2)sc1=O\",\"c1ccc2c(c1)nnn2Cc1cn(-c2ccc3[nH]ncc3c2)nn1\",\"O=C1Cc2c([nH]c3ccc(Br)cc23)-c2ccccc2N1\",\"O=c1[nH]c2cc(Br)cnc2[nH]1\",\"CS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"Cc1n[nH]c2ccc(-c3cccnc3)cc12\",\"Nc1n[nH]c2nc(Cl)sc12\",\"Nc1nnc2cncc(Cl)n12\",\"CCS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1cc(C)c2c(n1)sc1c(N)ncnc12\",\"NC(=O)c1sc2c(Br)ccc(Cl)c2c1N\",\"N#CCC(C1CCCC1)n1cc(-c2ncnc3[nH]ccc23)cn1\",\"Nc1n[nH]c2ncc(Br)cc12\",\"CSc1c[nH]c2ncnc(NCCCO)c12\",\"NC(=O)c1cc2c(-c3ccc(Br)c(F)c3F)cncc2s1\",\"COc1cc(C=C(C#N)c2n[nH]c(N)c2C#N)ccc1O\",\"Cc1cc(C(N)=O)n2nc(C(C)(C)C)cc2n1\",\"Cc1cc2cc(-c3csc4c(-c5cccc(S(C)(=O)=O)c5)cnc(N)c34)ccc2[nH]1\",\"COc1cc(C(=O)O)c(Cl)cc1NC(=O)Nc1cnc(C#N)cn1\",\"CC(C)c1cc(=O)[nH]c2[nH][nH]c(=O)c12\",\"Nc1ncnc2c1c(-c1cccc(OCc3ccccc3)c1)cn2C1CCC(N2CCCC2)CC1\",\"Nc1ccc2c(C(=O)O)n(-c3ccccc3)nc2c1\",\"CCOc1nc(C(=O)NCc2ccc(S(N)(=O)=O)cc2)cc(N)c1C#N\",\"ON=C(c1nc2ccccc2[nH]1)c1nc2ccccc2[nH]1\",\"COc1c(-c2nc3ccccc3[nH]2)c(O)cc2oc(C)cc(=O)c12\",\"CC(=O)c1cccc(-c2ccc3nccn3n2)c1\",\"O=C1NC(=O)C(Nc2ccccc2)=C1Cl\",\"Nc1nonc1-n1nnc(C(=O)NN=Cc2cccs2)c1-c1cccs1\",\"COc1cccc(C(C)NC(=O)N2CC=C(c3c[nH]c4ncccc34)CC2)c1\",\"CC(C)(C)NC(=O)c1ccc2nc3[nH]c4ccccc4c3nc2c1\",\"CC(=O)Nc1ccc(-n2nc3ccc(N)nc3n2)cc1\",\"NCCn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\",\"N#Cc1ncc2nc1OCCCCCOc1cc(OCCO)c(Cl)cc1NC(=O)N2\",\"O=S(=O)(NCCNCC=Cc1ccc(Br)cc1)s1cccc2cnccc12\",\"Cc1ccccc1NC(=O)Nc1ccc2c(c1)CCc1sc3ncnc(N)c3c1-2\",\"Cc1c(C)n(Cc2ccccc2)c2ccc(C(=O)Nc3nc[nH]n3)cc12\",\"Cc1cc(=O)[nH]c2[nH]n(-c3ccccc3)c(=O)c12\",\"COc1cccc(S(=O)(=O)Nc2ccc3c(c2)C(=NO)c2ccccc2-3)c1\"]}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1403
+      },
+      {
+        "tool": "mcp__molclaw-scp__calculate_mol_basic_info",
+        "arguments": "{\"smiles_list\":[\"FC(=O)Nc1ccccc1C2=CC=CC=C2\"]}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1508
+      }
+    ]
+  },
+  "orig-hier": {
+    "counts": {
+      "mcp__molclaw-scp__pred_binding_affinity_boltz2": 119,
+      "mcp__molclaw-scp__calculate_pdb_basic_info": 8,
+      "mcp__molclaw-scp__calculate_mol_basic_info": 21,
+      "mcp__molclaw-scp__visualize_molecule": 2,
+      "mcp__molclaw-scp__fix_pdb": 20,
+      "mcp__molclaw-scp__fpocket_toolkit": 18,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id": 35,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id": 8,
+      "mcp__molclaw-scp__convert_pdb_to_pdbqt_dock": 2,
+      "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess": 87,
+      "mcp__molclaw-scp__calculate_protein_sequence_properties": 2,
+      "mcp__molclaw-scp__convert_smiles_to_format": 5,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name": 39,
+      "mcp__molclaw-scp__pred_protein_structure_esmfold": 10,
+      "mcp__molclaw-scp__chai1_predict": 4,
+      "mcp__molclaw-scp__is_valid_smiles": 50,
+      "mcp__molclaw-scp__server_file_to_base64": 6,
+      "mcp__molclaw-scp__pred_pocket_prank": 8,
+      "mcp__molclaw-scp__karmadock_tool": 4,
+      "mcp__molclaw-scp__interaction_visualizer": 3,
+      "mcp__molclaw-scp__extract_and_save_chains": 4,
+      "mcp__molclaw-scp__calculate_mol_drug_chemistry": 30,
+      "mcp__molclaw-scp__equiscore_pocket": 3,
+      "mcp__molclaw-scp__retrieve_protein_sequence": 39,
+      "mcp__molclaw-scp__run_bioemu": 1,
+      "mcp__molclaw-scp__retrieve_smiles_by_compoundname": 4,
+      "mcp__molclaw-scp__prepare_protein_md": 1,
+      "mcp__molclaw-scp__calculate_pdb_composition_info": 1,
+      "mcp__molclaw-scp__visualize_protein": 1,
+      "mcp__molclaw-scp__extract_pdb_chains": 2,
+      "mcp__molclaw-scp__pred_mol_admet": 1,
+      "mcp__molclaw-scp__calculate_mol_hydrophobicity": 1,
+      "mcp__molclaw-scp__calculate_mol_topology": 1
+    },
+    "task_counts": {
+      "mcp__molclaw-scp__pred_binding_affinity_boltz2": 17,
+      "mcp__molclaw-scp__calculate_pdb_basic_info": 5,
+      "mcp__molclaw-scp__calculate_mol_basic_info": 9,
+      "mcp__molclaw-scp__visualize_molecule": 2,
+      "mcp__molclaw-scp__fix_pdb": 8,
+      "mcp__molclaw-scp__fpocket_toolkit": 7,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id": 12,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id": 6,
+      "mcp__molclaw-scp__convert_pdb_to_pdbqt_dock": 2,
+      "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess": 13,
+      "mcp__molclaw-scp__calculate_protein_sequence_properties": 2,
+      "mcp__molclaw-scp__convert_smiles_to_format": 5,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name": 14,
+      "mcp__molclaw-scp__pred_protein_structure_esmfold": 6,
+      "mcp__molclaw-scp__chai1_predict": 3,
+      "mcp__molclaw-scp__is_valid_smiles": 12,
+      "mcp__molclaw-scp__server_file_to_base64": 5,
+      "mcp__molclaw-scp__pred_pocket_prank": 3,
+      "mcp__molclaw-scp__karmadock_tool": 4,
+      "mcp__molclaw-scp__interaction_visualizer": 2,
+      "mcp__molclaw-scp__extract_and_save_chains": 2,
+      "mcp__molclaw-scp__calculate_mol_drug_chemistry": 6,
+      "mcp__molclaw-scp__equiscore_pocket": 3,
+      "mcp__molclaw-scp__retrieve_protein_sequence": 9,
+      "mcp__molclaw-scp__run_bioemu": 1,
+      "mcp__molclaw-scp__retrieve_smiles_by_compoundname": 4,
+      "mcp__molclaw-scp__prepare_protein_md": 1,
+      "mcp__molclaw-scp__calculate_pdb_composition_info": 1,
+      "mcp__molclaw-scp__visualize_protein": 1,
+      "mcp__molclaw-scp__extract_pdb_chains": 2,
+      "mcp__molclaw-scp__pred_mol_admet": 1,
+      "mcp__molclaw-scp__calculate_mol_hydrophobicity": 1,
+      "mcp__molclaw-scp__calculate_mol_topology": 1
+    },
+    "ms3_007": [
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name",
+        "arguments": "{\"gene_name\":\"Aurora kinase A\",\"organism\":\"Homo sapiens\",\"sort_by\":\"resolution\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 94
+      },
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id",
+        "arguments": "{\"pdb_id\":\"1M17\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 142
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_protein_structure_esmfold",
+        "arguments": "{\"sequence\":\"IVPMQRHTPQPLGPGANPHLDHGDCRDCPSQRCVKDLQHHRSAKRLAECLDRQGSRWQGHAGNGPPLAKDLSKNTDYCHVEVEQKPIPLVTLEDSWIRQCALOGEHVLNGKFWFGRVAFGHLSQTGPIEDTFTEADIMQLKFIAKKAQMGAFRDMCKPTFPPFMHDRQDNNGFGSWRETEHIKMLATAQLRFSLFSEHVQYQWLEVIKMTDLCRTVRSDNFCHSIRNRHWPTTWAQKLLTEDYVCGWPKSRCTSLKSSWQGTT\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 207
+      },
+      {
+        "tool": "mcp__molclaw-scp__convert_smiles_to_format",
+        "arguments": "{\"inputs\":[\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"Nc1ncc2cccc(-c3ccccc3)n12\",\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\",\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\",\"Nc1nc(=O)[nH]c2sccc12\",\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\",\"O=C(NCc1ccc(Cl)c(Cl)c1)Nc1ccc2[nH]ncc2c1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1n[nH]c2ccc(-c3cncc(OCC(N)Cc4ccc(Cl)c(Cl)c4)c3)cc12\",\"CC(Nc1cncc(-n2cnc3ccccc32)n1)c1ccc(F)cc1\",\"COc1cc(-c2ccc3c(c2)Nc2ccc(CCOc4ccc(N5CCOCC5)cc4)cc2NC3=O)ccc1CC#N\",\"CC(=NNC(=N)N)c1cc(NC(=O)c2cccc(C(=O)Nc3cc(C(C)=NNC(=N)N)cc(C(C)=NNC(=N)N)c3)c2)cc(C(C)=NNC(=N)N)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3cccc4[nH]ncc34)cc2)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3ccc4nccnc4c3N)cc2)c1\",\"Cc1cc(-c2ncnc3[nH]ccc23)ccc1F\",\"c1ccc2c(c1)nnn2Cc1cn(-c2ccc3[nH]ncc3c2)nn1\",\"O=C1Cc2c([nH]c3ccc(Br)cc23)-c2ccccc2N1\",\"O=c1[nH]c2cc(Br)cnc2[nH]1\",\"CS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"Cc1n[nH]c2ccc(-c3cccnc3)cc12\",\"Nc1n[nH]c2nc(Cl)sc12\",\"Nc1nnc2cncc(Cl)n12\",\"CCS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"CCCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1cc(C)c2c(n1)sc1c(N)ncnc12\",\"NC(=O)c1sc2c(Br)ccc(Cl)c2c1N\",\"N#CCC(C1CCCC1)n1cc(-c2ncnc3[nH]ccc23)cn1\",\"Nc1n[nH]c2ncc(Br)cc12\",\"CSc1c[nH]c2ncnc(NCCCO)c12\",\"NC(=O)c1cc2c(-c3ccc(Br)c(F)c3F)cncc2s1\",\"COc1cc(C=C(C#N)c2n[nH]c(N)c2C#N)ccc1O\",\"Cc1cc(C(N)=O)n2nc(C(C)(C)C)cc2n1\",\"Cc1cc2cc(-c3csc4c(-c5cccc(S(C)(=O)=O)c5)cnc(N)c34)ccc2[nH]1\",\"COc1cc(C(=O)O)c(Cl)cc1NC(=O)Nc1cnc(C#N)cn1\",\"CC(C)c1cc(=O)[nH]c2[nH][nH]c(=O)c12\",\"Nc1ncnc2c1c(-c1cccc(OCc3ccccc3)c1)cn2C1CCC(N2CCCC2)CC1\",\"Nc1ccc2c(C(=O)O)n(-c3ccccc3)nc2c1\",\"CCOc1nc(C(=O)NCc2ccc(S(N)(=O)=O)cc2)cc(N)c1C#N\",\"ON=C(c1nc2ccccc2[nH]1)c1nc2ccccc2[nH]1\",\"COc1c(-c2nc3ccccc3[nH]2)c(O)cc2oc(C)cc(=O)c12\",\"CC(=O)c1cccc(-c2ccc3nccn3n2)c1\",\"O=C1NC(=O)C(Nc2ccccc2)=C1Cl\",\"Nc1nonc1-n1nnc(C(=O)NN=Cc2cccs2)c1-c1cccs1\",\"COc1cccc(C(C)NC(=O)N2CC=C(c3c[nH]c4ncccc34)CC2)c1\",\"CC(C)(C)NC(=O)c1ccc2nc3[nH]c4ccccc4c3nc2c1\",\"CC(=O)Nc1ccc(-n2nc3ccc(N)nc3n2)cc1\",\"NCCn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\",\"N#Cc1ncc2nc1OCCCCCOc1cc(OCCO)c(Cl)cc1NC(=O)N2\",\"O=S(=O)(NCCNCC=Cc1ccc(Br)cc1)c1cccc2cnccc12\",\"Cc1ccccc1NC(=O)Nc1ccc2c(c1)CCc1sc3ncnc(N)c3c1-2\",\"Cc1c(C)n(Cc2ccccc2)c2ccc(C(=O)Nc3nc[nH]n3)cc12\",\"Cc1cc(=O)[nH]c2[nH]n(-c3ccccc3)c(=O)c12\",\"COc1cccc(S(=O)(=O)Nc2ccc3c(c2)C(=NO)c2ccccc2-3)c1\"],\"target_format\":\"sdf\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 465
+      },
+      {
+        "tool": "mcp__molclaw-scp__chai1_predict",
+        "arguments": "{\"mode\":\"sequence\",\"seq\":\"IVPMQRHTPQPLGPGANPHLDHGDCRDCPSQRCVKDLQHHRSAKRLAECLDRQGSRWQGHAGNGPPLAKDLSKNTDYCHVEVEQKPIPLVTLEDSWIRQCALOGEHVLNGKFWFGRVAFGHLSQTGPIEDTFTEADIMQLKFIAKKAQMGAFRDMCKPTFPPFMHDRQDNNGFGSWRETEHIKMLATAQLRFSLFSEHVQYQWLEVIKMTDLCRTVRSDNFCHSIRNRHWPTTWAQKLLTEDYVCGWPKSRCTSLKSSWQGTT\",\"samples\":5}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 573
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_pocket_prank",
+        "arguments": "{\"pdb_file_path\":\"/workspace/molbench_ms3_007/1M17.pdb\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 784
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_pocket_prank",
+        "arguments": "{\"pdb_file_path\":\"/tools_backup/predictions/1M17.pdb\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 926
+      },
+      {
+        "tool": "mcp__molclaw-scp__karmadock_tool",
+        "arguments": "{\"crystal_ligand_file\":\"/workspace/molbench_ms3_007/ref_ligand.mol2\",\"dry_run\":true,\"ligand_smi\":\"/workspace/molbench_ms3_007/candidates.smi\",\"protein_file\":\"/workspace/molbench_ms3_007/prepared_receptor.pdb\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1037
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/workspace/molbench_ms3_007/1M17.pdb\",\"pocket_center_x\":0,\"pocket_center_y\":0,\"pocket_center_z\":0,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1176
+      },
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name",
+        "arguments": "{\"gene_name\":\"Aurora kinase A\",\"organism\":\"Homo sapiens\",\"sort_by\":\"length\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1248
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_binding_affinity_boltz2",
+        "arguments": "{\"protein\":[{\"chain\":\"A\",\"sequence\":\"IVPMQRHTPQPLGPGANPHLDHGDCRDCPSQRCVKDLQHHRSAKRLAECLDRQGSRWQGHAGNGPPLAKDLSKNTDYCHVEVEQKPIPLVTLEDSWIRQCALOGEHVLNGKFWFGRVAFGHLSQTGPIEDTFTEADIMQLKFIAKKAQMGAFRDMCKPTFPPFMHDRQDNNGFGSWRETEHIKMLATAQLRFSLFSEHVQYQWLEVIKMTDLCRTVRSDNFCHSIRNRHWPTTWAQKLLTEDYVCGWPKSRCTSLKSSWQGTT\"}],\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1344
+      },
+      {
+        "tool": "mcp__molclaw-scp__interaction_visualizer",
+        "arguments": "{\"complex_path\":\"/workspace/molbench_ms3_007/test.pdb\",\"ligand_resname\":\"LIG\",\"mode\":\"ligand\",\"skip_bar\":true,\"skip_csv\":true,\"skip_heatmap\":true,\"skip_network\":true,\"skip_pymol3d\":true}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1484
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_protein_structure_esmfold",
+        "arguments": "{\"sequence\":\"ACDEFGHIKLMNPQRSTVWY\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1556
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_protein_structure_esmfold",
+        "arguments": "{\"sequence\":\"IVPMQRHTPQPLGPGANPHLDHGDCRDCPSQRCVKDLQHHRSAKRLAECLDRQGSRWQGHAGNGPPLAKDLSKNTDYCHVEVEQKPIPLVTLEDSWIRQCALOGEHVLNGKFWFGRVAFGHLSQTGPIEDTFTEADIMQLKFIAKKAQMGAFRDMCKPTFPPFMHDRQDNNGFGSWRETEHIKMLATAQLRFSLFSEHVQYQWLEVIKMTDLCRTVRSDNFCHSIRNRHWPTTWAQKLLTEDYVCGWPKSRCTSLKSSWQGTT\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1627
+      },
+      {
+        "tool": "mcp__molclaw-scp__fpocket_toolkit",
+        "arguments": "{\"min_druggability\":\"None\",\"pdb_file\":\"/workspace/molbench_ms3_007/1M17.pdb\",\"top_n\":5}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1698
+      },
+      {
+        "tool": "mcp__molclaw-scp__fpocket_toolkit",
+        "arguments": "{\"min_druggability\":\"None\",\"pdb_file\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/4IJY.pdb\",\"top_n\":5}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 1988
+      },
+      {
+        "tool": "mcp__molclaw-scp__interaction_visualizer",
+        "arguments": "{\"complex_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/4IJY.pdb\",\"ligand_resname\":\"LIG\",\"mode\":\"ligand\",\"skip_bar\":true,\"skip_csv\":true,\"skip_heatmap\":true,\"skip_network\":true,\"skip_pymol3d\":true}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2164
+      },
+      {
+        "tool": "mcp__molclaw-scp__extract_and_save_chains",
+        "arguments": "{\"chain_ids\":\"[\\\"A\\\"]\",\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/4IJY.pdb\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2223
+      },
+      {
+        "tool": "mcp__molclaw-scp__fpocket_toolkit",
+        "arguments": "{\"min_druggability\":\"0.8\",\"pdb_file\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/4IJY.pdb\",\"top_n\":10}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2305
+      },
+      {
+        "tool": "mcp__molclaw-scp__pred_pocket_prank",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/4IJY.pdb\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2364
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/4IJY.pdb\",\"pocket_center_x\":29,\"pocket_center_y\":35,\"pocket_center_z\":73,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2457
+      },
+      {
+        "tool": "mcp__molclaw-scp__calculate_mol_drug_chemistry",
+        "arguments": "{\"smiles_list\":[\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"Nc1ncc2cccc(-c3ccccc3)n12\",\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\",\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\",\"Nc1nc(=O)[nH]c2sccc12\",\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\",\"O=C(NCc1ccc(Cl)c(Cl)c1)Nc1ccc2[nH]ncc2c1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1n[nH]c2ccc(-c3cncc(OCC(N)Cc4ccc(Cl)c(Cl)c4)c3)cc12\",\"CC(Nc1cncc(-n2cnc3ccccc32)n1)c1ccc(F)cc1\",\"COc1cc(-c2ccc3c(c2)Nc2ccc(CCOc4ccc(N5CCOCC5)cc4)cc2NC3=O)ccc1CC#N\",\"CC(=NNC(=N)N)c1cc(NC(=O)c2cccc(C(=O)Nc3cc(C(C)=NNC(=N)N)cc(C(C)=NNC(=N)N)c3)c2)cc(C(C)=NNC(=N)N)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3cccc4[nH]ncc34)cc2)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3ccc4nccnc4c3N)cc2)c1\",\"Cc1cc(-c2ncnc3[nH]ccc23)ccc1F\",\"c1ccc2c(c1)nnn2Cc1cn(-c2ccc3[nH]ncc3c2)nn1\",\"O=C1Cc2c([nH]c3ccc(Br)cc23)-c2ccccc2N1\",\"O=c1[nH]c2cc(Br)cnc2[nH]1\",\"CS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"Cc1n[nH]c2ccc(-c3cccnc3)cc12\",\"Nc1n[nH]c2nc(Cl)sc12\",\"Nc1nnc2cncc(Cl)n12\",\"CCS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"CCCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1cc(C)c2c(n1)sc1c(N)ncnc12\",\"NC(=O)c1sc2c(Br)ccc(Cl)c2c1N\",\"N#CCC(C1CCCC1)n1cc(-c2ncnc3[nH]ccc23)cn1\",\"Nc1n[nH]c2ncc(Br)cc12\",\"CSc1c[nH]c2ncnc(NCCCO)c12\",\"NC(=O)c1cc2c(-c3ccc(Br)c(F)c3F)cncc2s1\",\"COc1cc(C=C(C#N)c2n[nH]c(N)c2C#N)ccc1O\",\"Cc1cc(C(N)=O)n2nc(C(C)(C)C)cc2n1\",\"Cc1cc2cc(-c3csc4c(-c5cccc(S(C)(=O)=O)c5)cnc(N)c34)ccc2[nH]1\",\"COc1cc(C(=O)O)c(Cl)cc1NC(=O)Nc1cnc(C#N)cn1\",\"CC(C)c1cc(=O)[nH]c2[nH][nH]c(=O)c12\",\"Nc1ncnc2c1c(-c1cccc(OCc3ccccc3)c1)cn2C1CCC(N2CCCC2)CC1\",\"Nc1ccc2c(C(=O)O)n(-c3ccccc3)nc2c1\",\"CCOc1nc(C(=O)NCc2ccc(S(N)(=O)=O)cc2)cc(N)c1C#N\",\"ON=C(c1nc2ccccc2[nH]1)c1nc2ccccc2[nH]1\",\"COc1c(-c2nc3ccccc3[nH]2)c(O)cc2oc(C)cc(=O)c12\",\"CC(=O)c1cccc(-c2ccc3nccn3n2)c1\",\"O=C1NC(=O)C(Nc2ccccc2)=C1Cl\",\"Nc1nonc1-n1nnc(C(=O)NN=Cc2cccs2)c1-c1cccs1\",\"COc1cccc(C(C)NC(=O)N2CC=C(c3c[nH]c4ncccc34)CC2)c1\",\"CC(C)(C)NC(=O)c1ccc2nc3[nH]c4ccccc4c3nc2c1\",\"CC(=O)Nc1ccc(-n2nc3ccc(N)nc3n2)cc1\",\"NCCn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\",\"N#Cc1ncc2nc1OCCCCCOc1cc(OCCO)c(Cl)cc1NC(=O)N2\",\"O=S(=O)(NCCNCC=Cc1ccc(Br)cc1)c1cccc2cnccc12\",\"Cc1ccccc1NC(=O)Nc1ccc2c(c1)CCc1sc3ncnc(N)c3c1-2\",\"Cc1c(C)n(Cc2ccccc2)c2ccc(C(=O)Nc3nc[nH]n3)cc12\",\"Cc1cc(=O)[nH]c2[nH]n(-c3ccccc3)c(=O)c12\",\"COc1cccc(S(=O)(=O)Nc2ccc3c(c2)C(=NO)c2ccccc2-3)c1\"]}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2549
+      },
+      {
+        "tool": "mcp__molclaw-scp__calculate_mol_basic_info",
+        "arguments": "{\"smiles_list\":[\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"Nc1ncc2cccc(-c3ccccc3)n12\",\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\"]}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2613
+      },
+      {
+        "tool": "mcp__molclaw-scp__is_valid_smiles",
+        "arguments": "{\"smiles_list\":[\"CCO\"]}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2668
+      }
+    ]
+  },
+  "sft-l1": {
+    "counts": {
+      "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess": 79,
+      "mcp__molclaw-scp__fix_pdb": 23,
+      "mcp__molclaw-scp__extract_and_save_chains": 7,
+      "mcp__molclaw-scp__calculate_pdb_structural_geometry": 1,
+      "mcp__molclaw-scp__convert_smiles_to_format": 9,
+      "mcp__molclaw-scp__karmadock_tool": 12,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id": 11,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id": 20,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name": 28,
+      "mcp__molclaw-scp__chai1_predict": 3,
+      "mcp__molclaw-scp__pred_protein_structure_esmfold": 4,
+      "mcp__molclaw-scp__fpocket_toolkit": 26,
+      "mcp__molclaw-scp__is_valid_smiles": 14,
+      "mcp__molclaw-scp__equiscore_pipeline": 4,
+      "mcp__molclaw-scp__base64_to_server_file": 3,
+      "mcp__molclaw-scp__pred_pocket_prank": 13,
+      "mcp__molclaw-scp__server_file_to_base64": 14,
+      "mcp__molclaw-scp__retrieve_protein_sequence": 2,
+      "mcp__molclaw-scp__convert_pdb_to_pdbqt_dock": 7,
+      "mcp__molclaw-scp__pred_mol_admet": 2,
+      "mcp__molclaw-scp__calculate_mol_basic_info": 9,
+      "mcp__molclaw-scp__pred_binding_affinity_boltz2": 8,
+      "mcp__molclaw-scp__calculate_pdb_basic_info": 4,
+      "mcp__molclaw-scp__calculate_mol_drug_chemistry": 1
+    },
+    "task_counts": {
+      "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess": 6,
+      "mcp__molclaw-scp__fix_pdb": 10,
+      "mcp__molclaw-scp__extract_and_save_chains": 4,
+      "mcp__molclaw-scp__calculate_pdb_structural_geometry": 1,
+      "mcp__molclaw-scp__convert_smiles_to_format": 4,
+      "mcp__molclaw-scp__karmadock_tool": 4,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id": 7,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_pdb_id": 5,
+      "mcp__molclaw-scp__retrieve_protein_structure_by_gene_name": 7,
+      "mcp__molclaw-scp__chai1_predict": 2,
+      "mcp__molclaw-scp__pred_protein_structure_esmfold": 3,
+      "mcp__molclaw-scp__fpocket_toolkit": 6,
+      "mcp__molclaw-scp__is_valid_smiles": 8,
+      "mcp__molclaw-scp__equiscore_pipeline": 2,
+      "mcp__molclaw-scp__base64_to_server_file": 2,
+      "mcp__molclaw-scp__pred_pocket_prank": 7,
+      "mcp__molclaw-scp__server_file_to_base64": 6,
+      "mcp__molclaw-scp__retrieve_protein_sequence": 2,
+      "mcp__molclaw-scp__convert_pdb_to_pdbqt_dock": 2,
+      "mcp__molclaw-scp__pred_mol_admet": 2,
+      "mcp__molclaw-scp__calculate_mol_basic_info": 5,
+      "mcp__molclaw-scp__pred_binding_affinity_boltz2": 2,
+      "mcp__molclaw-scp__calculate_pdb_basic_info": 1,
+      "mcp__molclaw-scp__calculate_mol_drug_chemistry": 1
+    },
+    "ms3_007": [
+      {
+        "tool": "mcp__molclaw-scp__fix_pdb",
+        "arguments": "{\"add_hydrogens\":true,\"input_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/1VLZ.pdb\",\"remove_heterogens\":true,\"remove_water\":true}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2129
+      },
+      {
+        "tool": "mcp__molclaw-scp__fix_pdb",
+        "arguments": "{\"add_hydrogens\":true,\"input_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_9S9U.pdb\",\"remove_heterogens\":true,\"remove_water\":true}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 2240
+      },
+      {
+        "tool": "mcp__molclaw-scp__fix_pdb",
+        "arguments": "{\"add_hydrogens\":false,\"add_missing_residues\":false,\"input_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/1VLZ.pdb\",\"remove_heterogens\":true,\"remove_water\":true,\"replace_nonstandard\":true}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 3859
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7365
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Nc1ncc2cccc(-c3ccccc3)n12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7367
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7369
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7371
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Nc1nc(=O)[nH]c2sccc12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7373
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7375
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"COc1c(-c2nc3ccccc3[nH]2)c(O)cc2oc(C)cc(=O)c12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 7595
+      },
+      {
+        "tool": "mcp__molclaw-scp__retrieve_protein_structure_by_uniprot_id",
+        "arguments": "{\"sort_by\":\"length\",\"uniprot_id\":\"Q9Y653\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 16534
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/protein_structures/Q9Y653_9S9U.pdb\",\"pocket_center_x\":1263,\"pocket_center_y\":346,\"pocket_center_z\":285,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 17547
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/sxy_sum/source_tree/protein_structures/Q9Y653_2J4Z.pdb\",\"pocket_center_x\":1815.88,\"pocket_center_y\":-12.475,\"pocket_center_z\":1.226,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 21469
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/Q9Y653_9S9U.pdb\",\"pocket_center_x\":1263,\"pocket_center_y\":346,\"pocket_center_z\":286,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 26146
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/Q9Y653_9S9U.pdb\",\"pocket_center_x\":1263,\"pocket_center_y\":345,\"pocket_center_z\":286,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 26148
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/O14965_2J4Z.pdb\",\"pocket_center_x\":1815,\"pocket_center_y\":-12,\"pocket_center_z\":1,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 26150
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/O14965_2J4Z.pdb\",\"pocket_center_x\":1815,\"pocket_center_y\":-12,\"pocket_center_z\":1,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 26152
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/Q9Y653_2J4Z.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 32597
+      },
+      {
+        "tool": "mcp__molclaw-scp__convert_smiles_to_format",
+        "arguments": "{\"inputs\":[\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\",\"Nc1ncc2cccc(-c3ccccc3)n12\",\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\",\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\",\"Nc1nc(=O)[nH]c2sccc12\",\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\",\"O=C(Nc1ccccc1)Nc1nccs1\",\"c1ccc2c(c1)[nH]c1cnccc12\",\"Nc1ncnc2sccc12\",\"NC(=O)Cn1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"c1ccc(Nc2ccnc(Nc3ccccc3)n2)cc1\",\"O=C(NCc1ccc(Cl)c(Cl)c1)Nc1ccc2[nH]ncc2c1\",\"CCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1n[nH]c2ccc(-c3cncc(OCC(N)Cc4ccc(Cl)c(Cl)c4)c3)cc12\",\"CC(Nc1cncc(-n2cnc3ccccc32)n1)c1ccc(F)cc1\",\"COc1cc(-c2ccc3c(c2)Nc2ccc(CCOc4ccc(N5CCOCC5)cc4)cc2NC3=O)ccc1CC#N\",\"CC(=NNC(=N)N)c1cc(NC(=O)c2cccc(C(=O)Nc3cc(C(C)=NNC(=N)N)cc(C(C)=NNC(=N)N)c3)c2)cc(C(C)=NNC(=N)N)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3cccc4[nH]ncc34)cc2)c1\",\"Cc1cccc(NC(=O)Nc2ccc(-c3ccc4nccnc4c3N)cc2)c1\",\"Cc1cc(-c2ncnc3[nH]ccc23)ccc1F\",\"CCn1c(C)c(-c2ccnc(Nc3cccc(OC)c3)n2)sc1=O\",\"c1ccc2c(c1)nnn2Cc1cn(-c2ccc3[nH]ncc3c2)nn1\",\"O=C1Cc2c([nH]c3ccc(Br)cc23)-c2ccccc2N1\",\"O=c1[nH]c2cc(Br)cnc2[nH]1\",\"CS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"Cc1n[nH]c2ccc(-c3cccnc3)cc12\",\"Nc1n[nH]c2nc(Cl)sc12\",\"Nc1nnc2cncc(Cl)n12\",\"CCS(=O)(=O)c1ccc(-c2cncc3sc(C(N)=O)cc23)cc1\",\"CCCCS(=O)(=O)Nc1ccc2c(c1)C(=NO)c1ccccc1-2\",\"Cc1cc(C)c2c(n1)sc1c(N)ncnc12\",\"NC(=O)c1sc2c(Br)ccc(Cl)c2c1N\",\"N#CCC(C1CCCC1)n1cc(-c2ncnc3[nH]ccc23)cn1\",\"Nc1n[nH]c2ncc(Br)cc12\",\"CSc1c[nH]c2ncnc(NCCCO)c12\",\"NC(=O)c1cc2c(-c3ccc(Br)c(F)c3F)cncc2s1\",\"COc1cc(C=C(C#N)c2n[nH]c(N)c2C#N)ccc1O\",\"Cc1cc(C(N)=O)n2nc(C(C)(C)C)cc2n1\",\"Cc1cc2cc(-c3csc4c(-c5cccc(S(C)(=O)=O)c5)cnc(N)c34)ccc2[nH]1\",\"COc1cc(C(=O)O)c(Cl)cc1NC(=O)Nc1cnc(C#N)cn1\",\"CC(C)c1cc(=O)[nH]c2[nH][nH]c(=O)c12\",\"Nc1ncnc2c1c(-c1cccc(OCc3ccccc3)c1)cn2C1CCC(N2CCCC2)CC1\",\"Nc1ccc2c(C(=O)O)n(-c3ccccc3)nc2c1\",\"CCOc1nc(C(=O)NCc2ccc(S(N)(=O)=O)cc2)cc(N)c1C#N\",\"ON=C(c1nc2ccccc2[nH]1)c1nc2ccccc2[nH]1\",\"COc1c(-c2nc3ccccc3[nH]2)c(O)cc2oc(C)cc(=O)c12\",\"CC(=O)c1cccc(-c2ccc3nccn3n2)c1\",\"O=C1NC(=O)C(Nc2ccccc2)=C1Cl\",\"Nc1nonc1-n1nnc(C(=O)NN=Cc2cccs2)c1-c1cccs1\",\"COc1cccc(C(C)NC(=O)N2CC=C(c3c[nH]c4ncccc34)CC2)c1\",\"CC(C)(C)NC(=O)c1ccc2nc3[nH]c4ccccc4c3nc2c1\",\"CC(=O)Nc1ccc(-n2nc3ccc(N)nc3n2)cc1\",\"CCOc1cc(-c2cc(-c3cc4ccccc4s3)c3[nH]ncc3c2)c2nc(N)ncc21\",\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\",\"N#Cc1ncc2nc1OCCCCCOc1cc(OCCO)c(Cl)cc1NC(=O)N2\",\"O=S(=O)(NCCNCC=Cc1ccc(Br)cc1)c1cccc2cnccc12\",\"Cc1ccccc1NC(=O)Nc1ccc2c(c1)CCc1sc3ncnc(N)c3c1-2\",\"Cc1c(C)n(Cc2ccccc2)c2ccc(C(=O)Nc3nc[nH]n3)cc12\",\"Cc1cc(=O)[nH]c2[nH]n(-c3ccccc3)c(=O)c12\",\"COc1cccc(S(=O)(=O)Nc2ccc(S(=O)(=O)Nc2ccc3c(c2)C(=NO)c2ccccc2-3)c1\",\"COc1cccc(S(=O)(=O)Nc2ccc3c(c2)C(=NO)c2ccccc2-3)c1\"],\"target_format\":\"smi\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 33090
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/data/lwj/wll/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 34068
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/O14965_2J4Z.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 34863
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Cc1nc2ccc(NS(=O)(=O)c3ccc(N)cc3)cc2nc1C\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35115
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35530
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Nc1ncc2cccc(-c3ccccc3)n12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35532
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"O=C(Nc1cnccn1)Nc1ccnc2ccc(C(F)(F)F)cc12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35534
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"CCCc1cc(-c2ccc3[nH]ncc3c2)on1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35536
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Nc1nc(=O)[nH]c2sccc12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35538
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"CCCNC(=O)c1ccc(Nc2nc(CC)c3cc[nH]c3n2)cc1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35540
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 35661
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 36004
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Nc1ncc2cccc(-c3ccccc3)n12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 36249
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 36524
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Nc1ncc2cccc(-c3ccccc3)n12\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 36526
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 36616
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 37568
+      },
+      {
+        "tool": "mcp__molclaw-scp__molecule_docking_quickvina_fullprocess",
+        "arguments": "{\"pdb_file_path\":\"/root/lwj/wll/code/BioAgentAutoSCL/code/DrugAgentTools/sxy_sum/source_tree/1VLZ.pdb\",\"pocket_center_x\":3676.55,\"pocket_center_y\":-19.524,\"pocket_center_z\":-23.968,\"pocket_size_x\":25,\"pocket_size_y\":25,\"pocket_size_z\":25,\"smiles\":\"Fc1cccc(CNc2ncnc3[nH]cnc23)c1\"}",
+        "result": [
+          "Error: fetch failed"
+        ],
+        "seq": 37877
+      }
+    ]
+  }
+}

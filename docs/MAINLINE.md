@@ -108,13 +108,17 @@ ToolRL is not materialized by the SFT pipeline. V8 derives one structured row fr
 decision. A multi-call response remains one target with ordered `target_tool_calls`; no custom string parser
 reconstructs it. The prompt contains only history before the current decision.
 
-The default selector embeds short, non-training descriptions with Qwen3-Embedding-0.6B, clusters only within
-explicitly compatible structural scopes using complete-linkage cosine distance, and retains multiple center/farthest
-representatives per homogeneous group. Selection never rewrites history or labels. Unselected rows are
-representative downsampling, not invalid or duplicate data.
+The default selector is now the three-stage [NeMo recent-history workflow](NEMO_SELECTOR.md):
+prepare comparison text and native comparison conditions once; encode with Qwen3-Embedding-8B and run official
+NeMo semantic deduplication at one explicit threshold; restore original records by ID and apply an independently
+bound training-length audit. The old 0.6B short-description selector and policy-trial selector are separate
+experiments, not prerequisites. Tool decisions can compare across task types; final answers remain task-specific.
+Selection never rewrites history or labels. Unselected rows are similar recent-context examples, not proven
+invalid actions or strict duplicates. There is no 20% quota.
 
 Selected rows retain canonical `trajectory_index, decision_ordinal` order. Ordinal holes are allowed, trajectories
-may cross rollout batch boundaries, and the final short batch is retained. The launcher must omit
+may cross rollout batch boundaries, and the reader wraps at dataset end to fill a requested batch (it does not
+return a short tail batch or permanently delete the tail). The launcher must omit
 `--rollout-shuffle`; each decision independently owns its four-response GRPO group. Tool content matching remains
 order-insensitive one-to-one with multiplicity, with only a small content-gated pairwise teacher-order bonus.
 Length limits are chosen from native Qwen template/tokenizer audits and never implemented by truncating or deleting

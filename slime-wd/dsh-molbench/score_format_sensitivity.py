@@ -30,6 +30,7 @@ def extract(text: str, policy: str) -> str | None:
 def score(run_dir: Path, root: Path) -> dict:
     manifest = json.loads((run_dir / 'run_manifest.json').read_text())
     samples = runner.load_samples(root, set(manifest['suites']), manifest['limit_per_suite'])
+    samples = [s for s in samples if s.task_id in manifest['sample_ids']]
     output = {}
     # Known same-source/QED-objective overlap with three E2E SFT trajectories.
     overlap_id = '48b3a4aa-d573-44f9-8fda-dfc4757a3aaa'

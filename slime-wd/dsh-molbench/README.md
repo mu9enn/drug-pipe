@@ -94,8 +94,9 @@ cap. SGLang enforces greedy decoding through preferred sampling parameters;
 DSH's stream-idle timeout is 30 minutes. Only classified transport/stream/MCP
 connection failures are eligible for two task-level retries.
 
-MS-3 scoring uses `top3_list_v1`: accept a JSON object's `ranked_smiles` string
-list without requiring 60 entries, uniqueness, candidate membership, or evidence.
+MS-3 scoring uses `top3_list_v2`: accept a JSON object's `ranked_smiles` string
+list without requiring 60 entries, uniqueness, or candidate membership.
+The original exact fields (`ranked_smiles`, `evidence`) and their types remain required.
 The upstream Top-3 metrics inspect the original first three positions, including
 repeated strings; unknown strings occupy their positions and do not match GT.
 No filtering, deduplication, or backfilling occurs. Full-list average rank remains
@@ -103,3 +104,52 @@ an auxiliary upstream metric, not an acceptance gate. Published question text
 and SFT data validation are unchanged. The scoring policy is saved in the evaluation
 summary. Wrapper sensitivity scoring still reports its three extraction policies.
 `EVAL_MAX_WORKERS` controls task concurrency in the matrix launcher (default 2).
+
+### New evaluations with infrastructure recovery
+
+Use `python pretrained_matrix/submit_recover.py` in place of
+`bash pretrained_matrix/submit_one.sh`, with the same JOB_NAME, MODEL_DIR,
+MODEL_ID, MODEL_NAME, GPU_COUNT, TP_SIZE, WORKSPACE_VARIANT, RUN_NAME,
+INFRA_NAME and SCORE_PYTHON environment variables. Use a new RUN_NAME.
+No existing job or queued historical experiment is opted in automatically.
+
+The new entrypoint fixes task and tool-call concurrency to 1. A client lock
+prevents two recovery entrypoints running together. Keep using the serial
+queue when mixing with older launchers. Model/token/decoding settings do not
+change. The worker requires the existing Landlock binary to be installed
+(`deepseek-harness/native/landlock-run`: `pnpm build:native`, musl-tools required)
+and checks actual confined shell execution before loading the model.
+
+A task retries only unresolved transient failures: fetch/connection errors,
+HTTP 408/429/500/502/503/504, request timeouts, and explicit out-of-memory
+errors in actual tool or turn error observations. A later success of the same
+tool with the same JSON arguments (key order ignored) resolves an earlier
+failure. Business errors with `isError=false` are read from their status and
+diagnostics. Wrong answers, malformed final JSON, max-tokens, invalid tool
+inputs and generic scientific-program errors do not trigger retries.
+
+Each task executes at most three times, with 60/180-second retry delays.
+Attempts and their workspaces are retained under `results/<task>/attempts/`.
+First non-infrastructure-failed attempt wins, even if scientifically wrong;
+exhaustion retains the last answer. Scoring keeps all tasks in the denominator
+and reports `retry_exhausted_count`; unresolved faults make `publishable=false`,
+without discarding the last completed answer. Operational completion still
+allows the serial queue to advance.
+
+Local model/DSH request failure or unexpected service/worker death delegates
+recovery to the login entrypoint. It confirms release before rebuilding the
+worker, at most twice, without resetting task budgets or rerunning completed
+clean tasks. `worker_attempts.json` records the allocation history. Setup
+failures without a recovery marker stop; remote MCP servers are never restarted.
+An interrupted controller can resume only after the previous allocation is
+confirmed released; it will not allocate a duplicate worker.
+
+The normal runner stays compatible with existing experiments. Only
+`--recover-infra` runs use this policy, recorded as `infra_v1`; changing policy
+on resume is rejected. No automatic tool-level request replay is added.
+
+For diagnostic reruns, `SAMPLE_IDS_FILE` may point to a JSON list of task IDs
+under the shared `/home/sunxiangyu/slime_sxy` tree. The runner's
+`--sample-ids-file` selects those tasks; resume and scoring use the manifest's
+saved IDs. This is marked `selected_questions_diagnostic`. Selection based on
+previous wrong answers is not a fresh full-benchmark accuracy estimate.

@@ -9,14 +9,14 @@ from pathlib import Path
 
 from drug_agent.toolrl.v8_dataset import sha256_file, stable_json
 from drug_agent.scripts.materialize_toolrl_v8_length_tiers import materialize
+from drug_agent.scripts.audit_toolrl_v8_lengths import _tokenizer_identity
 
 
-def coverage(row, counters):
+def coverage(row, counters, scope):
     meta = row["metadata"]
     counters["task"][meta["task_type"]] += 1
     counters["trajectory"][meta["source_id"]] += 1
     counters["decision_type"][meta["decision_type"]] += 1
-    scope = json.loads(meta["comparison_scope"])
     counters["prior_outcome"][scope["prior_outcome"]] += 1
     for call in row["label"].get("target_tool_calls", []):
         counters["tool_calls"][call["name"]] += 1
@@ -29,9 +29,12 @@ def coverage(row, counters):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-root", type=Path, required=True)
-    parser.add_argument("--eps", required=True)
-    parser.add_argument("--qwen-source", type=Path, required=True)
+    parser.add_argument("--eps", type=float, required=True)
+    parser.add_argument("--qwen-source", type=Path, help="Optional additional exact mother-history verification")
+    parser.add_argument("--length-details", type=Path, required=True)
+    parser.add_argument("--length-report", type=Path, required=True)
     args = parser.parse_args()
+    args.eps = str(args.eps)
     root = args.run_root.resolve()
     prep = json.loads((root / "prepared/preparation_manifest.json").read_text())
     official = json.loads((root / "official_dedup/report.json").read_text())
@@ -39,18 +42,21 @@ def main():
     assert encoded["records"] == official["records"] == prep["counts"]["eligible"]
     source = Path(prep["input"])
     assert sha256_file(source) == prep["input_sha256"]
-    # The earlier validation binds these exact prompt/tools/label bytes to the
-    # existing native Qwen length audit; encoding lengths are never used here.
-    previous = json.loads((root.parent / "final_validation.json").read_text())
-    assert previous["all_decisions"]["sha256"] == prep["input_sha256"]
-    mother = json.loads((source.parent / "materialization_manifest.json").read_text())
-    assert sha256_file(args.qwen_source) == mother["qwen_adapter_source"]["sha256"]
+    assert official["prepared_text_sha256"] == sha256_file(root / "prepared/eligible_text.jsonl")
+    lengths = json.loads(args.length_report.read_text())
+    assert lengths["input"]["sha256"] == prep["input_sha256"], "Length audit belongs to a different source"
+    assert lengths["details_sha256"] == sha256_file(args.length_details), "Length details changed"
+    assert lengths["input"]["records"] == prep["records"]
+    assert lengths["tokenizer_identity"].get("files"), "Length audit must pin local tokenizer assets"
+    assert _tokenizer_identity(lengths["tokenizer"]) == lengths["tokenizer_identity"], "Training tokenizer/template changed"
+    assert lengths["native_template"] == {"add_generation_prompt":True,"enable_thinking":True,"tools_included":True}
+    assert lengths["context_limit"] == 262144
     qwen = {}
-    for row in map(json.loads, args.qwen_source.open()):
-        assert row["id"] not in qwen
-        messages = [{k:v for k,v in m.items() if k != "step_loss_mask"} for m in row["messages"]]
-        qwen[row["id"]] = (messages, [i for i,m in enumerate(messages) if m["role"] == "assistant"], row["tools"])
-    length_path = root.parent / "02_length_audit_all/length_details.jsonl"
+    if args.qwen_source:
+        for row in map(json.loads, args.qwen_source.open()):
+            assert row["id"] not in qwen
+            messages = [{k:v for k,v in m.items() if k != "step_loss_mask"} for m in row["messages"]]
+            qwen[row["id"]] = (messages, [i for i,m in enumerate(messages) if m["role"] == "assistant"], row["tools"])
     audit = {r["id"]:r for r in map(json.loads, (root / "prepared/encoding_audit.jsonl").open())}
     removed_list = json.loads((root / f"official_dedup/removed_eps_{args.eps}.json").read_text())
     removed = set(removed_list)
@@ -66,29 +72,31 @@ def main():
         for line in stream:
             row = json.loads(line)
             ident = row["id"]
-            messages, positions, tools = qwen[row["metadata"]["source_id"]]
-            position = positions[row["metadata"]["decision_ordinal"]]
-            assert row["prompt"] == messages[:position], "History changed or contains current/future content"
-            assert row["label"]["target_assistant"] == messages[position]
-            assert row["tools"] == tools
+            if args.qwen_source:
+                messages, positions, tools = qwen[row["metadata"]["source_id"]]
+                position = positions[row["metadata"]["decision_ordinal"]]
+                assert row["prompt"] == messages[:position], "History changed or contains current/future content"
+                assert row["label"]["target_assistant"] == messages[position]
+                assert row["tools"] == tools
             entry = audit.pop(ident)
             content = stable_json({k:row[k] for k in ("prompt","tools","label")})
             assert hashlib.sha256(content.encode()).hexdigest() == entry["training_content_sha256"]
             order = (row["metadata"]["trajectory_index"],row["metadata"]["decision_ordinal"])
             assert order > previous_order
             previous_order = order
-            coverage(row,counters["before"])
+            scope = json.loads(entry["scope"])
+            coverage(row,counters["before"],scope)
             reason = "recent_context_similarity_not_selected" if ident in removed else entry["disposition"]
             if ident not in removed:
                 output.write(line)
                 ids.write(json.dumps({"id":ident})+"\n")
                 selected.add(ident)
                 selected_hashes[ident] = hashlib.sha256(stable_json(row).encode()).hexdigest()
-                coverage(row,counters["after"])
+                coverage(row,counters["after"],scope)
             reasons[reason] += 1
             selection.write(json.dumps({"id":ident,"selected":ident not in removed,"reason":reason})+"\n")
     assert not audit and len(selected)+len(removed) == prep["records"]
-    tiers = materialize(selected_path,length_path,destination,emit_pretty=False)
+    tiers = materialize(selected_path,args.length_details,destination,emit_pretty=False)
     observed = set()
     for item in tiers["outputs"].values():
         order = (-1,-1)
@@ -106,10 +114,12 @@ def main():
               "retained_records":len(selected),"eps":args.eps,"reasons":dict(reasons),
               "coverage":counters,"length_tiers":tiers,
               "budget_note":"No budget sampling; this is NeMo selection on lossy recent-context copies, not proof of exact duplicate records.",
-              "length_reuse_basis":previous["length_details"]["reuse_note"],
+              "length_reuse_basis":{"report":str(args.length_report),"report_sha256":sha256_file(args.length_report),
+                                    "details_sha256":lengths["details_sha256"],"tokenizer_identity":lengths["tokenizer_identity"]},
               "source_sha256":prep["input_sha256"],"selected_sha256":sha256_file(selected_path),
-              "checks":{"original_lines_recovered":True,"training_content_unchanged":True,"ids_unique":True,"ordered_exact_tier_partition":True,"exact_original_history_prefix_no_future":True},
-              "not_verified":["actual RL generation","backward-pass memory"]}
+              "checks":{"original_lines_recovered":True,"training_content_unchanged":True,"ids_unique":True,"ordered_exact_tier_partition":True,"exact_original_history_prefix_no_future":bool(args.qwen_source)},
+              "not_verified":["actual RL generation","backward-pass memory"] +
+                             ([] if args.qwen_source else ["additional mother-trajectory prefix verification"])}
     (destination / "selection_report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n")
     print(json.dumps({k:v for k,v in report.items() if k not in ("coverage","length_tiers")},indent=2))
 

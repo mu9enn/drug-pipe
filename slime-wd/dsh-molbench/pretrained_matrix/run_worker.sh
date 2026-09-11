@@ -13,6 +13,7 @@ umask 002
 : "${SUITES:=ms1 ms2}"
 : "${EVAL_SEED:=42}"
 : "${EVAL_MAX_WORKERS:=2}"
+: "${EVAL_RECOVERY:=0}"
 read -r -a selected_suites <<< "$SUITES"
 suite_args=()
 for suite in "${selected_suites[@]}"; do suite_args+=(--suite "$suite"); done
@@ -40,6 +41,13 @@ log() { printf '[%s] %s\n' "$(date --iso-8601=seconds)" "$*" | tee -a "$status_l
 cleanup() {
   local rc=$?
   trap - EXIT INT TERM
+  if [[ "$EVAL_RECOVERY" == 1 && "$rc" != 0 ]]; then
+    for process_pid in "${dsh_pid:-}" "${sglang_pid:-}"; do
+      if [[ -n "$process_pid" ]] && ! kill -0 "$process_pid" 2>/dev/null; then
+        touch "$infra_dir/worker_restart_required"
+      fi
+    done
+  fi
   for process_pid in "${dsh_pid:-}" "${sglang_pid:-}"; do
     if [[ -n "$process_pid" ]] && kill -0 "$process_pid" 2>/dev/null; then
       kill "$process_pid" 2>/dev/null || true
@@ -47,6 +55,9 @@ cleanup() {
     fi
   done
   chmod -R a+rwX "$infra_dir" "$run_dir" 2>/dev/null || true
+  if [[ "$EVAL_RECOVERY" == 1 && "$rc" == 67 ]]; then
+    touch "$infra_dir/worker_restart_required"
+  fi
   printf '%s\n' "$rc" > "$infra_dir/worker.exit"
   log "worker_exit=$rc"
   exit "$rc"
@@ -107,6 +118,17 @@ fi
 actual_gpus=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
 [[ "$actual_gpus" -eq "$GPU_COUNT" ]] || { log "gpu_count expected=$GPU_COUNT actual=$actual_gpus"; exit 1; }
 [[ "$(nvidia-smi --query-gpu=name --format=csv,noheader | grep -vc H200 || true)" -eq 0 ]]
+if [[ "$EVAL_RECOVERY" == 1 ]]; then
+  [[ "$EVAL_MAX_WORKERS" == 1 ]]
+  launcher=$dsh_dir/native/landlock-run/packages/linux-x64/bin/landlock-run
+  "$launcher" --probe > "$infra_dir/sandbox_preflight.log" 2>&1
+  probe_dir=$(mktemp -d /tmp/dsh-recovery-probe.XXXXXX)
+  mkdir "$probe_dir/work"
+  "$launcher" --ro / --rw /dev/null --rw "$probe_dir/work" -- bash -c \
+    'echo ok > "$1/ok"; test "$(cat "$1/ok")" = ok && ! touch "$2/denied" 2>/dev/null' _ \
+    "$probe_dir/work" "$probe_dir" > "$infra_dir/sandbox_behavior_test.log" 2>&1
+  rm -rf "$probe_dir"
+fi
 log "pipeline_start host=$(hostname) model=$MODEL_DIR variant=$WORKSPACE_VARIANT"
 log "gpu_inventory=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | tr '\n' ';')"
 /usr/bin/python3 "$worker_root/experiments/aligned_sft/capture_runtime.py" \
@@ -162,6 +184,9 @@ export no_proxy=$NO_PROXY
 mkdir -p /root/.dsh
 sed -e "s/__MODEL_ID__/$MODEL_ID/g" -e "s/__MODEL_NAME__/$MODEL_NAME/g" \
   "$matrix_root/settings.template.yaml" > /root/.dsh/settings.yaml
+if [[ "$EVAL_RECOVERY" == 1 ]]; then
+  printf '\nagent-loop:\n  maxParallelToolCalls: 1\n' >> /root/.dsh/settings.yaml
+fi
 install -m 600 "$matrix_root/molclaw.cordis.patch.yml" /root/.dsh/cordis.patch.yml
 
 log waiting_for_molclaw_secret
@@ -248,7 +273,9 @@ PY
 log sglang_acceptance_complete
 
 cd "$dsh_dir"
-for bootstrap_attempt in 0 1 2; do
+bootstrap_attempts=(0 1 2)
+[[ "$EVAL_RECOVERY" != 1 ]] || bootstrap_attempts=(0)
+for bootstrap_attempt in "${bootstrap_attempts[@]}"; do
   node --import tsx/esm apps/cli/src/bin.ts web --no-open > "$infra_dir/dsh-start-${bootstrap_attempt}.log" 2>&1 &
   dsh_pid=$!
   if wait_http http://127.0.0.1:3080 "$dsh_pid" 120 dsh; then
@@ -258,7 +285,7 @@ for bootstrap_attempt in 0 1 2; do
   fi
   kill "$dsh_pid" 2>/dev/null || true
   wait "$dsh_pid" 2>/dev/null || true
-  [[ "$bootstrap_attempt" != 2 ]] || exit 1
+  [[ "$EVAL_RECOVERY" != 1 && "$bootstrap_attempt" != 2 ]] || exit 1
   # Retry only transport failure before any question has been submitted.
   rg -q 'fetch failed|ECONNRESET|ETIMEDOUT|Request was cancelled' "$infra_dir/dsh-start-${bootstrap_attempt}.log" || exit 1
   sleep 30
@@ -266,7 +293,13 @@ done
 log "dsh_ready pid=$dsh_pid"
 
 cd "$worker_root"
-/usr/bin/python3 -u dsh-molbench/run_dsh_molbench.py "${suite_args[@]}" \
+recovery_args=()
+[[ -z "${SAMPLE_IDS_FILE:-}" ]] || recovery_args+=(--sample-ids-file "$SAMPLE_IDS_FILE")
+if [[ "$EVAL_RECOVERY" == 1 ]]; then
+  recovery_args+=(--recover-infra)
+  [[ ! -f "$run_dir/run_manifest.json" ]] || recovery_args+=(--resume)
+fi
+/usr/bin/python3 -u dsh-molbench/run_dsh_molbench.py "${recovery_args[@]}" "${suite_args[@]}" \
   --rollout-only --run-dir "$run_dir" --task-timeout-sec 14400 --max-workers "$EVAL_MAX_WORKERS" \
   --model-provider slime-local --model-id "$MODEL_ID" --agent-preset "$agent_preset" \
   --skill-source "$skill_source" --limit-per-suite "$LIMIT_PER_SUITE" \
@@ -279,6 +312,7 @@ cd "$worker_root"
   --expected-skill-count "$expected_skill_count" \
   | tee "$infra_dir/protocol_audit.log"
 
+if [[ "$EVAL_RECOVERY" != 1 ]]; then
 for retry in 1 2; do
   /usr/bin/python3 -u dsh-molbench/run_dsh_molbench.py "${suite_args[@]}" \
     --rollout-only --resume --retry-infra-failed --run-dir "$run_dir" \
@@ -290,8 +324,9 @@ for retry in 1 2; do
     --runtime-audit-file "$infra_dir/runtime_audit.json" \
     2>&1 | tee -a "$rollout_log"
 done
+fi
 
-/usr/bin/python3 - "$run_dir" "$WORKSPACE_VARIANT" "$LIMIT_PER_SUITE" <<'PY' | tee "$infra_dir/rollout_validation.json"
+/usr/bin/python3 - "$run_dir" "$WORKSPACE_VARIANT" "$LIMIT_PER_SUITE" "$EVAL_RECOVERY" <<'PY' | tee "$infra_dir/rollout_validation.json"
 import json, pathlib, sys
 run, variant, limit = pathlib.Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 manifest = json.loads((run / "run_manifest.json").read_text())
@@ -313,7 +348,10 @@ assert all(not (path / ".dsh/skills").exists() for path in workspaces)
 if variant == "legacy-hierarchy":
     assert all((path / ".agents/skills/L1_tools").is_dir() for path in workspaces)
 summary = json.loads((run / "rollout_summary.json").read_text())
-assert summary["publishable"] is True, summary
+if sys.argv[4] == '1':
+    assert summary['running_count'] == summary['missing_count'] == 0, summary
+else:
+    assert summary["publishable"] is True, summary
 print(json.dumps({"records": len(records), "workspaces": len(workspaces), "preset": manifest["agent_preset"], "summary": summary}))
 PY
 

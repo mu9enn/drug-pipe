@@ -236,6 +236,26 @@ python -m drug_agent.scripts.materialize_toolrl_v8 \
   --semantic /path/to/semantic_trajectories.jsonl \
   --qwen-sft /path/to/qwen35_sft.jsonl \
   --output-root /path/to/v8_toolrl/01_all_decisions
+```
+
+已有母数据时不要重复展开。当前默认筛选入口是 [NeMo 三步流程](NEMO_SELECTOR.md)，不依赖以下旧实验。
+
+```bash
+python -m drug_agent.scripts.prepare_nemo_toolrl \
+  --input "$SOURCE" --output-root "$RUN/prepared"
+bash drug_agent/scripts/launch_nemo_worker.sh "$RUN" smoke "$EPS"
+# 检查小批之后再启动全量；EPS 是一个明确阈值，不是保留比例。
+bash drug_agent/scripts/launch_nemo_worker.sh "$RUN" full "$EPS"
+```
+
+独立长度审计和导出命令见上述文档。正式输出保持 canonical trajectory 顺序，每个 decision 的 4 个候选独立成组；
+本轮只准备数据，不启动正式 RL。
+
+### 历史实验：旧短描述与预算筛选（非默认入口）
+
+以下命令仅供复查旧结果，不是当前 NeMo 的前置步骤，也不用于要求 NeMo 保留 20%。
+
+```bash
 
 python -m drug_agent.scripts.select_toolrl_v8 encode \
   --input /path/to/v8_toolrl/01_all_decisions/all_decisions.jsonl \

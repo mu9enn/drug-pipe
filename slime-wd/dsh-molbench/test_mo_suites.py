@@ -37,8 +37,10 @@ class ExtendedSuitesTest(unittest.TestCase):
         candidates = task_constraints(sample.prompt, 'vs').candidates
         self.assertTrue(runner.project_prediction(sample, json.dumps({'ranked_smiles': candidates, 'evidence': []}))[1])
         for ranking in [[], candidates[:3], [candidates[0], candidates[0], 'outside'], candidates[:-1]]:
-            self.assertTrue(runner.project_prediction(sample, json.dumps({'ranked_smiles': ranking}))[1])
+            self.assertTrue(runner.project_prediction(sample, json.dumps({'ranked_smiles': ranking, 'evidence': []}))[1])
         self.assertFalse(runner.project_prediction(sample, '{"ranked_smiles":"not a list"}')[1])
+        self.assertFalse(runner.project_prediction(sample, '{"ranked_smiles":[]}')[1])
+        self.assertFalse(runner.project_prediction(sample, '{"ranked_smiles":[],"evidence":{},"extra":1}')[1])
 
     def test_ms3_scores_original_top3_without_filtering(self):
         sample = next(s for s in self.samples if s.suite == 'ms3')
@@ -49,7 +51,7 @@ class ExtendedSuitesTest(unittest.TestCase):
                                       (['outside'] * 3 + [hit], 0.0),
                                       ([hit], 1 / 3)]:
                 runner.write_json(root / 'results' / sample.task_id / 'record.json',
-                                  {'status': 'completed', 'final_text': json.dumps({'ranked_smiles': ranking})})
+                                  {'status': 'completed', 'final_text': json.dumps({'ranked_smiles': ranking, 'evidence': []})})
                 summary = runner.materialize_scores(root, runner.DEFAULT_MOLBENCH_ROOT, [sample])
                 metric = next(iter(summary['metrics'].values()))
                 self.assertAlmostEqual(metric['top3_hit_rate'], expected)
