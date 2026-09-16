@@ -18,6 +18,16 @@ os.execv(sys.executable,[sys.executable]+sys.argv[1:])
     sys.path.insert(0,str(P/'data-pipe/pipeline/claude_agent'))
     from session_capture import _load_mcp_config
     converted=_load_mcp_config(capture)[0];assert converted['transport']=='stdio' and converted['toolCallTimeoutMs']==14400000
+ def test_default_config_is_private_and_routes_adapter(self):
+  import importlib.util
+  spec=importlib.util.spec_from_file_location('shared_config',P/'runtime/molclaw_mcp_config.py');h=importlib.util.module_from_spec(spec);spec.loader.exec_module(h)
+  f=h.temporary_config(P)
+  try:
+   assert f.stat().st_mode&0o777==0o600
+   server=json.loads(f.read_text())['mcpServers']['molclaw-scp']
+   assert server['type']=='stdio' and server['args']==[str(P/'runtime/molclaw_mcp.sh')]
+   assert server['timeout']==14400000
+  finally:f.unlink()
  def test_generic_dsh_template(self):
   s=(P/'slime-wd/dsh-molbench/pretrained_matrix/molclaw.cordis.patch.yml').read_text();assert 'transport: stdio' in s and 'runtime/molclaw_mcp.sh' in s and 'transport: streamable-http' not in s
  def test_legacy_http_config_is_private_and_preserves_other_servers(self):

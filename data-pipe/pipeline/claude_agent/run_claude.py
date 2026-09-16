@@ -1042,14 +1042,16 @@ def main() -> None:
         raise FileNotFoundError(f"scene skill payload not found: {source_scene_dir / '.claude'}")
     if mcp_config_file is not None and not mcp_config_file.is_file():
         raise FileNotFoundError(f"mcp config file not found: {mcp_config_file}")
-    if mcp_config_file is not None:
-        # Direct run_claude.py users may still supply the legacy SCP HTTP config.
-        # Normalize it without modifying their original file or other servers.
-        import importlib.util
-        helper_path = repo_root.parent / "runtime/molclaw_mcp_config.py"
-        spec = importlib.util.spec_from_file_location("molclaw_mcp_config", helper_path)
-        helper = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(helper)
+    # Explicit legacy SCP configs and the default entry use the same adapter.
+    import importlib.util
+    helper_path = repo_root.parent / "runtime/molclaw_mcp_config.py"
+    spec = importlib.util.spec_from_file_location("molclaw_mcp_config", helper_path)
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    if mcp_config_file is None:
+        mcp_config_file = helper.temporary_config(repo_root.parent)
+        args.strict_mcp_config = True
+    else:
         mcp_config_file = helper.adapt_existing_config(mcp_config_file, repo_root.parent)
     mcp_tool_timeout_ms = _load_mcp_tool_timeout_ms(mcp_config_file)
 

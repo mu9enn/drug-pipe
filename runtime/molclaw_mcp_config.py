@@ -9,6 +9,16 @@ def build_config(project_root: Path, name='molclaw-scp', timeout=14400000):
     return {'mcpServers':{name:{'type':'stdio','command':'bash','args':[str(launcher)],'timeout':timeout,
         'env':{'DRUG_PROJECT':str(project_root),'MOLCLAW_POLL_INTERVAL_SECONDS':'300'}}}}
 
+def temporary_config(project_root: Path) -> Path:
+    """Default direct runner calls to the shared adapter, not ambient MCP config."""
+    import atexit, tempfile
+    fd, name = tempfile.mkstemp(prefix='molclaw_default_', suffix='.json')
+    result = Path(name)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(build_config(project_root), stream)
+    atexit.register(lambda: result.unlink(missing_ok=True))
+    return result
+
 def adapt_existing_config(config: Path, project_root: Path) -> Path:
     """Route legacy SCP HTTP entries through stdio; leave other servers alone."""
     import atexit, tempfile

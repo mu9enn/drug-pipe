@@ -23,7 +23,7 @@ export async function install() {
   // Initialize Node's native fetch and environment proxy before loading Undici's public accessor.
   const nativeFetch = globalThis.fetch;
   await nativeFetch('data:,');
-  const require = createRequire(new URL('../deepseek-harness/node_modules/.pnpm/node_modules/undici/package.json', import.meta.url));
+  const require = createRequire(process.env.MOLCLAW_DEPS_ROOT ? process.env.MOLCLAW_DEPS_ROOT + '/package.json' : new URL('../deepseek-harness/node_modules/.pnpm/node_modules/undici/package.json', import.meta.url));
   const { getGlobalDispatcher } = require('undici');
   globalThis.fetch = withHeadersTimeout(nativeFetch, getGlobalDispatcher,
     'https://scp.intern-ai.org.cn', headersTimeout);
