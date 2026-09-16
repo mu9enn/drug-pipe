@@ -70,7 +70,8 @@ class StructuredQwenPipelineTest(unittest.TestCase):
         reasoning_parser = ModuleType("sglang.srt.parser.reasoning_parser")
 
         class FakeReasoningParser:
-            def __init__(self, *, model_type, stream_reasoning):
+            def __init__(self, *, model_type, stream_reasoning, force_reasoning):
+                assert force_reasoning is True
                 self.model_type = model_type
                 self.stream_reasoning = stream_reasoning
 

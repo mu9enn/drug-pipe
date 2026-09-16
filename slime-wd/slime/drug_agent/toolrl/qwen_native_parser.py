@@ -72,6 +72,9 @@ def parse_qwen_native_completion(
     reasoning, body = ReasoningParser(
         model_type=config.reasoning_parser,
         stream_reasoning=False,
+        # The thinking-enabled Qwen generation prompt already ends in <think>.
+        # Completion text therefore starts inside reasoning, without that opener.
+        force_reasoning=True,
     ).parse_non_stream(text)
     reasoning = str(reasoning or "").strip()
     body = str(body or "")

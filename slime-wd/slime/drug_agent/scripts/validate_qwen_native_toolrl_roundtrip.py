@@ -52,9 +52,11 @@ def main() -> None:
                 {"name": call["name"], "arguments": call["arguments"]}
                 for call in parsed["tool_calls"]
             ]
-            if not parsed["ok"] or actual_calls != expected_calls:
-                if label["decision_type"] != "final_answer" or parsed["final_answer"] != label["target_final_answer"]:
-                    raise ValueError(f"native parser round-trip failed for {label['decision_id']}: {parsed}")
+            valid = parsed["ok"] and actual_calls == expected_calls
+            if label["decision_type"] == "final_answer":
+                valid = valid and json.loads(parsed["final_answer"]) == label["target_final_answer"]
+            if not valid:
+                raise ValueError(f"native parser round-trip failed for {row['id']}: {parsed}")
             checked += 1
             if checked >= args.limit:
                 break

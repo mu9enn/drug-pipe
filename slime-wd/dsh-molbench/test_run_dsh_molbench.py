@@ -180,7 +180,7 @@ class RetryClassificationTest(unittest.TestCase):
         self.assertFalse(runner.publishable_records([{'status': 'failed', 'protocol_verified': True,
                                                      'failure_class': 'unclassified_failure'}]))
         self.assertEqual(runner.failure_class({'status': 'failed', 'error': 'task exceeded 14400 seconds'}),
-                         'model_or_protocol_failure')
+                         'trajectory_budget_exhausted')
 
 
 class ScorerProjectionTest(unittest.TestCase):

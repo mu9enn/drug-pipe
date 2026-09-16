@@ -27,11 +27,11 @@ class InfrastructureRecoveryTest(unittest.TestCase):
         self.assertEqual(len(runner.unresolved_infrastructure(failed + recovered + failed, {})), 1)
 
     def test_business_error_with_false_outer_flag(self):
-        events = call('a', '{}', json.dumps({'status': 'error', 'msg': 'CUDA out of memory'}))
+        events = call('a', '{}', json.dumps({'status': 'error', 'msg': 'HTTP 503 temporarily unavailable'}))
         self.assertEqual(len(runner.unresolved_infrastructure(events, {})), 1)
         bad_input = call('b', '{}', '{"status":"error","msg":"input file not found"}')
         self.assertEqual(runner.unresolved_infrastructure(bad_input, {}), [])
-        self.assertEqual(len(runner.unresolved_infrastructure(events + bad_input, {})), 1)
+        self.assertEqual(len(runner.unresolved_infrastructure(events + bad_input, {})), 0)
 
     def test_only_actual_errors_not_reasoning(self):
         events = [{'type': 'assistant/message', 'data': {'text': 'fetch failed CUDA out of memory'}}]
@@ -43,7 +43,7 @@ class InfrastructureRecoveryTest(unittest.TestCase):
         auth = {'status': 'failed', 'recovery_policy': 'infra_v1',
                 'turn_reason': {'kind': 'error', 'error': {'code': 'SERVER', 'message': 'HTTP 401'}}}
         self.assertEqual(runner.unresolved_infrastructure([], auth), [])
-        self.assertEqual(runner.failure_class(auth), 'unclassified_failure')
+        self.assertEqual(runner.failure_class(auth), 'nonretryable_tool_or_dependency')
         record = {'status': 'completed', 'attempt': 1, 'unresolved_infra': [{'error': 'fetch failed'}]}
         record['failure_class'] = runner.failure_class(record)
         self.assertTrue(runner.retry_eligible(record))

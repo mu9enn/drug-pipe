@@ -33,3 +33,9 @@ bash drug_agent/scripts/run_molbench_eval.sh
 ```
 
 The second command is run from `slime-wd/slime`.
+
+## MCP response-header timeout
+
+`pretrained_matrix/run_worker.sh` preloads `install_mcp_headers_timeout.mjs` in new DSH processes. It sets only requests to `https://scp.intern-ai.org.cn` to a 14400000 ms (four-hour) headers timeout (override: `MOLCLAW_HEADERS_TIMEOUT_MS`). The native fetch, existing environment proxy dispatcher, body timeout, signals, SDK four-hour budget and retries are preserved. The public `getGlobalDispatcher` API comes from the installed harness Undici dependency; the preload fails if that dependency is missing. Startup logs `[mcp-http-policy]` with the effective value; no credentials are logged.
+
+This fixes the reproduced `UND_ERR_HEADERS_TIMEOUT` at approximately 300 seconds. It does not establish a fix for historical fast CONNECT failures. Disable by removing the policy preload from the worker launch; restart workers for either change to take effect.

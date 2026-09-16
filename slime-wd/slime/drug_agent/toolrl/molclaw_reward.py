@@ -340,7 +340,14 @@ def _v8_baseline_final_reward(sample: Any, parsed: dict[str, Any]) -> dict[str, 
         and not parsed.get("has_tool_call")
     )
     target = _without_nonanswer_fields(_target_final_answer(sample))
-    predicted = _without_nonanswer_fields(parsed.get("final_answer"))
+    predicted = parsed.get("final_answer")
+    # Native parsing returns content text; structured reference answers are JSON.
+    if isinstance(target, (dict, list)) and isinstance(predicted, str):
+        try:
+            predicted = json.loads(predicted)
+        except json.JSONDecodeError:
+            predicted = None
+    predicted = _without_nonanswer_fields(predicted)
     exact = bool(has_only_final and predicted == target)
     error_type = "FinalAnswerMismatch" if has_only_final else "TerminalDecisionFormatMismatch"
     return {

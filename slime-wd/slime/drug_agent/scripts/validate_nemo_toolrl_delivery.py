@@ -67,7 +67,8 @@ def main():
                     actual = [{"name":c["name"], "arguments":c["arguments"]} for c in parsed["tool_calls"]]
                     valid = parsed["ok"] and actual == row["label"]["target_tool_calls"]
                     if row["label"]["decision_type"] == "final_answer":
-                        valid = valid and parsed["final_answer"] == row["label"]["target_final_answer"]
+                        # The parser returns wire text; canonical labels store JSON objects.
+                        valid = valid and json.loads(parsed["final_answer"]) == row["label"]["target_final_answer"]
                     if not valid:
                         failures.append({"id":row["id"], "error":parsed.get("error_message"), "tool_calls_match":actual == row["label"]["target_tool_calls"]})
                     parse_checks += 1

@@ -32,6 +32,15 @@ def score(parsed: dict, label: dict, *, mode: str = "v8_baseline") -> dict:
 
 
 class NativeRewardTest(unittest.TestCase):
+    def test_native_json_text_matches_structured_answer(self) -> None:
+        label = {"decision_type": "final_answer", "target_final_answer": {"result": "ok", "evidence": []}}
+        parsed = {"ok": True, "has_final_answer": True, "has_tool_call": False,
+                  "tool_calls": [], "blocks": []}
+        for text, expected in [(' {"evidence": ["different prose"], "result": "ok"}', 1.0),
+                               ('{"result": "wrong"}', -0.5), ('not JSON', -0.5)]:
+            with self.subTest(text=text):
+                self.assertEqual(score({**parsed, "final_answer": text}, label)["score"], expected)
+
     def test_native_final_answer_exact_match(self) -> None:
         parsed = {
             "ok": True,

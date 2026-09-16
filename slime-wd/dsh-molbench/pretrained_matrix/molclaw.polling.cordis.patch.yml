@@ -1,0 +1,17 @@
+- insert:
+    - id: mcp-molclaw-scp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: molclaw-scp
+        transport: stdio
+        command: bash
+        args:
+          - /root/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/molclaw-mcp-relay/polling-adapter/run_mcp.sh
+        env:
+          DRUG_PROJECT: /root/slime_sxy/group-space/sunxiangyu/drug-pipe
+          SECRET_FILE: /root/.dsh/molclaw.env
+          HTTP_PROXY: http://127.0.0.1:13208
+          HTTPS_PROXY: http://127.0.0.1:13208
+          MOLCLAW_POLL_INTERVAL_SECONDS: '300'
+        toolCallTimeoutMs: 14400000
+        failOnStartupError: true

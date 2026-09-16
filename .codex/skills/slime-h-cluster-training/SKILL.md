@@ -9,6 +9,14 @@ Apply the measured project workflow instead of treating model size, active MoE p
 
 ## Establish the source of truth
 
+**Every normal H-cluster `rjob submit` must explicitly pass `--priority=9`, including
+probes, retries and custom submitters.** Omission uses CLI default 5 and fails
+preflight. Inspect the final executed arguments. After submission, require the
+exact job's `metadata.annotations["volcano.brainpp.cn/priority"] == "9"`, and save
+the observed priority with its UID before reporting success. Only an explicit
+user instruction overrides 9. Read the repository's `h-rjob-submit` skill for
+submission checks; do not silently accept another priority or switch to idle mode.
+
 1. Locate the active repository. Prefer `/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime` on the login host and `/root/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime` inside workers.
 2. Treat current launchers, tests, `resolved_config.env`, live logs, and checkpoint markers as newer than dated reports. The working tree contains critical uncommitted Qwen3.5/FP8/LoRA patches; never assume a clean upstream checkout is equivalent.
 3. Resolve the current SSH target from the user or `rjob` output. Do not reuse a timestamped pod hostname from this skill.

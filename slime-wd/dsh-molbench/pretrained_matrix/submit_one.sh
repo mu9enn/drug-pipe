@@ -55,7 +55,7 @@ rjob submit --name="$JOB_NAME" --metadata-name="$JOB_NAME" --namespace="$namespa
   --gpu="$GPU_COUNT" --cpu="$cpu_count" --memory="$memory_mib" \
   -e NCCL_IB_DISABLE=1 -e DISTRIBUTED_JOB=true -e RJOB_NAME="$JOB_NAME" \
   -e MODEL_DIR="$worker_model_dir" -e MODEL_ID="$MODEL_ID" -e MODEL_NAME="$MODEL_NAME" \
-  -e GPU_COUNT="$GPU_COUNT" -e TP_SIZE="$TP_SIZE" -e SAMPLE_IDS_FILE="$worker_sample_ids" \
+  -e MOLCLAW_HEADERS_TIMEOUT_MS="${MOLCLAW_HEADERS_TIMEOUT_MS:-14400000}" -e GPU_COUNT="$GPU_COUNT" -e TP_SIZE="$TP_SIZE" -e SAMPLE_IDS_FILE="$worker_sample_ids" \
   -e WORKSPACE_VARIANT="$WORKSPACE_VARIANT" -e RUN_NAME="$RUN_NAME" -e INFRA_NAME="$INFRA_NAME" \
   -e LIMIT_PER_SUITE="$LIMIT_PER_SUITE" -e SUITES="$SUITES" -e EVAL_SEED="$EVAL_SEED" -e EVAL_MAX_WORKERS="$EVAL_MAX_WORKERS" -e EVAL_RECOVERY="$EVAL_RECOVERY" \
   -- bash -lc "exec $worker_driver" 2>&1 | tee "$infra_dir/rjob_submit.log"

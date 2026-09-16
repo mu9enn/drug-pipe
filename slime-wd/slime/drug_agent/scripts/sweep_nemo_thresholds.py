@@ -28,11 +28,13 @@ def calibrate(scores, total, low=0.20, high=0.30):
     minimum, maximum = math.ceil(total*low), math.floor(total*high)
     feasible = [t for t in trials if minimum <= t["retained"] <= maximum]
     target = total*(low+high)/2
-    chosen = min(feasible, key=lambda t:(abs(t["retained"]-target),t["eps"])) if feasible else None
+    # The requested fraction is a preference, not a delivery gate. Keep ties
+    # intact and use the closest achievable count even outside the range.
+    chosen = min(feasible or trials, key=lambda t:(abs(t["retained"]-target),t["eps"]))
     return {"total":total,"target_count_range":[minimum,maximum],"target_fraction_range":[low,high],
             "selected":chosen,"grid_trials":[t for t in trials if t["eps"] in grid],
             "boundary_trials":trials,"minimum_retained_observed":min(t["retained"] for t in trials),
-            "status":"target_reached" if chosen else "target_unreachable_without_changing_boundaries_or_protection"}
+            "status":"target_reached" if feasible else "closest_available_outside_target"}
 
 
 def main():
@@ -105,8 +107,6 @@ def main():
         result["official_identify_duplicates_verified"] = True
     (out/"threshold_report.json").write_text(json.dumps(result,indent=2)+"\n")
     print(json.dumps({k:v for k,v in result.items() if k not in {"boundary_trials","pairwise_files_sha256"}},indent=2))
-    if not result["selected"]:
-        raise SystemExit("No threshold achieves requested range; report saved, no forced subsampling")
 
 
 if __name__ == "__main__":

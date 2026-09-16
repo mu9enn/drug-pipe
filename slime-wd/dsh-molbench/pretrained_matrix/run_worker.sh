@@ -118,7 +118,7 @@ fi
 actual_gpus=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
 [[ "$actual_gpus" -eq "$GPU_COUNT" ]] || { log "gpu_count expected=$GPU_COUNT actual=$actual_gpus"; exit 1; }
 [[ "$(nvidia-smi --query-gpu=name --format=csv,noheader | grep -vc H200 || true)" -eq 0 ]]
-if [[ "$EVAL_RECOVERY" == 1 ]]; then
+if [[ "$EVAL_RECOVERY" == 1 && "${CPU_FRAMEWORK:-0}" != 1 ]]; then
   [[ "$EVAL_MAX_WORKERS" == 1 ]]
   launcher=$dsh_dir/native/landlock-run/packages/linux-x64/bin/landlock-run
   "$launcher" --probe > "$infra_dir/sandbox_preflight.log" 2>&1
@@ -171,6 +171,7 @@ case "$WORKSPACE_VARIANT" in
 esac
 [[ -s "$skill_source/prompt_prefix.md" && -d "$skill_source/.agents/skills" ]]
 
+if [[ "${CPU_FRAMEWORK:-0}" != 1 ]]; then
 export PATH="$runtime_dir/node-v24.19.0/bin:$PATH"
 export PYTHONPATH="$runtime_dir/python${PYTHONPATH:+:$PYTHONPATH}"
 export SLIME_LOCAL_API_KEY=local NODE_USE_ENV_PROXY=1
@@ -208,6 +209,8 @@ PY
   [[ "$attempt" != 720 ]] || { log mcp_reverse_tunnel_timeout; exit 1; }
   sleep 5
 done
+
+fi
 
 source "$shared_user_root/slime_env/slime_env.sh"
 visible_devices=$(seq -s, 0 $((GPU_COUNT - 1)))
@@ -272,11 +275,20 @@ assert actual_args['random_seed'] == int(sys.argv[5])
 PY
 log sglang_acceptance_complete
 
+if [[ "${CPU_FRAMEWORK:-0}" == 1 ]]; then
+  # Finite model-serving allocation owned by the CPU evaluation controller.
+  # A lease releases GPUs if that controller disappears; completion exits the job.
+  touch "$infra_dir/model.ready"
+  /usr/bin/python3 "$matrix_root/model_lease.py" "$infra_dir" "$sglang_pid" "${CPU_RUN_TOKEN:?}"
+  log CPU_EVALUATION_COMPLETE
+  exit 0
+fi
+
 cd "$dsh_dir"
 bootstrap_attempts=(0 1 2)
 [[ "$EVAL_RECOVERY" != 1 ]] || bootstrap_attempts=(0)
 for bootstrap_attempt in "${bootstrap_attempts[@]}"; do
-  node --import tsx/esm apps/cli/src/bin.ts web --no-open > "$infra_dir/dsh-start-${bootstrap_attempt}.log" 2>&1 &
+  node --import "$worker_root/molclaw-mcp-relay/install_mcp_headers_timeout.mjs" --import "$worker_root/molclaw-mcp-relay/trace_fetch.mjs" --import tsx/esm apps/cli/src/bin.ts web --no-open > "$infra_dir/dsh-start-${bootstrap_attempt}.log" 2>&1 &
   dsh_pid=$!
   if wait_http http://127.0.0.1:3080 "$dsh_pid" 120 dsh; then
     ln -sf "dsh-start-${bootstrap_attempt}.log" "$dsh_log"

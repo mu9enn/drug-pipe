@@ -39,6 +39,10 @@ For a Python module whose environment is already established, the final part may
 
 ## Pre-submit checks
 
+Require an explicit `--priority=9` in the fully resolved command, including any
+custom submitter's subprocess argument list. The installed normal-job CLI defaults
+to 5 when this is omitted. Do not rely on the template alone.
+
 Use read-only checks appropriate to the command:
 
 ```bash
@@ -54,6 +58,19 @@ The login-host path used for `test`/`bash -n` and the container path used in the
 If supported by the installed CLI, `--predict-only` may be used for a non-mutating resource prediction and the current CLI's dry-run facility may be used to inspect generated configuration. Verify their syntax from `--help`; neither proves the training command itself works.
 
 ## Submission result and one-shot inspection
+
+Verify the created object's actual priority, not just CLI success:
+
+```bash
+brainctl get rjobs -n ailab-ma4agismall \
+  --field-selector "metadata.name=${JOB_NAME}" -o json
+```
+
+Require exactly one matching object and
+`items[0].metadata.annotations["volcano.brainpp.cn/priority"] == "9"`.
+Save name, UID, observed priority and state. An empty list is not success, even
+when the command exits zero. On a mismatch, report failure and resolve it within
+the user's authorization; do not blindly create replacement jobs.
 
 Preserve the complete `rjob submit` output because the platform may normalize the Kubernetes metadata name. Then inspect with the installed CLI syntax, explicitly including the namespace. Common documented forms are:
 

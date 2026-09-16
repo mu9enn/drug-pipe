@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import inspect
+from pathlib import Path
+from datetime import timedelta
 from typing import Any
 
 from drug_agent.offline_guard import assert_tool_environment_allowed
@@ -14,10 +17,10 @@ class MCPClient:
         self,
         server_url: str | None = None,
         api_key: str | None = None,
-        initialize_timeout: float = 30.0,
+        initialize_timeout: float = 300.0,
     ) -> None:
-        self.server_url = server_url or os.environ.get("MOLCLAW_SCP_SERVER_URL")
-        self.api_key = api_key or os.environ.get("MOLCLAW_SCP_API_KEY")
+        self.server_url = server_url or os.environ.get("MOLCLAW_SCP_SERVER_URL") or os.environ.get("MOLCLAW_SCP_MCP_URL")
+        self.api_key = api_key or os.environ.get("MOLCLAW_SCP_API_KEY") or os.environ.get("MOLCLAW_SCP_MCP_AUTH")
         self.initialize_timeout = float(initialize_timeout)
 
         self._transport_ctx = None
@@ -40,19 +43,31 @@ class MCPClient:
 
         try:
             from mcp import ClientSession
-            from mcp.client.streamable_http import streamablehttp_client
+            from mcp import StdioServerParameters
+            from mcp.client.stdio import stdio_client
         except Exception as exc:
             raise RuntimeError("Cannot import MCP SDK. Install with: pip install -U mcp") from exc
 
         header_name = os.environ.get("MOLCLAW_SCP_AUTH_HEADER", "SCP-HUB-API-KEY").strip()
         if not header_name or any(char in header_name for char in "\r\n:"):
             raise RuntimeError("MOLCLAW_SCP_AUTH_HEADER is invalid")
-        headers = {header_name: self.api_key}
-        self._transport_ctx = streamablehttp_client(url=self.server_url, headers=headers)
+        project = Path(os.environ.get("DRUG_PROJECT") or Path(__file__).resolve().parents[4])
+        launcher = project / "runtime/molclaw_mcp.sh"
+        if not launcher.is_file():
+            raise RuntimeError(f"MolClaw polling adapter launcher is missing: {launcher}")
+        child_env = dict(os.environ, DRUG_PROJECT=str(project),
+                         MOLCLAW_SCP_SERVER_URL=self.server_url,
+                         MOLCLAW_SCP_API_KEY=self.api_key,
+                         MOLCLAW_SCP_AUTH_HEADER=header_name)
+        self._transport_ctx = stdio_client(StdioServerParameters(
+            command="bash", args=[str(launcher)], env=child_env))
 
         try:
-            read_stream, write_stream, _ = await self._transport_ctx.__aenter__()
-            self._session_ctx = ClientSession(read_stream, write_stream)
+            read_stream, write_stream = await self._transport_ctx.__aenter__()
+            # MCP Python v1 accepts timedelta; v2 accepts float seconds.
+            timeout_annotation = inspect.signature(ClientSession).parameters["read_timeout_seconds"].annotation
+            timeout = 14400.0 if "float" in str(timeout_annotation) else timedelta(seconds=14400)
+            self._session_ctx = ClientSession(read_stream, write_stream, read_timeout_seconds=timeout)
             self._session = await self._session_ctx.__aenter__()
             await asyncio.wait_for(self._session.initialize(), timeout=self.initialize_timeout)
         except asyncio.CancelledError:

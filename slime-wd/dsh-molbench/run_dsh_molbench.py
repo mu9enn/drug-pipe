@@ -719,6 +719,7 @@ def run_sample(
                 api.rpc("session.cancel", {"sessionId": session_id}, timeout=30)
             except Exception:
                 pass
+            record["budget_exhausted"] = {"scope": "trajectory", "limit_seconds": timeout_sec, "retry": False}
             raise TimeoutError(f"task exceeded {timeout_sec} seconds")
 
         summary = summarize_events(events)
@@ -746,7 +747,7 @@ def run_sample(
     record.update({"finished_at": utc_now(), "elapsed_seconds": round(time.time() - started, 3)})
     if recover_infra:
         record["unresolved_infra"] = unresolved_infrastructure(events, record)
-        record["recovery_policy"] = "infra_v1"
+        record["recovery_policy"] = "infra_v2"
     record["failure_class"] = failure_class(record)
     if recover_infra:
         record["retry_exhausted"] = bool(record.get("unresolved_infra")) and attempt >= 3
@@ -754,79 +755,12 @@ def run_sample(
     return record
 
 
-RETRYABLE_INFRA_CODES = frozenset({"TIMEOUT", "TRANSPORT", "SERVER", "MCP_CONNECTION"})
-RETRYABLE_INFRA_TEXT = re.compile(
-    r"(?:stream idle timeout|connection (?:reset|refused|closed)|temporarily unavailable|"
-    r"timed out|mcp.*(?:connect|transport)|websocket.*closed)",
-    re.IGNORECASE,
-)
-
-
-# Match actual error fields / tool observations, never assistant reasoning.
-INFRA_ERROR = re.compile(
-    r"fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENETUNREACH|"
-    r"connection (?:reset|refused|closed)|broken pipe|temporarily unavailable|"
-    r"stream idle timeout|timed out|TimeoutError|CUDA.*out of memory|"
-    r"OutOfMemoryError|OOMKilled|out_of_memory|out of memory|std::bad_alloc|"
-    r"(?:HTTP|status(?: code)?)\s*[:=]?\s*(?:408|429|500|502|503|504)\b",
-    re.IGNORECASE,
-)
-
-
-def unresolved_infrastructure(events: list[dict[str, Any]], record: dict[str, Any]) -> list[dict[str, Any]]:
-    calls = {}
-    unresolved = {}
-    for event in events:
-        data = event.get("data") or {}
-        if event.get("type") == "tool/call":
-            arguments = data.get("arguments")
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except ValueError:
-                    pass
-            key = (data.get("name"), json.dumps(arguments, sort_keys=True, ensure_ascii=False))
-            calls[data.get("callId")] = key
-        if event.get("type") != "tool/result":
-            continue
-        message = data.get("message") or {}
-        call_id = (message.get("source") or {}).get("callId")
-        key = calls.get(call_id)
-        if key is None:
-            continue
-        blocks = message.get("content") or []
-        texts = [part.get("text", "") for block in blocks for part in block.get("content", [])]
-        business_failed = False
-        error_texts = []
-        for value in texts:
-            try:
-                payload = json.loads(value)
-            except ValueError:
-                error_texts.append(value)
-                continue
-            if isinstance(payload, dict):
-                diagnostics = payload.get("diagnostics") or {}
-                failed = payload.get("status") in ("error", "failed", False) if "status" in payload else False
-                failed = failed or bool(diagnostics.get("error_code"))
-                business_failed |= failed
-                if failed:
-                    error_texts.append(json.dumps({k: payload.get(k) for k in ("msg", "message", "error", "diagnostics")}))
-        failure_text = "\n".join(error_texts)
-        if INFRA_ERROR.search(failure_text):
-            unresolved[key] = {"tool": key[0], "call_id": call_id, "seq": event.get("seq"), "error": failure_text[:2000]}
-        elif not business_failed and not any(b.get("isError") for b in blocks) and not data.get("error"):
-            unresolved.pop(key, None)
-    reason = record.get("turn_reason") or {}
-    terminal_error = json.dumps(reason.get("error") or record.get("error") or "")
-    error = reason.get("error")
-    code = error.get("code") if isinstance(error, dict) else None
-    if INFRA_ERROR.search(terminal_error) or reason.get("kind") == "error" and code in {"TIMEOUT", "TRANSPORT", "MCP_CONNECTION"}:
-        unresolved[("terminal", "")] = {"tool": None, "error": terminal_error[:2000]}
-    return list(unresolved.values())
+from recovery_policy import BUDGET, error_class, unresolved_infrastructure
 
 
 def retry_eligible(record: dict[str, Any]) -> bool:
-    return record.get("failure_class") == "retryable_infra" and int(record.get("attempt", 1)) < 3
+    return (not record.get("budget_exhausted") and not BUDGET.search(str(record.get("error") or ""))
+            and record.get("failure_class") == "retryable_infra" and int(record.get("attempt", 1)) < 3)
 
 
 def recover_task(run_once, reset, sleep=time.sleep) -> dict[str, Any]:
@@ -840,27 +774,18 @@ def recover_task(run_once, reset, sleep=time.sleep) -> dict[str, Any]:
 
 
 def failure_class(record: dict[str, Any]) -> str | None:
+    if record.get("budget_exhausted") or BUDGET.search(str(record.get("error") or "")):
+        return "trajectory_budget_exhausted"
     if record.get("unresolved_infra"):
         return "retryable_infra"
     if record.get("status") != "failed":
         return None
-    reason = record.get("turn_reason")
-    if isinstance(reason, dict) and reason.get("kind") == "max-tokens":
+    reason = record.get("turn_reason") or {}
+    if reason.get("kind") == "max-tokens":
         return "model_max_tokens"
-    if record.get("recovery_policy") == "infra_v1":
-        return "unclassified_failure"
-    if isinstance(reason, dict) and reason.get("kind") == "error":
-        error = reason.get("error")
-        if isinstance(error, dict) and str(error.get("code") or "") in RETRYABLE_INFRA_CODES:
-            return "retryable_infra"
-        if RETRYABLE_INFRA_TEXT.search(json.dumps(error, ensure_ascii=False)):
-            return "retryable_infra"
-        return "unclassified_failure"
-    if RETRYABLE_INFRA_TEXT.search(str(record.get("error") or "")):
-        return "retryable_infra"
-    if re.search(r'unattended task called ask_user_question|task exceeded \d+ seconds', str(record.get('error') or '')):
-        return 'model_or_protocol_failure'
-    return "unclassified_failure"
+    error = reason.get("error") or record.get("error") or ""
+    code = error.get("code") if isinstance(error, dict) else None
+    return error_class(json.dumps(error, ensure_ascii=False), code)
 
 
 def archive_failed_attempt(run_dir: Path, sample: Sample, record: dict[str, Any]) -> None:
@@ -869,7 +794,7 @@ def archive_failed_attempt(run_dir: Path, sample: Sample, record: dict[str, Any]
     archive = result_dir / "attempts" / f"attempt-{attempt}"
     archive.mkdir(parents=True, exist_ok=False)
     workspace = Path(record.get("workdir", ""))
-    if record.get("recovery_policy") == "infra_v1" and workspace.is_dir() and str(workspace) != ".":
+    if record.get("recovery_policy") == "infra_v2" and workspace.is_dir() and str(workspace) != ".":
         shutil.copytree(workspace, archive / "workspace", symlinks=True)
     for name in ("record.json", "diagnostic_transcript.json", "final_answer.txt"):
         source = result_dir / name
@@ -1001,6 +926,7 @@ def materialize_scores(run_dir: Path, molbench_root: Path, samples: list[Sample]
         ),
         "infra_retry_count": sum(max(int(record.get("attempt") or 1) - 1, 0) for record in records),
         "infra_failure_count": sum(record.get("failure_class") == "retryable_infra" for record in records),
+        "trajectory_budget_exhausted_count": sum(failure_class(r) == "trajectory_budget_exhausted" for r in records),
         "retry_exhausted_count": sum(bool(r.get("retry_exhausted")) for r in records),
         "publishable": publishable_records(records),
         "metrics": metrics,
@@ -1054,6 +980,7 @@ def materialize_rollout_summary(run_dir: Path, samples: list[Sample]) -> dict[st
         ),
         "infra_retry_count": sum(max(int(record.get("attempt") or 1) - 1, 0) for record in records),
         "infra_failure_count": sum(record.get("failure_class") == "retryable_infra" for record in records),
+        "trajectory_budget_exhausted_count": sum(failure_class(r) == "trajectory_budget_exhausted" for r in records),
         "retry_exhausted_count": sum(bool(r.get("retry_exhausted")) for r in records),
         "publishable": publishable_records(records),
         "scored": False,
@@ -1175,6 +1102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-ids-file", type=Path, help="JSON list of task IDs for a declared subset")
     parser.add_argument("--run-dir", type=Path)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--continuation-state-file", type=Path, help="Audited attempt offsets and remaining budgets for deployment interruptions")
     parser.add_argument("--retry-infra-failed", action="store_true")
     parser.add_argument("--recover-infra", action="store_true", help="Retry unresolved transient tool/turn failures, at most twice")
     parser.add_argument("--prepare-only", action="store_true")
@@ -1231,8 +1159,16 @@ def main() -> int:
         run_dir = DEFAULT_RUNS_ROOT / f"dsh_qwen35_original_ms1_ms2_{stamp}"
     else:
         run_dir = args.run_dir.expanduser().resolve()
-    execution_settings = {'task_timeout_sec': args.task_timeout_sec, 'max_workers': args.max_workers,
-                          'max_infrastructure_retries': 2}
+    continuations = json.loads(args.continuation_state_file.read_text()) if args.continuation_state_file else {}
+    if not isinstance(continuations, dict):
+        raise ValueError('continuation state must be a mapping')
+    for entry in continuations.values():
+        if not (isinstance(entry, dict) and 0 < entry.get('budget_seconds', 0) <= args.task_timeout_sec and 0 <= entry.get('attempt_offset', -1) < 3):
+            raise ValueError('invalid continuation budget or attempt offset')
+    execution_settings = {'continuation_sha256': sha256_file(args.continuation_state_file) if args.continuation_state_file else None,
+                          'task_timeout_sec': args.task_timeout_sec, 'max_workers': args.max_workers,
+                          'max_infrastructure_retries': 2, 'trajectory_budget_policy': 'stop_no_retry',
+                          'tool_retry_policy': 'transient_observed_errors_only'}
     if args.recover_infra:
         execution_settings['max_parallel_tool_calls'] = 1
     manifest_path = run_dir / "run_manifest.json"
@@ -1279,9 +1215,10 @@ def main() -> int:
         if args.sample_ids_file:
             manifest["evaluation_scope"] = "selected_questions_diagnostic"
             manifest["sample_selection_sha256"] = sha256_file(args.sample_ids_file)
+        manifest["deployment_continuations"] = continuations
         manifest["execution_mode"] = "rollout-only" if args.rollout_only else "rollout-and-score"
         if args.recover_infra:
-            manifest['recovery_policy'] = 'infra_v1'
+            manifest['recovery_policy'] = 'infra_v2'
         manifest['execution_settings'] = execution_settings
         if installed_preset is not None:
             preset_composition = installed_preset / "agent.cordis.yml"
@@ -1294,9 +1231,9 @@ def main() -> int:
         manifest["source_files"] = [item for item in manifest["source_files"] if item is not None]
         write_json(manifest_path, manifest)
 
-    if not args.score_only and args.recover_infra != (manifest.get("recovery_policy") == "infra_v1"):
+    if not args.score_only and args.recover_infra != (manifest.get("recovery_policy") == "infra_v2"):
         raise ValueError("resume must use the same recovery policy as the original run")
-    if args.recover_infra and manifest.get("recovery_policy") != "infra_v1":
+    if args.recover_infra and manifest.get("recovery_policy") != "infra_v2":
         raise ValueError("recovery policy changed; start a new run")
     if args.recover_infra and args.max_workers != 1:
         raise ValueError("infra recovery runs require --max-workers 1")
@@ -1323,7 +1260,7 @@ def main() -> int:
                 continue
             if existing:
                 if args.recover_infra and existing.get("status") == "running":
-                    existing.update(status="failed", failure_class="retryable_infra", recovery_policy="infra_v1",
+                    existing.update(status="failed", failure_class="retryable_infra", recovery_policy="infra_v2",
                                     unresolved_infra=[{"error": "previous worker interrupted this attempt"}],
                                     retry_exhausted=int(existing.get("attempt", 1)) >= 3)
                     write_json(run_dir / "results" / sample.task_id / "record.json", existing)
@@ -1366,9 +1303,10 @@ def main() -> int:
             print(f"[{index}/{len(samples)}] {sample.task_id}: running", flush=True)
             def once():
                 existing = load_record(run_dir, sample)
-                attempt = int(existing.get("attempt") or 0) + 1 if existing else 1
+                continuation = continuations.get(sample.task_id, {})
+                attempt = int(existing.get("attempt") or 0) + 1 if existing else int(continuation.get("attempt_offset", 0)) + 1
                 record = run_sample(
-                    DshApi(args.dsh_url), run_dir, sample, workdirs[sample.task_id], args.task_timeout_sec,
+                    DshApi(args.dsh_url), run_dir, sample, workdirs[sample.task_id], int(continuation.get("budget_seconds", args.task_timeout_sec)),
                     args.model_provider, args.model_id, args.agent_preset, prompt_prefix, attempt,
                     system_prompt_file.read_text(encoding="utf-8").rstrip()
                     if args.required_mcp_tools or args.required_skill_count else None,

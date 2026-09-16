@@ -147,3 +147,20 @@ slime-wd/molbench/*
 # Published MO question contracts
 !slime-wd/molbench/aligned-mo/
 !slime-wd/molbench/aligned-mo/**
+
+# Local diagnostics, captured sessions, dependencies, and machine runtimes.
+# Already versioned reviewed reports remain tracked.
+/reports/
+**/node_modules/
+**/.venv-*/
+**/*_venv/
+/training_exports/
+/transferred_files/
+/molclaw-skills/
+/runtime/*
+!/runtime/molclaw_mcp.sh
+!/runtime/molclaw_mcp_config.py
+# Private MCP launch configs and backup snapshots.
+*.private.json
+*.private.yml
+*.private.yaml

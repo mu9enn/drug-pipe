@@ -21,7 +21,7 @@ class MCPToolExecutor:
         connect_timeout: float | None = None,
         list_tools_timeout: float | None = None,
         execute_timeout: float | None = None,
-        initialize_timeout: float = 30.0,
+        initialize_timeout: float = 300.0,
     ) -> None:
         assert_tool_environment_allowed("MCPToolExecutor initialization")
         self.request_timeout = self._resolve_timeout(request_timeout, "MOLCLAW_REQUEST_TIMEOUT_SEC")

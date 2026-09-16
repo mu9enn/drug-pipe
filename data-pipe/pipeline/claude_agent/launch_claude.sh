@@ -190,28 +190,18 @@ cleanup_mcp_config() {
 trap cleanup_mcp_config EXIT
 
 write_task_mcp_config() {
-  "$PYTHON_BIN" - \
-    "$MCP_CONFIG_FILE" \
-    "$MCP_SERVER_NAME" "$MCP_SERVER_URL" "$MCP_SERVER_AUTH_HEADER" "$MCP_SERVER_AUTH" \
-    "$MCP_SERVER_TOOL_TIMEOUT_MS" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-out_path = Path(sys.argv[1])
-name, url, header, token = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-tool_timeout_ms = int(sys.argv[6])
-
-if not name or not url:
-    raise SystemExit("no valid MCP servers to write")
-
-server = {"type": "http", "url": url, "timeout": tool_timeout_ms}
-if header and token:
-    server["headers"] = {header: token}
-cfg = {"mcpServers": {name: server}}
-
-out_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-PY
+  # The shared stdio adapter absorbs running/poll responses. Never expose them
+  # as final results to Claude Code or DSH. Credentials are inherited, not argv.
+  export MOLCLAW_SCP_MCP_URL="$MCP_SERVER_URL"
+  export MOLCLAW_SCP_MCP_AUTH="$MCP_SERVER_AUTH"
+  export MOLCLAW_SCP_MCP_AUTH_HEADER="$MCP_SERVER_AUTH_HEADER"
+  # Normalize aliases so an unrelated login-shell value cannot override this run.
+  export MOLCLAW_SCP_SERVER_URL="$MCP_SERVER_URL"
+  export MOLCLAW_SCP_API_KEY="$MCP_SERVER_AUTH"
+  export MOLCLAW_SCP_AUTH_HEADER="$MCP_SERVER_AUTH_HEADER"
+  "$PYTHON_BIN" "$PROJECT_ROOT/runtime/molclaw_mcp_config.py" \
+    --output "$MCP_CONFIG_FILE" --project-root "$PROJECT_ROOT" \
+    --name "$MCP_SERVER_NAME" --timeout "$MCP_SERVER_TOOL_TIMEOUT_MS"
 }
 
 if [[ "$SKIP_PROVIDER_SWITCH" -eq 0 ]]; then

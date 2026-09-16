@@ -18,6 +18,16 @@ If no concrete executable workload is available, stop at a clearly marked comman
 
 ## Preserve these submission invariants
 
+- **Every normal RJob must explicitly pass `--priority=9`.** This applies to all
+  GPU counts, probes, retries, clones and custom Python/shell submission paths.
+  CLI omission defaults to 5 and is a pre-submit failure. Inspect the final
+  executed arguments; a correct reference template alone is insufficient.
+  Only an explicit user instruction overrides 9; never switch to idle mode to
+  bypass it. After creation, read the exact job's
+  `metadata.annotations["volcano.brainpp.cn/priority"]` and require `"9"` before
+  declaring success; save the observed value and UID. Missing/different values
+  require an explicit failure report and an authorized correction, not silent acceptance.
+
 - Never use `sleep`, an interactive `bash`, `tail -f`, an infinite no-op loop, or a dummy service to hold GPUs. Do not disguise an idle allocation as training.
 - The container command must remain in the foreground until the workload succeeds or fails. Use `exec` for the final process. A launcher that starts `tmux`, `nohup`, or a background process and then exits is not a valid RJob entrypoint.
 - Use `bash -lc 'set -euo pipefail; ...; exec ...'` when environment initialization or a working-directory change is needed. Keep secrets out of `-x` traces and command-line arguments.
@@ -26,7 +36,7 @@ If no concrete executable workload is available, stop at a clearly marked comman
 - Interpret `--gpu`, `--cpu`, and `--memory` as resources for each replica. `--memory` is MiB on the documented/current CLI; verify with `rjob submit --help` if the installed version is uncertain.
 - Use `-P 1` for a single node, including one 8-GPU node. For multi-node jobs, `-P` is the node/replica count and resources remain per replica.
 - `--enable-sshd` may be retained for diagnosis, but SSH is never a substitute for a real entrypoint.
-- Do not add `--delete`, delete a same-named job, alter priority, select idle/preemptible mode, or add node tags merely to make scheduling succeed unless the user explicitly requests that change.
+- Do not add `--delete`, delete a same-named job, change priority away from the required 9, select idle/preemptible mode, or add node tags merely to make scheduling succeed unless the user explicitly requests that change.
 - Do not repeatedly resubmit a queued job. A successfully created Pending/Queued RJob is a successful submission, not a reason to create duplicates.
 
 ## Validate at the right depth

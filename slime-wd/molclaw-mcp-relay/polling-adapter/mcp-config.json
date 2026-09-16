@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "molclaw-scp": {
+      "command": "bash",
+      "args": [
+        "/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/molclaw-mcp-relay/polling-adapter/run_mcp.sh"
+      ]
+    }
+  }
+}

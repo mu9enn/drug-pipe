@@ -10,9 +10,11 @@ def test_threshold_calibration_matches_official_rule_and_preserves_ties():
         assert trial["retained"] == 100-sum(s >= 1-trial["eps"] for s in scores)
     assert result == calibrate(scores,100)
     # With 40 protected/tiny records the target cannot be reached.
-    assert calibrate(scores[:60],100)["selected"] is None
+    unreachable = calibrate(scores[:60],100)
+    assert unreachable["selected"]["retained"] == 40
+    assert unreachable["status"] == "closest_available_outside_target"
     # Equal scores cannot be split to manufacture a target count.
-    assert calibrate([0.9]*90,100)["selected"] is None
+    assert calibrate([0.9]*90,100)["selected"]["retained"] == 10
 
 from drug_agent.scripts.prepare_nemo_toolrl import encoding_text, prompt_contains_catalog
 from drug_agent.toolrl.v8_dataset import stable_json
