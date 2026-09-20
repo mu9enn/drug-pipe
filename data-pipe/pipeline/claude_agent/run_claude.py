@@ -1162,9 +1162,10 @@ def main() -> None:
                 expected_tools_from_task_spec(task_spec) if args.task == "kg" else ()
             )
             if args.task == "kg" and not expected_tools:
-                raise ValueError(
-                    f"KG task {s.dataset_index!r} is missing an expected toolchain"
-                )
+                # Question-only reruns have no privileged toolchain metadata.
+                # Reserve all constrained tools conservatively for admission;
+                # this scheduler-only list is never inserted into the prompt.
+                expected_tools = tuple(tool_limits)
             claims = (
                 serial_tool_claims(expected_tools, tool_limits)
                 if args.task == "kg"

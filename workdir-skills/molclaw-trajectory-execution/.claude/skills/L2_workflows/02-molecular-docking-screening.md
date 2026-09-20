@@ -77,9 +77,7 @@ Record: "Input: X molecules → Valid: Y molecules → Invalid: Z molecules (rea
 
 **⚠ COUNT GATE after filtering:** Programmatically count how many molecules passed. Record: "Pre-filter input: Y molecules → Passed: P molecules → Eliminated: Y-P molecules (Lipinski>2: A; QED<0.2: B; MW out of range: C)".
 
-**Step 4 — Format conversion.** Call `convert_smiles_to_format` (SMILES → PDBQT for QuickVina). Record conversion failures.
-
-**⚠ COUNT GATE after conversion:** Count successful conversions. Record: "Conversion input: P molecules → Successful: Q molecules → Failed: P-Q molecules".
+**Step 4 — Full-process inputs.** Keep each original SMILES string. `molecule_docking_quickvina_fullprocess` performs SMILES-to-PDBQT conversion internally; do not convert ligands in advance for this tool. Track conversion failures from its returned diagnostics separately from docking scores.
 
 ## Phase 3: Pocket Detection
 
@@ -163,13 +161,9 @@ In all subsequent rounds, retrieve and reuse these locked parameters. **Do NOT r
 
 **Pocket center sanity check:** If pocket center coordinates are (0, 0, 0) or appear to be default/unset values, suspect pocket detection failure — rerun detection or use the co-crystal ligand centroid as the pocket center.
 
-## Phase 4: Receptor Format Conversion
+## Phase 4: Receptor Input Contract
 
-Call `convert_pdb_to_pdbqt_dock` on `prepared_pdb`. If it fails, re-run `fix_pdb` with `replace_nonstandard=True` and retry once.
-
-### Post-Conversion Download (L3 Principle 14)
-
-Download the receptor PDBQT file to local workspace. This is a Category B file (diagnostic/reproducibility value).
+Use the original/prepared **PDB** file from protein preparation as `prepared_pdb`. The full-process QuickVina tool performs receptor conversion internally. **Do not call `convert_pdb_to_pdbqt_dock` first, pass a PDBQT, or rename a PDBQT to `.pdb`.** Keep the exact server PDB path for the next phase.
 
 <!-- NEW: Optional LR known binder retrieval -->
 ### Optional: Known Binder Retrieval (if LR tools are available)
@@ -187,7 +181,7 @@ Before docking execution, search for experimentally validated binders of the tar
 
 ## Phase 5: Docking Execution
 
-**Primary method — QuickVina2.** For each ligand, call `molecule_docking_quickvina_fullprocess`. Collect `docking_affinity_value` (kcal/mol, more negative = better) and `docking_file`.
+**Primary method — QuickVina2.** For each ligand, call `molecule_docking_quickvina_fullprocess` with `pdb_file_path=prepared_pdb` (PDB), `smiles` (the original SMILES string), and the chosen pocket parameters. Do not pass converted receptor/ligand files. Collect `docking_affinity_value` (kcal/mol, more negative = better) and `docking_file`.
 
 ### Checkpoint A — Immediate Sanity Check After Each Docking (L3 Principle 12)
 
@@ -200,6 +194,8 @@ After EACH individual docking call, verify:
 | Output file | `docking_file` exists and is non-empty | If missing → docking crashed, retry with larger box |
 
 ### Progressive Box Enlargement on Failure (L3 Principle 18)
+
+This does not apply to file-format, conversion, or PDBQT parsing errors. For `invalid_receptor_format`, supply the original/prepared PDB. A server conversion failure must be recorded as a tool failure, not a molecular score; do not repeat it with a larger box.
 
 If any docking returns an error, a positive score, or no valid pose:
 
@@ -327,7 +323,8 @@ If the first round of screening yields no satisfactory candidates (e.g., all doc
 
 | Failure | Likely cause | Recovery |
 |---------|-------------|----------|
-| All docking scores positive | Wrong pocket; receptor PDBQT corrupt; box too small | Re-detect pocket; re-convert receptor; **try progressive box enlargement 25→30→40→47.625 Å** |
+| Completed docking scores positive | Wrong pocket or unsuitable box | Inspect pocket and consider box enlargement within 25–47.625 Å |
+| Input format or converted PDBQT validation fails | PDBQT passed as PDB, or server conversion problem | Use original/prepared PDB; inspect diagnostics. Do not enlarge the box or treat the error as a score |
 | `convert_smiles_to_format` fails for many molecules | Complex stereochemistry or charged species | Try alternative representation; generate 3D with RDKit first |
 | EquiScore and Vina rankings completely disagree | Different binding modes scored; possible incorrect pose | Re-dock top EquiScore hits; inspect poses visually via interaction-visualizer 2D diagram |
 | Multiple molecules return identical scores (e.g., all 0.0) | Systematic setup error | Check receptor format, box definition, and ligand preparation |
@@ -336,7 +333,7 @@ If the first round of screening yields no satisfactory candidates (e.g., all doc
 ## Quality Gates (Active Checkpoints)
 
 **CHECKPOINT after Phase 2 (molecule preparation):**
-- [ ] All molecule counts are file-verified (input → valid → filtered → converted)
+- [ ] All molecule counts are file-verified (input → valid → filtered → docking attempted)
 - [ ] Screening funnel started with verified numbers
 
 **CHECKPOINT after Phase 3 (pocket detection):**

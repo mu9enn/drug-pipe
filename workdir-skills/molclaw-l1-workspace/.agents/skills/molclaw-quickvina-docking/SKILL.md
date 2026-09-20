@@ -48,7 +48,7 @@ fixed_pdb_path = result["output_file"]
 
 step 4. Use skill **molclaw-fpocket** or **molclaw-p2rank** to detect binding sites on the protein structure and return pocket information of the best one. If the pocket center and box size are already known (e.g., from a co-crystal ligand), skip this step and use the known values directly.
 
-step 5. Use tool *molecule_docking_quickvina_fullprocess* to perform molecular docking. This is a **full-process tool** — it accepts a PDB file and SMILES string directly and handles all format conversions (PDB→PDBQT, SMILES→PDBQT) internally. **Do NOT manually convert to PDBQT before calling this tool.**
+step 5. Use tool *molecule_docking_quickvina_fullprocess* to perform molecular docking. This is a **full-process tool** — it accepts a PDB file and SMILES string directly and handles all format conversions (PDB→PDBQT, SMILES→PDBQT) internally. **Do NOT manually convert to PDBQT before calling this tool.** Pass `fixed_pdb_path` as `pdb_file_path` and the original SMILES as `smiles`. A renamed PDBQT is not a PDB and is rejected. The generated receptor and ligand PDBQT are validated by the server before docking.
 
 Tool description:
 
@@ -104,7 +104,7 @@ QuickVina outputs a predicted binding affinity in units of kcal/mol. Similar to 
 
 In practice, rather than relying on a fixed threshold, it is more common to rank all compounds for a specific target by their scores and select the **top n** for further validation.
 
-**Score Validation:** After each docking call, verify that the score is negative (kcal/mol). A positive `docking_affinity_value` indicates docking failure — do not accept it. If docking fails, try progressive box enlargement within the supported range (25→30→40→47.625 Å per dimension) before switching to alternative methods.
+**Score Validation:** After each docking call, verify that the score is negative (kcal/mol). A positive `docking_affinity_value` indicates docking failure — do not accept it. Only consider progressive box enlargement (25→30→40→47.625 Å per dimension) for a completed docking with an unsuitable box. For `invalid_receptor_format`, use the original/prepared PDB. For conversion/PDBQT syntax errors, inspect the diagnostics; do not enlarge the box or repeat the same malformed input. A conversion error is not a docking score.
 
 **Note**: This skill workflow consists of five steps, some of which depend on other skills. Please refer carefully to the Markdown documentation of the dependent skills to ensure correct usage.
 

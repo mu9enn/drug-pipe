@@ -12,7 +12,7 @@ const {Server}=await load('server/index.js');
 const {StdioServerTransport}=await load('server/stdio.js');
 const {StreamableHTTPClientTransport}=await load('client/streamableHttp.js');
 const schemas=await load('types.js');
-const interval=Number(process.env.MOLCLAW_POLL_INTERVAL_SECONDS??300);
+const interval=Number(process.env.MOLCLAW_POLL_INTERVAL_SECONDS??60);
 if(!(interval>0&&interval<=300))throw new Error('Invalid polling interval');
 await import(pathToFileURL(process.env.DRUG_PROJECT+'/slime-wd/molclaw-mcp-relay/install_mcp_headers_timeout.mjs'));
 const env=process.env;
@@ -26,7 +26,7 @@ const url=env.MOLCLAW_SCP_SERVER_URL||env.MOLCLAW_SCP_MCP_URL||'https://scp.inte
 const header=env.MOLCLAW_SCP_AUTH_HEADER||env.MOLCLAW_SCP_MCP_AUTH_HEADER||'SCP-HUB-API-KEY';
 if(!header||/[\r\n:]/.test(header))throw new Error('Invalid SCP auth header');
 const log=createLocalLog({root:env.DRUG_PROJECT,secret:key});
-log.write({event:'adapter_start',version:'shared-entry-20260916',pollSeconds:interval});
+log.write({event:'adapter_start',version:'shared-entry-20260919',pollSeconds:interval});
 let remote;
 for(let attempt=0;;attempt++) {
  remote=new Client({name:'molclaw-polling-adapter',version:'20260916'},{capabilities:{}});
@@ -39,7 +39,8 @@ for(let attempt=0;;attempt++) {
   await delay([1000,3000,9000][attempt]);
  }
 }
-const server=createAdapter({Server,schemas,remote,waitSeconds:interval,onEvent:e=>log.write(e)});
+const recoveryBudgetMs=Number(process.env.MOLCLAW_TRANSPORT_RECOVERY_BUDGET_MS??1800000);
+const server=createAdapter({recoveryBudgetMs,Server,schemas,remote,waitSeconds:interval,onEvent:e=>log.write(e)});
 server.onclose=()=>{void remote.close();};
 await server.connect(new StdioServerTransport());
-log.write({event:'adapter_ready',version:'shared-entry-20260916'});
+log.write({event:'adapter_ready',version:'shared-entry-20260919'});

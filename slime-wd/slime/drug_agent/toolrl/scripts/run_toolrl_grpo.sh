@@ -299,6 +299,15 @@ TOOLRL_ARGS=(
   --global-batch-size "$GLOBAL_BATCH_SIZE"
   --balance-data
 )
+if [ -n "${TRAIN_SEED:-}" ]; then
+  TOOLRL_ARGS+=(--seed "$TRAIN_SEED")
+fi
+if [ -n "${CUSTOM_MEGATRON_BEFORE_TRAIN_STEP_HOOK_PATH:-}" ]; then
+  TOOLRL_ARGS+=(--custom-megatron-before-train-step-hook-path "$CUSTOM_MEGATRON_BEFORE_TRAIN_STEP_HOOK_PATH")
+  if [ "$TOOLRL_RESUME" = "1" ]; then
+    TOOLRL_ARGS+=(--use-checkpoint-opt-param-scheduler)
+  fi
+fi
 if [ -n "$LOAD_FORGE_ROLLOUT_DATA" ]; then
   TOOLRL_ARGS+=(--load-forge-rollout-data "$LOAD_FORGE_ROLLOUT_DATA")
 fi
@@ -321,6 +330,9 @@ if [ "$NORMALIZE_ADVANTAGES" = "1" ]; then
 fi
 if [ "$DISABLE_REWARDS_NORMALIZATION" = "1" ]; then
   TOOLRL_ARGS+=(--disable-rewards-normalization)
+fi
+if [ -n "${CUSTOM_REWARD_POST_PROCESS_PATH:-}" ]; then
+  TOOLRL_ARGS+=(--custom-reward-post-process-path "$CUSTOM_REWARD_POST_PROCESS_PATH")
 fi
 if [ -n "$CUSTOM_ADVANTAGE_FUNCTION_PATH" ]; then
   TOOLRL_ARGS+=(--custom-advantage-function-path "$CUSTOM_ADVANTAGE_FUNCTION_PATH")
