@@ -20,10 +20,14 @@ LLM_CLEAN_SKILL_DIR = (
 )
 LLM_CLEAN_SYSTEM_PROMPT = LLM_CLEAN_SCENE_DIR / "system_prompt.md"
 LLM_CLEAN_USER_PROMPT = LLM_CLEAN_SCENE_DIR / "user_prompt.md"
+REASONING_SHORTEN_SCENE_DIR = WORKDIR_SKILLS_DIR / "drug-trajectory-reasoning-shortening"
+REASONING_SHORTEN_SYSTEM_PROMPT = REASONING_SHORTEN_SCENE_DIR / "system_prompt.md"
+REASONING_SHORTEN_USER_PROMPT = REASONING_SHORTEN_SCENE_DIR / "user_prompt.md"
 SEMANTIC_SCHEMA_VERSION = "drug_agent_semantic_trajectory_v1"
 QWEN35_SFT_SCHEMA_VERSION = "drug_agent_qwen35_sft_v1"
 TOOLRL_SCHEMA_VERSION = "drug_agent_toolrl_decision_v1"
 PATCH_SCHEMA_VERSION = "semantic_reasoning_patch_v1"
+SHORTEN_PATCH_SCHEMA_VERSION = "reasoning_shorten_patch_v1"
 
 
 @lru_cache(maxsize=None)
@@ -57,3 +61,7 @@ def toolrl_schema_findings(value: Any) -> list[str]:
 
 def patch_schema_findings(value: Any) -> list[str]:
     return schema_findings(value, "semantic_reasoning_patch_v1.schema.json")
+
+
+def shorten_patch_schema_findings(value: Any) -> list[str]:
+    return schema_findings(value, "reasoning_shorten_patch_v1.schema.json")

@@ -1,0 +1,1 @@
+Use the shorten-drug-reasoning skill. Read shortening_input.json, then write reasoning_shorten_patch.json matching the referenced schema. Replace every listed decision exactly once. Aim below target_reasoning_tokens with ample margin. Do not edit tool calls, observations, final answers, or any unlisted decision.

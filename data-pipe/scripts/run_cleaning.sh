@@ -16,6 +16,7 @@ RESULTS_ROOT="${RESULTS_ROOT:-$DATA_PIPE_DIR/results}"
 PRECLEAN_ROOT="${PRECLEAN_ROOT:-}"
 WORK_ROOT="${WORK_ROOT:-}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-}"
+REASONING_SHORTEN_ROOT="${REASONING_SHORTEN_ROOT:-}"
 L1_AUGMENTED_ROOT="${L1_AUGMENTED_ROOT:-}"
 L1_SKILLS_ROOT="${L1_SKILLS_ROOT:-$DRUG_PIPE_DIR/workdir-skills/molclaw-l1-workspace/.agents/skills}"
 SYSTEM_PROMPT_FILE="${SYSTEM_PROMPT_FILE:-$DATA_PIPE_DIR/pipeline/cleaning/prompts/qwen35_system.md}"
@@ -36,6 +37,7 @@ Builds the structured data path:
   Claude raw -> uncleaned Qwen-native audit projection
              -> semantic mother dataset + answer recovery
              -> native first-use skill augmentation -> reasoning clean
+             -> one-pass LLM shortening for reasoning over 16384 tokens
              -> Qwen3.5 structured SFT view
 
 Options:
@@ -45,6 +47,7 @@ Options:
   --preclean-root PATH          Uncleaned raw-event native-message audit view
   --work-root PATH
   --output-root PATH
+  --reasoning-shorten-root PATH
   --l1-augmented-root PATH
   --l1-skills-root PATH
   --deployment-tool-set PATH   Exact tools visible to the student at deployment
@@ -71,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --preclean-root) PRECLEAN_ROOT="${2:-}"; shift 2 ;;
     --work-root) WORK_ROOT="${2:-}"; shift 2 ;;
     --output-root) OUTPUT_ROOT="${2:-}"; shift 2 ;;
+    --reasoning-shorten-root) REASONING_SHORTEN_ROOT="${2:-}"; shift 2 ;;
     --l1-augmented-root) L1_AUGMENTED_ROOT="${2:-}"; shift 2 ;;
     --l1-skills-root) L1_SKILLS_ROOT="${2:-}"; shift 2 ;;
     --deployment-tool-set) DEPLOYMENT_TOOL_SET="${2:-}"; shift 2 ;;
@@ -95,6 +99,7 @@ PRECLEAN_ROOT="${PRECLEAN_ROOT:-$RESULTS_ROOT/qwen35_native_raw}"
 WORK_ROOT="${WORK_ROOT:-$RESULTS_ROOT/semantic_work}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$RESULTS_ROOT/cleaned}"
 L1_AUGMENTED_ROOT="${L1_AUGMENTED_ROOT:-$RESULTS_ROOT/l1_augmented}"
+REASONING_SHORTEN_ROOT="${REASONING_SHORTEN_ROOT:-$RESULTS_ROOT/reasoning_shortened}"
 
 if [[ -z "$DEPLOYMENT_TOOL_SET" || ! -f "$DEPLOYMENT_TOOL_SET" ]]; then
   echo "[error] --deployment-tool-set must name the exact deployment-visible tool manifest" >&2
@@ -165,6 +170,22 @@ echo "[cleaning] semantic reasoning clean + pending answer recovery"
   --max-workers "$MAX_WORKERS"
 VIEW_INPUT="$OUTPUT_ROOT/semantic_trajectories.jsonl"
 
+echo "[cleaning] stage 2: one LLM shortening pass for reasoning over 16384 tokens"
+"$PYTHON_BIN" -m pipeline.cleaning.reasoning_shorten \
+  --input "$VIEW_INPUT" \
+  --output-root "$REASONING_SHORTEN_ROOT" \
+  --tokenizer "$TOKENIZER" \
+  --claude-bin "$CLAUDE_BIN" \
+  --harness "$AGENT_HARNESS" \
+  --dsh-bin "$DSH_BIN" \
+  --dsh-node-bin "$DSH_NODE_BIN" \
+  --dsh-model "$DSH_MODEL" \
+  --dsh-provider "$DSH_PROVIDER" \
+  --timeout-sec "$TIMEOUT_SEC" \
+  --limit "$LIMIT" \
+  --max-workers "$MAX_WORKERS"
+VIEW_INPUT="$REASONING_SHORTEN_ROOT/semantic_trajectories.jsonl"
+
 
 echo "[cleaning] publish complete trajectories with actual tokenizer and loss mask"
 "$PYTHON_BIN" -m pipeline.cleaning.publish_dataset \
@@ -173,5 +194,6 @@ echo "[cleaning] publish complete trajectories with actual tokenizer and loss ma
   --system-prompt-file "$SYSTEM_PROMPT_FILE" \
   --user-prompt-prefix-file "$USER_PROMPT_PREFIX_FILE" \
   --audit "$WORK_ROOT/python_audit.jsonl" \
-  --audit "$OUTPUT_ROOT/llm_clean_audit.jsonl"
+  --audit "$OUTPUT_ROOT/llm_clean_audit.jsonl" \
+  --audit "$REASONING_SHORTEN_ROOT/reasoning_shorten_audit.jsonl"
 echo "[done] release: $RELEASE_ROOT/release_manifest.json"
