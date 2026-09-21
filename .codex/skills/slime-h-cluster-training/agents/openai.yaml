@@ -1,4 +1,4 @@
 interface:
   display_name: "Slime H-Cluster Training"
-  short_description: "Plan, launch, and diagnose Slime training on H-cluster GPUs"
-  default_prompt: "Use $slime-h-cluster-training to plan and safely validate this Slime SFT, ToolRL, or GAD run on a 4-GPU or 8-GPU H-cluster worker."
+  short_description: "Configure, gate, and diagnose Slime training runs on H-cluster H200s"
+  default_prompt: "Use $slime-h-cluster-training to design, gate, or diagnose this Slime SFT, ToolRL, or GAD training run. If the question is really about the rjob command itself, its pool/quota group, or the allocation lifetime, use $h-rjob-submit instead."

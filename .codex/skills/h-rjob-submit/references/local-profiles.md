@@ -2,12 +2,14 @@
 
 Use these as the current local defaults for Sun Xiangyu's drug-pipe jobs. Reconfirm with the user or current project configuration when a request supplies different values; these are not universal H-cluster settings.
 
+**Namespace and charged group are no longer fixed.** Two GPU pools are selectable and the choice depends on the job's GPU count. Resolve them from [resource-pools.md](resource-pools.md) before using the table below; the namespace/charged-group rows here list the L2 pool only.
+
 ## Shared fields
 
 | Field | Current default |
 |---|---|
-| Namespace | `ailab-ma4agismall` |
-| Charged group | `ma4agismall_gpu` |
+| Namespace | pool-dependent — L2 `ailab-ma4agismall`, L1 `ailab-agenttool` (see [resource-pools.md](resource-pools.md)) |
+| Charged group | pool-dependent — L2 `ma4agismall_gpu`, L1 `agenttool_pool` (see [resource-pools.md](resource-pools.md)) |
 | Private machine | `group` |
 | Priority | `9` |
 | Image | `registry.h.pjlab.org.cn/ailab-ma4agismall-ma4agismall_gpu/slime-sxy:slime0529` |
@@ -29,6 +31,16 @@ These values are per replica. Both profiles use `-P 1`.
 | Full 8-GPU worker | 8 | 108 | 1400000 |
 
 Do not infer GPU count from an old job-name fragment. In particular, a historical name containing `4g64c` was paired with `--gpu=2`; name the new job from the resolved resources instead.
+
+### Which pool the profile goes to
+
+Both pools are 8×H200 nodes, so the per-replica `--gpu`/`--cpu`/`--memory` numbers above stay valid; only `--namespace` and `--charged-group` change with the pool. Apply the selection rule before choosing:
+
+- `< 8` GPUs per job → L1 (`ailab-agenttool` / `agenttool_pool`) first.
+- `= 8` GPUs per job → L2 (`ailab-ma4agismall` / `ma4agismall_gpu`) first, falling back to L1.
+- `> 8` GPUs per job → L1 only.
+
+The `Small/debug workload` row (2 GPUs) is the pool-L1-preferred case. The `Full 8-GPU worker` row is the pool-L2-preferred case. Full detail and the pre-submit occupancy checks are in [resource-pools.md](resource-pools.md).
 
 ## Multi-node additions
 

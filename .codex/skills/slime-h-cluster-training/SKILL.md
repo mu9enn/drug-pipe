@@ -1,21 +1,27 @@
 ---
 name: slime-h-cluster-training
-description: Plan, convert, launch, monitor, and diagnose Slime/Megatron/SGLang training on PJLab H-cluster 4-GPU or 8-GPU workers, especially Qwen3.5/3.6 9B, 27B, 35B-A3B, and 122B-A10B-FP8 SFT, ToolRL, GAD, full-parameter, and LoRA runs. Use for worker preflight, HF-to-torch_dist conversion, parallelism and memory sizing, long-context batching, FP8/LoRA decisions, serial SFT-to-RL workflows, Ray/tmux health checks, OOM/NCCL/numerical/reward diagnosis, and recovery of these drug-agent experiments.
+description: "Design, gate, and diagnose Slime/Megatron/SGLang training runs for the drug-pipe project on PJLab H-cluster H200 workers. Covers parallelism topology (TP/PP/CP/EP/DP), HBM and host-memory sizing, long-context batching, HF-to-torch_dist conversion, SFT/ToolRL/GAD/LoRA method selection, FP8 interpretation, and root-causing training failures (OOM, NCCL, numerical, reward, checkpoint lifecycle) for Qwen3.5/3.6 9B, 27B, 35B-A3B and 122B-A10B-FP8. Use only when the task is about how a training run is configured, validated, or fixed. Do NOT use for composing, validating, or submitting the `rjob`/`rlaunch` command and choosing its resource pool or quota group (use `h-rjob-submit`); producing, cleaning, or auditing trajectory/rollout data (use `manage-drug-pipe-trajectories`); appending a fallback workload to keep a worker busy (use `h-long-sft`); pure evaluation, metric reporting, or dataset statistics with no training-configuration decision; or generic SSH/account/filesystem questions that do not change a training configuration."
 ---
 
 # Slime H-Cluster Training
 
 Apply the measured project workflow instead of treating model size, active MoE parameters, or a single successful forward as proof that a run is viable.
 
-## Establish the source of truth
+## Scope and hand-offs
 
-**Every normal H-cluster `rjob submit` must explicitly pass `--priority=9`, including
-probes, retries and custom submitters.** Omission uses CLI default 5 and fails
-preflight. Inspect the final executed arguments. After submission, require the
-exact job's `metadata.annotations["volcano.brainpp.cn/priority"] == "9"`, and save
-the observed priority with its UID before reporting success. Only an explicit
-user instruction overrides 9. Read the repository's `h-rjob-submit` skill for
-submission checks; do not silently accept another priority or switch to idle mode.
+This skill owns **training configuration and training failure diagnosis** only. When a request lands outside it, hand off instead of stretching this skill:
+
+| If the request is about… | Use |
+|---|---|
+| Composing/validating/submitting an `rjob` or `rlaunch` command, per-replica resources, namespace, **which L1/L2 pool and quota group to occupy**, priority 9, queued-job scheduling diagnosis | `h-rjob-submit` |
+| GPU allocation lifetime, foreground entrypoints, "never hold GPUs with `sleep`" | `h-rjob-submit` (authoritative), summarised in §5a below |
+| Generating, resuming, monitoring, or auditing Drug-Pipe trajectory data | `manage-drug-pipe-trajectories` |
+| Keeping an allocated worker productively busy after the primary command ends | `h-long-sft` |
+| Sizing a run that has no GPU allocation yet | decide the pool first via `h-rjob-submit`, then return here |
+
+A request that merely mentions the cluster, GPUs, or "drug-pipe" is **not** a trigger. Trigger on a configuration, sizing, compute-scheduling, or training-failure decision.
+
+## Establish the source of truth
 
 1. Locate the active repository. Prefer `/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime` on the login host and `/root/slime_sxy/group-space/sunxiangyu/drug-pipe/slime-wd/slime` inside workers.
 2. Treat current launchers, tests, `resolved_config.env`, live logs, and checkpoint markers as newer than dated reports. The working tree contains critical uncommitted Qwen3.5/FP8/LoRA patches; never assume a clean upstream checkout is equivalent.
@@ -57,7 +63,6 @@ When framework, model, or CUDA/SGLang/Megatron versions differ, browse current p
 
 ### 4. Promote through gates
 
-
 Do not launch a full epoch merely because weights load or one short batch fits. Separate steady-state compute, train↔rollout transition, adapter/full-weight synchronization, and checkpoint serialization gates.
 
 Treat every checkpoint produced by a smoke test, gate, probe, dry run, or other
@@ -74,6 +79,15 @@ deleting anything.
 - Save the resolved configuration, source model/checkpoint paths, dataset paths/counts, exact command, code revision/diff status, Ray job ID, and stage markers.
 - Make SFT, ToolRL, and GAD resumable but keep their policy branches correct: ToolRL and GAD both start from SFT; GAD does not continue from ToolRL.
 - Start production only after the matching gate has validated nonzero learning signal, weight synchronization, and memory headroom.
+
+### 5a. Bind GPU allocation lifetime to the workload
+
+The allocation is submitted by `h-rjob-submit`; the training design must not defeat it. Two rules are non-negotiable and are stated in full in `h-rjob-submit/references/resource-pools.md`:
+
+- **Never hold GPUs with an idle command.** `sleep`, `tail -f`, an interactive shell, an infinite no-op loop, or a detached `tmux` is not a valid entrypoint. The allocation must be owned by the real bounded driver and released when that driver exits.
+- **A finished or failed workload must release its allocation.** Do not keep a worker warm "for possible future work", and do not queue the next experiment by idling the current one — use `h-long-sft` inside the same allocation, or release it and submit fresh.
+
+Before designing a run, resolve which pool and quota group it will occupy and how many GPUs it asks for (see `h-rjob-submit/references/resource-pools.md`). A run whose topology needs more GPUs than the chosen pool can provide must be re-scoped rather than silently submitted to the wrong pool.
 
 ### 6. Diagnose before fixing
 
@@ -92,7 +106,7 @@ From the login host, stream it to a worker without installing files there:
 
 ```bash
 ssh -CAXY WORKER 'bash -s -- /root/path/to/RUN_ROOT RAY_JOB_ID' \
-  < /home/sunxiangyu/slime_sxy/.codex/skills/slime-h-cluster-training/scripts/health_snapshot.sh
+  < /home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug-pipe/.codex/skills/slime-h-cluster-training/scripts/health_snapshot.sh
 ```
 
 Stop only monitoring processes when monitoring is no longer requested; leave training, Ray, and stage services running.

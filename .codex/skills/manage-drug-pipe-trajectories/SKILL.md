@@ -1,11 +1,20 @@
 ---
 name: manage-drug-pipe-trajectories
-description: "Operate the local Drug-Pipe trajectory-production system end to end: inspect environment and live state, sample Tool-KG questions, convert task schemas, run or safely resume Data-Pipe raw rollouts, run Python and LLM cleaning, size and enforce Claude/Data-Pipe concurrency, preserve the manually selected cc-switch provider, diagnose stuck or duplicate processes, and strictly audit raw scientific-tool execution and final training JSONL quality. Use for worker preflight, status checks, production starts, resumptions, monitoring, concurrency or rate-limit planning, timeout/provider failures, duplicate attempts, session checksum issues, MolClaw failure audits, or handoff documentation in the mounted drug-pipe repository."
+description: "Operate the Drug-Pipe trajectory-production system end to end inside the mounted repository: inspect pipeline state, sample Tool-KG questions, convert task schemas, run or safely resume Data-Pipe raw rollouts, run Python and LLM cleaning, size and enforce Claude/Data-Pipe concurrency, preserve the manually selected cc-switch provider, diagnose stuck or duplicate controller processes, and audit raw scientific-tool execution plus final training-JSONL quality. Use when the task is about generating, resuming, monitoring, or auditing trajectory/rollout data — MolClaw or Tool-KG tasks, raw session directories, clean manifests, provider or rate-limit failures, duplicate attempts, session checksum issues, or pipeline handoff documentation. Do NOT use for GPU allocation or `rjob`/`rlaunch` submission and pool selection (use `h-rjob-submit`); for training-run configuration, parallelism, memory sizing, or training-failure diagnosis (use `slime-h-cluster-training`); or for appending a fallback SFT workload (use `h-long-sft`)."
 ---
 
 # Manage Drug-Pipe Trajectories
 
 Manage this pipeline as a resumable production system, not as a sequence of ad hoc shell commands. Preserve raw evidence, prove state before acting, and distinguish structural cleaning success from scientific task completion.
+
+## Scope
+
+This skill owns **trajectory data**: producing it, resuming it, monitoring it, cleaning it, and auditing its quality. "Preflight" here means *pipeline* preflight — verifying the repository paths, provider state, and running controllers — **not** GPU/worker preflight, which belongs to `h-rjob-submit`.
+
+- Trigger on data-production and data-quality work: rollouts, cleaning, concurrency/rate limits, provider state, stuck or duplicate controllers, raw-session audits, training-JSONL acceptance.
+- Do **not** trigger for training configuration or training failures on a produced dataset, for GPU allocation, or for cluster/account questions.
+- This skill may run inside an allocated worker, but it never submits, sizes, or holds a GPU allocation. When a pipeline run needs GPUs, resolve the allocation through `h-rjob-submit` first.
+- Concurrency limits here govern **Claude/Data-Pipe processes**, not GPUs. Do not conflate the two.
 
 ## Bootstrap every new context
 

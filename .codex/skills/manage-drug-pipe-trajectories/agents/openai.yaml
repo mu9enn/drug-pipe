@@ -1,4 +1,4 @@
 interface:
   display_name: "Manage Drug-Pipe Trajectories"
-  short_description: "Run, resume, monitor, and audit Drug-Pipe trajectories"
-  default_prompt: "Use $manage-drug-pipe-trajectories to inspect the current pipeline, resume safe work, monitor it, and strictly audit raw and cleaned trajectories."
+  short_description: "Produce, resume, monitor, and audit Drug-Pipe trajectory data"
+  default_prompt: "Use $manage-drug-pipe-trajectories to inspect the trajectory pipeline, resume safe work, monitor it, and strictly audit raw and cleaned trajectories. GPU allocation and training questions belong to $h-rjob-submit and $slime-h-cluster-training."
