@@ -166,6 +166,7 @@ slime-wd/molbench/*
 *.private.yaml
 
 # Understand-Anything review outputs are versioned; analysis scratch stays local.
-/.ua/intermediate/
+/.ua/intermediate/*
+!/.ua/intermediate/scan-result.json
 /.ua/tmp/
 /.ua/.trash-*/
