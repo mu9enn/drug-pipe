@@ -1,6 +1,8 @@
 import copy
 import json
+import pytest
 from pipeline.cleaning.answer_recovery import recover_answer, strip_review_text, answer_key_findings
+from pipeline.cleaning.answer_recovery import apply_answer_patch
 from pipeline.cleaning.llm_clean import clean_semantic
 from pipeline.output_contracts import normalize_task_prompt
 
@@ -62,3 +64,41 @@ def test_llm_failure_retains_valid_trajectory():
     out=clean_semantic(source, lambda *_:(None,{'findings':['network_failure']}), require_high_level_plan=True)
     assert out['record']==source
     assert out['audit']['status']=='retained_with_warning'
+
+
+@pytest.mark.parametrize('task', ['kg', 'e2e'])
+def test_scientific_answer_is_not_rebuilt_from_a_skill_example(task):
+    source = row(task, 'Report the measured binding result.', 'The calculation is incomplete.')
+    source['events'][1]['content'] = 'Skill example fields: ["center_x", "key_files"]'
+    before = copy.deepcopy(source)
+    recovered, audit = recover_answer(source)
+    assert audit['status'] == 'pending'
+    assert recovered == before
+    assert source == before
+    with pytest.raises(ValueError, match='manual review'):
+        apply_answer_patch(source, {
+            'evidence_locations': ['c1'],
+            'answer': {'result': ['center_x'], 'evidence': []},
+        })
+
+
+@pytest.mark.parametrize('task', ['kg', 'e2e'])
+def test_existing_complete_scientific_answer_is_extracted_losslessly(task):
+    answer = {'result': {'target': 'c-Met', 'docking_score': -10.2}, 'evidence': []}
+    source = row(task, 'Report the measured binding result.',
+                 'Result follows:\n```json\n' + json.dumps(answer) + '\n```')
+    before = copy.deepcopy(source)
+    recovered, audit = recover_answer(source)
+    assert audit['status'] == 'recovered'
+    assert json.loads(recovered['events'][-1]['final_answer']) == answer
+    assert recovered['events'][:-1] == source['events'][:-1]
+    assert source == before
+
+
+@pytest.mark.parametrize('task', ['kg', 'e2e'])
+def test_competing_scientific_answers_remain_unresolved(task):
+    source = row(task, 'Report the measured binding result.',
+                 '{"result": "A", "evidence": []}\n{"result": "B", "evidence": []}')
+    recovered, audit = recover_answer(source)
+    assert audit['status'] == 'pending'
+    assert recovered == source

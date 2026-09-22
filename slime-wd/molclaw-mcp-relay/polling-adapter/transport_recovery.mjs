@@ -7,7 +7,8 @@ export function transientFetch(error) {
   if(allowed.has(e.code))return true;
   if(/Proxy response \((502|503|504)\) !== 200 when HTTP Tunneling/.test(e.message))return true;
  }
- return !error.cause;
+ // An absent cause is unknown, not evidence of a transient transport failure.
+ return false;
 }
 export function forwardedTransportEof(error) {
  // Match the SCP forwarding error, not arbitrary application/internal EOFs.

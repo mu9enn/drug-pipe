@@ -117,6 +117,25 @@ def recover_answer(row):
         return out, {**audit, 'status': 'unchanged'}
     except ValueError:
         pass
+    if task in {'kg', 'e2e'}:
+        text = final['final_answer']
+        complete = []
+        for match in re.finditer(r'\{', text):
+            try:
+                value, _ = json.JSONDecoder().raw_decode(text[match.start():])
+                if not isinstance(value, dict) or set(value) != {'result', 'evidence'}:
+                    continue
+                answer = normalize_final_answer(json.dumps(value, ensure_ascii=False), task, constraints=constraints)
+                if answer not in complete: complete.append(answer)
+            except (ValueError, TypeError):
+                continue
+        if len(complete) == 1:
+            final['final_answer'] = complete[0]
+            audit.update(status='recovered', level='existing_final_json_envelope',
+                         evidence_locations=[final['source_message_id']])
+            return out, audit
+        # Never turn documentation/example arrays into scientific deliverables.
+        return out, audit
     key = ANSWER_KEYS[task]; candidates = constraints.candidates
     proposals = []
     for location, surface in evidence_surfaces(out):
@@ -181,6 +200,8 @@ def apply_answer_patch(row, patch):
     if not refs or any(ref not in valid_refs for ref in refs):
         raise ValueError('answer recovery must cite existing trajectory evidence')
     out = copy.deepcopy(row); task=out['metadata']['task_type']
+    if task in {'kg', 'e2e'}:
+        raise ValueError('KG/E2E answer reconstruction requires manual review; only lossless final JSON extraction is automatic')
     final=final_event(out)
     try:
         normalize_final_answer(final['final_answer'], task, constraints=task_constraints(out['user_task'], task))

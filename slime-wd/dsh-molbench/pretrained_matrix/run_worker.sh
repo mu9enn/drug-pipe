@@ -50,11 +50,15 @@ cleanup() {
   fi
   for process_pid in "${dsh_pid:-}" "${sglang_pid:-}"; do
     if [[ -n "$process_pid" ]] && kill -0 "$process_pid" 2>/dev/null; then
-      kill "$process_pid" 2>/dev/null || true
-      wait "$process_pid" 2>/dev/null || true
+      if /usr/bin/python3 "$matrix_root/stop_process_tree.py" "$process_pid" --grace 10 >> "$infra_dir/cleanup.jsonl" 2>&1; then
+        wait "$process_pid" 2>/dev/null || true
+      else
+        log "cleanup_failed pid=$process_pid"
+        rc=1
+      fi
     fi
   done
-  chmod -R a+rwX "$infra_dir" "$run_dir" 2>/dev/null || true
+  timeout 30 chmod -R a+rwX "$infra_dir" "$run_dir" 2>/dev/null || log permission_cleanup_deadline
   if [[ "$EVAL_RECOVERY" == 1 && "$rc" == 67 ]]; then
     touch "$infra_dir/worker_restart_required"
   fi
@@ -62,7 +66,9 @@ cleanup() {
   log "worker_exit=$rc"
   exit "$rc"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 wait_http() {
   local url=$1 process_pid=$2 attempts=$3 label=$4 attempt

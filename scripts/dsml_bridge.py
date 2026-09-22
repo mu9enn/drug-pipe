@@ -16,6 +16,7 @@ from pathlib import Path
 
 import httpx
 from jsonschema import validate
+from jsonschema.exceptions import ValidationError
 
 
 MARKER = r"[|｜]DSML[|｜]"
@@ -104,6 +105,8 @@ def convert_request(body, model):
 def convert_response(data, tools, client_model):
     choice = data['choices'][0]
     message = choice['message']
+    if choice.get('finish_reason') == 'length' and message.get('tool_calls'):
+        raise ValueError('truncated native tool generation')
     schemas = {t['name']: t['input_schema'] for t in tools}
     text = message.get('content') or ''
     rescued = []
@@ -152,6 +155,34 @@ def events(message):
     yield {'type': 'message_stop'}
 
 
+
+def safe_error(exc):
+    """Stable diagnostics without request bodies, schema values, URLs or secrets."""
+    if isinstance(exc, ValidationError):
+        return 'tool_schema_validation'
+    if isinstance(exc, json.JSONDecodeError):
+        return 'invalid_json'
+    if type(exc) is ValueError:
+        codes = {
+            'DSML in code fence is ambiguous': 'ambiguous_dsml_code_fence',
+            'DSML requested an unavailable tool': 'dsml_unavailable_tool',
+            'duplicate DSML parameter': 'duplicate_dsml_parameter',
+            'unparsed DSML parameters': 'unparsed_dsml_parameters',
+            'incomplete or unsupported DSML': 'incomplete_or_unsupported_dsml',
+            'non-text content requires an explicit modality adapter': 'unsupported_modality',
+            'ambiguous mixed native and DSML calls': 'mixed_native_dsml',
+            'truncated DSML generation': 'truncated_dsml',
+            'truncated native tool generation': 'truncated_native_tool',
+            'native call requested unavailable tool': 'native_unavailable_tool',
+        }
+        if str(exc).startswith('unsupported input block:'):
+            return 'unsupported_input_block'
+        return codes.get(str(exc), 'invalid_value')
+    if type(exc) is RuntimeError and re.fullmatch(r'upstream HTTP [1-5][0-9]{2}', str(exc)):
+        return str(exc).replace(' ', '_')
+    return type(exc).__name__
+
+
 def provider_config(provider):
     with sqlite3.connect('file:'+str(Path.home()/'.cc-switch/cc-switch.db')+'?mode=ro', uri=True) as conn:
         row = conn.execute('select settings_config from providers where id=? and app_type=?', (provider, 'claude')).fetchone()
@@ -174,6 +205,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         streaming = False
+        request_id = uuid.uuid4().hex
+        started = time.monotonic()
+        phase = 'request_conversion'
         try:
             body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             if self.path.split('?')[0] != '/v1/messages':
@@ -181,11 +215,14 @@ class Handler(BaseHTTPRequestHandler):
             request = convert_request(body, self.server.config['ANTHROPIC_MODEL'])
             config = self.server.config
             def upstream():
+                nonlocal phase
+                phase = 'upstream_request'
                 key = config.get('ANTHROPIC_API_KEY') or config['ANTHROPIC_AUTH_TOKEN']
                 with httpx.Client(timeout=1800, trust_env=False) as client:
                     response = client.post(config['ANTHROPIC_BASE_URL'].rstrip('/')+'/v1/chat/completions', json=request, headers={'Authorization': 'Bearer '+key})
                     if response.status_code != 200:
                         raise RuntimeError('upstream HTTP '+str(response.status_code))
+                    phase = 'response_conversion'
                     return convert_response(response.json(), body.get('tools', []), body['model'])
             future = self.server.pool.submit(upstream)
             if body.get('stream'):
@@ -198,16 +235,20 @@ class Handler(BaseHTTPRequestHandler):
                 for event in events(message): self.sse(event)
             else:
                 message, rescued = future.result(); self.send_json(200, message)
-            print(json.dumps({'time': time.time(), 'status': 'ok', 'rescued': rescued, 'tools': [b['name'] for b in message['content'] if b['type'] == 'tool_use']}), flush=True)
+            print(json.dumps({'request_id': request_id, 'elapsed_seconds': time.monotonic()-started, 'time': time.time(), 'status': 'ok', 'rescued': rescued, 'tools': [b['name'] for b in message['content'] if b['type'] == 'tool_use']}), flush=True)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:
             # No upstream body, prompt, credential, or parameter values in logs/errors.
-            error = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
-            print(json.dumps({'time': time.time(), 'status': 'error', 'error': error}), flush=True)
-            event = {'type': 'error', 'error': {'type': 'api_error', 'message': 'DSML bridge: '+error}}
+            error = safe_error(exc)
+            deterministic = isinstance(exc, (ValueError, ValidationError, KeyError, TypeError)) and phase != 'upstream_request'
+            status = (400 if phase == 'request_conversion' else 422) if deterministic else 502
+            if type(exc) is RuntimeError and re.fullmatch(r'upstream HTTP [1-5][0-9]{2}', str(exc)):
+                status = int(str(exc).rsplit(' ', 1)[1])
+            print(json.dumps({'request_id': request_id, 'elapsed_seconds': time.monotonic()-started, 'phase': phase, 'streaming': streaming, 'http_status': status, 'time': time.time(), 'status': 'error', 'error': error}), flush=True)
+            event = {'type': 'error', 'error': {'type': 'invalid_request_error' if deterministic else 'api_error', 'message': 'DSML bridge: '+error}}
             if streaming: self.sse(event)
-            else: self.send_json(502, event)
+            else: self.send_json(status, event)
 
 
 if __name__ == '__main__':

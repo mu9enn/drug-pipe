@@ -7,7 +7,7 @@ def build_config(project_root: Path, name='molclaw-scp', timeout=14400000):
     if not launcher.is_file():raise FileNotFoundError(launcher)
     if timeout<1000:raise ValueError('tool timeout must be >= 1000 ms')
     return {'mcpServers':{name:{'type':'stdio','command':'bash','args':[str(launcher)],'timeout':timeout,
-        'env':{'DRUG_PROJECT':str(project_root),'MOLCLAW_POLL_INTERVAL_SECONDS':'300'}}}}
+        'env':{'DRUG_PROJECT':str(project_root),'MOLCLAW_POLL_INTERVAL_SECONDS':'60'}}}}
 
 def temporary_config(project_root: Path) -> Path:
     """Default direct runner calls to the shared adapter, not ambient MCP config."""

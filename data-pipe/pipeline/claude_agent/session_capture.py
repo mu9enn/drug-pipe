@@ -17,6 +17,12 @@ import uuid
 CLAUDE_CODE_EXECUTION_ENV = {
     "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY": "2",
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    # Claude 2.1.220 otherwise starts generation while scientific MCP is pending.
+    "MCP_CONNECTION_NONBLOCKING": "0",
+    "MCP_CONNECT_TIMEOUT_MS": "90000",
+    "MCP_TIMEOUT": "90000",
+    # Advertise concrete scientific schemas; the bridge has no tool-reference adapter.
+    "ENABLE_TOOL_SEARCH": "false",
 }
 
 HTTP_500_RE = re.compile(r"\b(?:code|status(?:_code)?)\b.{0,24}\b500\b", re.I | re.S)

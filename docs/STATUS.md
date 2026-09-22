@@ -4,18 +4,18 @@
 字段为 `TODO` 表示**未知**——问用户，不要从其他文档推断（`MAINLINE.md` 与 `EXPERIMENT_ALIGNMENT.md`
 就曾互相矛盾，静默择一是错的）。标 `(推断)` 的值来自可查证证据但未经所有者确认；与用户说法冲突时以用户为准。
 
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 ## 当前状态
 
 | 字段 | 值 | 依据 |
 |---|---|---|
-| rjob / GPU 任务是否被授权 | 是，未暂停 `(推断)` | manifest `authorization` 字段；09-19/20 有 `Succeeded` rjob |
-| 当前发布版本 | `drug_pipe_regular_v1_20260908`：596 行训练 / 87 题评测 / 112 题保留 / 88 tools `(推断)` | `experiments/experiment_manifest_0909a.json` |
-| 发布根路径 | `/mnt/shared-storage-user/sdpdev-fs/sunxiangyu/drug_wd/` | 同上 |
+| rjob / GPU 任务是否被授权 | 是；本次 2 卡在线测评已明确授权 | 2026-09-22 用户指令 |
+| 当前发布版本 | `v9-release-merged`：561 条训练，最终 561 步；本次评测 175 题 | 用户粘贴训练记录及 eval_five_0922a/manifest.json |
+| 发布根路径 | `/home/sunxiangyu/slime_sxy/group-space/sunxiangyu/drug_wd/v9-release-merged/` | 本次实物检查 |
 | 激活的模型规模 | 仅 Qwen3.5-9B；更大模型矩阵暂停 `(推断)` | manifest `authorization`；job 名与评测分数键均为 9B |
-| skill 环境 | 并行双臂 `l1-flat`(52) 与 `legacy-hierarchy`(68) | manifest `skills` 字段 |
-| 当前活跃 run | `v9pre` 9B 系列（SFT + MS-1/2/3 评测） | `reports/`、rjob 列表 |
+| skill 环境 | 本次 v9 在线测评使用 `l1-flat`（52） | eval_five_0922a/manifest.json |
+| 当前活跃 run | 本次 v9 测评已结束；175 条全部有终态（168 completed，7 failed），基础设施失败 0；原 RJob `av4-v9merged-l1-0922v9-gpu3` Succeeded，资源释放；两道续跑，原 173 条记录保持不变 | eval_five_0922a/runtime_repair_0922/final_verification.json |
 
 ## 待处理的文档不一致
 
