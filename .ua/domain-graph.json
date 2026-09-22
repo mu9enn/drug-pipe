@@ -1,0 +1,1349 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "Drug-Pipe",
+    "languages": [
+      "javascript",
+      "markdown",
+      "python",
+      "shell",
+      "unknown"
+    ],
+    "frameworks": [
+      "Slime"
+    ],
+    "description": "从科学工具理解与有来源出题，经真实教师证据、受限教学派生和Qwen原生SFT，到真实工具评测及有限恢复的流程意图图。明确结构验收与科学完成、通用代码与运行目录部署的边界；旧ToolRL/GAD仅作隔离支线说明。",
+    "analyzedAt": "2026-09-22T16:34:42.743088+00:00",
+    "gitCommitHash": "5059e50b4ba34e403bba29f3e07a79c355753d57"
+  },
+  "nodes": [
+    {
+      "id": "domain:scientific-task-design",
+      "type": "domain",
+      "name": "科学工具理解与出题",
+      "summary": "把真实工具接口和有出处的科学材料转成可执行问题。候选调度、关系裁决与问题生成各有自己的事实来源，图上有效或题目生成成功都不等于科学联调完成。",
+      "tags": [
+        "科学工具理解与出题",
+        "意图审阅"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "工具卡",
+          "方向性工具关系",
+          "Science-KB种子",
+          "公开题面",
+          "隐藏工具链"
+        ],
+        "businessRules": [
+          "MCP schema决定参数事实，Agent只补有依据的语义，不能制造slot。",
+          "taxonomy只调度候选，不直接决定科学边；valid边仍需真实任务验证。",
+          "隐藏工具链是出题蓝图，不要求求解Agent照抄。泄露提示目前是soft warning，重复上限有回退行为。"
+        ],
+        "crossDomainInteractions": [
+          "向采集域交付公开题面、初始输入和内部来源材料。",
+          "为证据修订提供问题契约及工具语义参考。"
+        ]
+      }
+    },
+    {
+      "id": "domain:teacher-evidence-capture",
+      "type": "domain",
+      "name": "教师执行与证据留存",
+      "summary": "用真实工具求解公开问题，保存每次尝试、原始会话和产物的可核对来源。目录隔离、MCP就绪检查和文件完整性用于明确过程边界，不能替代科学任务验收。",
+      "tags": [
+        "教师执行与证据留存",
+        "意图审阅"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "公开任务",
+          "执行工作区",
+          "原始会话",
+          "attempt",
+          "selected manifest",
+          "工具准入claim"
+        ],
+        "businessRules": [
+          "公开执行目录与含答案sidecar分开；目录隔离不是OS权限沙箱。",
+          "选中raw按字节复制并核hash，不覆盖失败attempt。",
+          "工具claim只在单controller内协调预计工具链，不等于跨机全局锁。",
+          "文件齐全、会话退出或有结果内容不证明全部科学交付完成。"
+        ],
+        "crossDomainInteractions": [
+          "消费出题域的公开任务；向证据修订域提供raw、观察和来源绑定。",
+          "与在线评测共用科学工具服务，但采集与正式评测的题集及目的分开。"
+        ]
+      }
+    },
+    {
+      "id": "domain:evidence-preserving-curation",
+      "type": "domain",
+      "name": "证据修订与教学派生",
+      "summary": "将原始会话还原为模型无关的决策与观察，再进行受限的答案和reasoning修订。每项派生保留来源，既不把教师运行噪声教给学生，也不把格式恢复说成科学证据被补齐。",
+      "tags": [
+        "证据修订与教学派生",
+        "意图审阅"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "semantic母数据",
+          "调用ID",
+          "观察证据",
+          "reasoning patch",
+          "答案恢复",
+          "skill派生步骤"
+        ],
+        "businessRules": [
+          "同一真实response中的并行调用保持一个decision，观察必须按调用ID对应。",
+          "补入的skill教学步骤是派生事件，不是teacher当时实际执行的动作。",
+          "Stage1无效patch可回退并warning保留合规终答；Stage2失败进入pending，处理一次不保证达到目标长度。",
+          "KG/E2E禁止自动从skill示例重建科学终答；现有通用验收未覆盖所有题目的数量、方法和产物要求。",
+          "物理session路径参与semantic ID；跨目录迁移及改题仍需稳定source lineage辅助分组。"
+        ],
+        "crossDomainInteractions": [
+          "读取采集证据并向原生训练域交付带审计的semantic视图。",
+          "评测诊断可以供人工决定后续修订，不会自动回写raw或canonical母数据。"
+        ]
+      }
+    },
+    {
+      "id": "domain:native-sft-delivery",
+      "type": "domain",
+      "name": "原生SFT发布与训练",
+      "summary": "把审阅后的semantic投影为Qwen原生消息，绑定真实tokenizer、监督mask和完整轨迹长度，再进行离线训练与模型产物验收。数据可训练、数值健康和科学能力提升分别判断。",
+      "tags": [
+        "原生SFT发布与训练",
+        "意图审阅"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "structured messages",
+          "工具schema",
+          "loss mask",
+          "release manifest",
+          "长度probe",
+          "checkpoint",
+          "HF模型"
+        ],
+        "businessRules": [
+          "system、user和tool观察不参与监督；assistant推理、调用和终答参与监督。",
+          "正式长度门禁保留完整轨迹，超长样本留审计并排除训练，不截断或补重复样本。",
+          "发布目录不可覆盖，但失败可能留下部分目录；目录存在不等于release成功。",
+          "正式SFT不执行真实MCP。旧ToolRL/GAD是独立研究支线，不是当前SFT必经阶段。",
+          "完整重载forward针对probe；最终HF的索引与分片检查不能被表述为最终模型已独立科学验证。",
+          "资源池和环境布局须由入口实际支持；提交参数可配置不等于所有旧编排已同步。"
+        ],
+        "crossDomainInteractions": [
+          "消费带来源的semantic并产出绑定release的模型供评测。",
+          "训练中发现的结构或长度问题返回审计，不直接删除原始证据。"
+        ]
+      }
+    },
+    {
+      "id": "domain:real-tool-evaluation",
+      "type": "domain",
+      "name": "真实工具评测与运行收尾",
+      "summary": "在冻结题集和实际工具协议下检验模型行为，区分模型错误、工具业务错误与基础设施故障。有限恢复保留原attempt和计算身份，计分与资源释放各自留下证据。",
+      "tags": [
+        "真实工具评测与运行收尾",
+        "意图审阅"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "冻结题集",
+          "协议探针",
+          "DSH session",
+          "持久工具job ID",
+          "attempt",
+          "评分视图",
+          "GPU租约"
+        ],
+        "businessRules": [
+          "HTTP200不是MCP完整就绪；9月22日run目录的新启动钩子尚未进入通用CPU入口。",
+          "网络续查保持同一后端任务ID和参数；不按成绩挑选最优attempt。",
+          "模型超限、格式错误和整题预算耗尽不按网络问题无限补跑；失败仍留在选定题集分母。",
+          "runner退出0、rollout.complete、publishable和科学分数是不同字段。",
+          "EXIT cleanup已接有界进程树处理；旧polling worker及bootstrap失败路径仍有未覆盖的直接wait。",
+          "题集、skill、工具协议及分数口径绑定版本，诊断子集不可冒充无偏全量基准。"
+        ],
+        "crossDomainInteractions": [
+          "读取训练模型并输出可追溯评测证据。",
+          "结果供项目负责人判断下一轮数据或训练改进；不自动修订已发布数据。"
+        ]
+      }
+    },
+    {
+      "id": "flow:tool-catalog-and-relations",
+      "type": "flow",
+      "name": "建立工具事实与可用关系",
+      "summary": "把接口事实、语义解释和方向性裁决依次分开，形成有来源的正式工具图。",
+      "tags": [
+        "建立工具事实与可用关系",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "Tool-KG pipeline.run_all",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:tool-catalog-and-relations:schema-facts",
+      "type": "step",
+      "name": "固定工具参数事实",
+      "summary": "从真实schema构建基础卡，保留必填、类型及未知语义；确定性展开减少Agent把解释改成参数事实的风险。",
+      "tags": [
+        "固定工具参数事实",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "tool-kg/src/molclaw_kg/tool_card_builder.py",
+      "lineRange": [
+        254,
+        293
+      ]
+    },
+    {
+      "id": "step:tool-catalog-and-relations:semantic-annotation",
+      "type": "step",
+      "name": "补充可引用语义",
+      "summary": "只向已存在slot合并有evidence refs的注解，保留固定taxonomy与schema；已做边界校验，引用存在仍不证明科学描述正确。",
+      "tags": [
+        "补充可引用语义",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "tool-kg/src/molclaw_kg/tool_card_builder.py",
+      "lineRange": [
+        737,
+        861
+      ]
+    },
+    {
+      "id": "step:tool-catalog-and-relations:directional-judgment",
+      "type": "step",
+      "name": "裁决有向工具关系",
+      "summary": "对调度选中的pair使用隔离工作区、版本化缓存和输出校验，保留原始attempt；科学negative与执行异常分别记录。",
+      "tags": [
+        "裁决有向工具关系",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "tool-kg/src/molclaw_kg/pairwise_runner.py",
+      "lineRange": [
+        257,
+        440
+      ]
+    },
+    {
+      "id": "step:tool-catalog-and-relations:canonical-graph",
+      "type": "step",
+      "name": "发布正式关系图",
+      "summary": "把有效且可采样的decision投影成graph边并保留pair及证据，避免候选调度另行决定边语义；有效边尚非联调成功。",
+      "tags": [
+        "发布正式关系图",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "tool-kg/src/molclaw_kg/canonical_outputs.py",
+      "lineRange": [
+        54,
+        83
+      ]
+    },
+    {
+      "id": "flow:grounded-question-generation",
+      "type": "flow",
+      "name": "生成有真实输入的科学问题",
+      "summary": "从工具图与科学知识库形成公开题面，隐藏工具链作为内部来源而非强制解法。",
+      "tags": [
+        "生成有真实输入的科学问题",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "question_sampling.sample_simple_questions",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:grounded-question-generation:hidden-chain",
+      "type": "step",
+      "name": "选取内部工具链",
+      "summary": "在已有有效关系上采样无重复节点的指定hop路径，保持出题蓝图可追溯；partial-input边不能自动理解为全部依赖闭合。",
+      "tags": [
+        "选取内部工具链",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py",
+      "lineRange": [
+        115,
+        151
+      ]
+    },
+    {
+      "id": "step:grounded-question-generation:grounding-seed",
+      "type": "step",
+      "name": "选择有出处的初始材料",
+      "summary": "用靶点和化合物计数选择知识库种子，减少过度重复；候选额度耗尽会回退最少出现项，当前不是绝对硬配额。",
+      "tags": [
+        "选择有出处的初始材料",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py",
+      "lineRange": [
+        208,
+        235
+      ]
+    },
+    {
+      "id": "step:grounded-question-generation:bounded-generation",
+      "type": "step",
+      "name": "隔离生成与有限修复",
+      "summary": "独立attempt生成问题并有限修复JSON或语义缺陷，拒绝伪造输入及要求用户补材料的题；工具提示泄露仅记warning。",
+      "tags": [
+        "隔离生成与有限修复",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py",
+      "lineRange": [
+        500,
+        641
+      ]
+    },
+    {
+      "id": "step:grounded-question-generation:public-task",
+      "type": "step",
+      "name": "交付公开执行契约",
+      "summary": "保留source与预期轨迹，输出可执行task并明确不要求跟随蓝图；结构可接入采集不表示题目已被实际解答。",
+      "tags": [
+        "交付公开执行契约",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/kg/scripts/build_kg_task_dataset.py",
+      "lineRange": [
+        191,
+        263
+      ]
+    },
+    {
+      "id": "flow:isolated-teacher-execution",
+      "type": "flow",
+      "name": "隔离执行公开题目",
+      "summary": "在执行前检查训练题来源与输入边界，按有限并发运行真实teacher工具会话。",
+      "tags": [
+        "隔离执行公开题目",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "run_claude.main / run_kg_pipeline.sh",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:isolated-teacher-execution:heldout-check",
+      "type": "step",
+      "name": "采集前检查测试隔离",
+      "summary": "要求题目已有统一输出契约，再按任务组、题面和显式source ID排除heldout；改写格式不能成为绕过隔离的方法。",
+      "tags": [
+        "采集前检查测试隔离",
+        "实现边界"
+      ],
+      "complexity": "simple",
+      "filePath": "data-pipe/pipeline/benchmark_release.py",
+      "lineRange": [
+        144,
+        149
+      ]
+    },
+    {
+      "id": "step:isolated-teacher-execution:workspace",
+      "type": "step",
+      "name": "准备无标签执行空间",
+      "summary": "要求空目录并仅安装当前技能场景，使teacher读公开输入；含答案归档与执行cwd分开，仍需明确目录隔离的权限边界。",
+      "tags": [
+        "准备无标签执行空间",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/claude_agent/run_claude.py",
+      "lineRange": [
+        549,
+        572
+      ]
+    },
+    {
+      "id": "step:isolated-teacher-execution:admission",
+      "type": "step",
+      "name": "协调本controller工具负载",
+      "summary": "选取与当前活跃claim不冲突的任务，避免预计重工具重叠；已做本地调度，不能据此推断其他主机也受同一锁控制。",
+      "tags": [
+        "协调本controller工具负载",
+        "实现边界"
+      ],
+      "complexity": "simple",
+      "filePath": "data-pipe/pipeline/kg/tool_admission.py",
+      "lineRange": [
+        65,
+        73
+      ]
+    },
+    {
+      "id": "step:isolated-teacher-execution:execute",
+      "type": "step",
+      "name": "执行真实MCP求解",
+      "summary": "创建独立attempt、检查MCP就绪并保留失败重试与最终解析材料；会话结束和raw产生不等于科学题目完整完成。",
+      "tags": [
+        "执行真实MCP求解",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "data-pipe/pipeline/claude_agent/run_claude.py",
+      "lineRange": [
+        626,
+        853
+      ]
+    },
+    {
+      "id": "flow:raw-evidence-binding",
+      "type": "flow",
+      "name": "保存原始尝试与来源绑定",
+      "summary": "让采集产物能够被后续窗口核对，不用摘要或目录名称替代实际raw证据。",
+      "tags": [
+        "保存原始尝试与来源绑定",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "session_capture / selected-attempt promotion",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:raw-evidence-binding:native-capture",
+      "type": "step",
+      "name": "保存原生会话输出",
+      "summary": "逐attempt保存stream-json与退出信息并禁止覆盖已有raw，必要时保留harness原生日志；输出格式可读不代表工具成功。",
+      "tags": [
+        "保存原生会话输出",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/claude_agent/session_capture.py",
+      "lineRange": [
+        225,
+        290
+      ]
+    },
+    {
+      "id": "step:raw-evidence-binding:select-attempt",
+      "type": "step",
+      "name": "固定被采用的尝试",
+      "summary": "按字节复制选定attempt并核对hash，生成阅读副本；原始失败attempt仍保留，不能隐去重试过程。",
+      "tags": [
+        "固定被采用的尝试",
+        "实现边界"
+      ],
+      "complexity": "simple",
+      "filePath": "data-pipe/pipeline/claude_agent/session_capture.py",
+      "lineRange": [
+        546,
+        557
+      ]
+    },
+    {
+      "id": "step:raw-evidence-binding:artifact-promotion",
+      "type": "step",
+      "name": "绑定科学产物与选中raw",
+      "summary": "将选中attempt产物投影到canonical位置，排除私有元数据并写selected manifest，降低跨attempt混用文件的风险。",
+      "tags": [
+        "绑定科学产物与选中raw",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/claude_agent/run_claude.py",
+      "lineRange": [
+        575,
+        623
+      ]
+    },
+    {
+      "id": "step:raw-evidence-binding:binding-audit",
+      "type": "step",
+      "name": "进入清洗前复核来源",
+      "summary": "核对question、system/user prompt、raw和数据集的五项绑定及selected manifest，缺字段不降级；一致性审计仍不同于科学正确性。",
+      "tags": [
+        "进入清洗前复核来源",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/python_clean.py",
+      "lineRange": [
+        39,
+        66
+      ]
+    },
+    {
+      "id": "flow:semantic-evidence-reconstruction",
+      "type": "flow",
+      "name": "还原决策与观察证据",
+      "summary": "把流式teacher会话还原成模型无关母数据，保住真实动作边界和后续使用的证据。",
+      "tags": [
+        "还原决策与观察证据",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "python_clean.clean_sample",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:semantic-evidence-reconstruction:decision-boundaries",
+      "type": "step",
+      "name": "合并同一真实响应",
+      "summary": "按message ID归并流式片段，并行tool calls保持一个decision；已针对碎片误切问题建立明确边界。",
+      "tags": [
+        "合并同一真实响应",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "lineRange": [
+        217,
+        243
+      ]
+    },
+    {
+      "id": "step:semantic-evidence-reconstruction:call-result-binding",
+      "type": "step",
+      "name": "配对每次调用及返回",
+      "summary": "按tool_use_id索引结果并拒绝缺失或重复身份，防止把另一调用的观察拼到当前决策。",
+      "tags": [
+        "配对每次调用及返回",
+        "实现边界"
+      ],
+      "complexity": "simple",
+      "filePath": "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "lineRange": [
+        246,
+        260
+      ]
+    },
+    {
+      "id": "step:semantic-evidence-reconstruction:observation-compaction",
+      "type": "step",
+      "name": "压缩噪声并保留证据",
+      "summary": "处理base64、长数组和冗长观察，保护后续用到的标量及路径并留压缩审计；这不是任意删除教师科学结果的许可。",
+      "tags": [
+        "压缩噪声并保留证据",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "lineRange": [
+        157,
+        196
+      ]
+    },
+    {
+      "id": "step:semantic-evidence-reconstruction:semantic-output",
+      "type": "step",
+      "name": "形成可追溯semantic母数据",
+      "summary": "构造保持观察顺序的事件序列，记录过滤与路径派生，并要求可见终答和保留调用；这些结构条件不证明指定产物齐全。",
+      "tags": [
+        "形成可追溯semantic母数据",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "lineRange": [
+        334,
+        546
+      ]
+    },
+    {
+      "id": "flow:bounded-teaching-curation",
+      "type": "flow",
+      "name": "生成可审计的教学派生",
+      "summary": "把teacher环境依赖转换为学生部署行为，并受限修订终答和reasoning而不伪造科学证据。",
+      "tags": [
+        "生成可审计的教学派生",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "run_cleaning.sh：skill → LLM clean → reasoning shorten",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:bounded-teaching-curation:skill-projection",
+      "type": "step",
+      "name": "适配学生原生skill行为",
+      "summary": "转换成功L1读取、保留失败读取，缺少首次指导时插入有来源的skill步骤；新增事件必须视为教学派生而非原始teacher动作。",
+      "tags": [
+        "适配学生原生skill行为",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "data-pipe/pipeline/cleaning/skill_native_augmentation.py",
+      "lineRange": [
+        310,
+        506
+      ]
+    },
+    {
+      "id": "step:bounded-teaching-curation:answer-recovery",
+      "type": "step",
+      "name": "按既有证据恢复答案",
+      "summary": "从现成选择或排序恢复不合格式终答，歧义保留pending；KG/E2E仅无损提取唯一JSON，不能从skill示例重建结论。",
+      "tags": [
+        "按既有证据恢复答案",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/answer_recovery.py",
+      "lineRange": [
+        106,
+        193
+      ]
+    },
+    {
+      "id": "step:bounded-teaching-curation:reasoning-clean",
+      "type": "step",
+      "name": "受限清洗reasoning",
+      "summary": "应用绑定样本和决策的patch并检查不可变事实，无效patch回退；原终答合规时warning保留，需与真正cleaned分开统计。",
+      "tags": [
+        "受限清洗reasoning",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/llm_clean.py",
+      "lineRange": [
+        293,
+        327
+      ]
+    },
+    {
+      "id": "step:bounded-teaching-curation:long-reasoning",
+      "type": "step",
+      "name": "对超长推理作一次软缩短",
+      "summary": "只改被选中的reasoning，保护调用、观察和终答；失败进入pending，成功processed_once不保证已经降至目标长度。",
+      "tags": [
+        "对超长推理作一次软缩短",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/reasoning_shorten.py",
+      "lineRange": [
+        199,
+        223
+      ]
+    },
+    {
+      "id": "flow:native-training-release",
+      "type": "flow",
+      "name": "发布与部署一致的训练输入",
+      "summary": "把semantic映射成原生Qwen消息，通过真实token与mask检查后形成可绑定训练任务的release。",
+      "tags": [
+        "发布与部署一致的训练输入",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "pipeline.cleaning.publish_dataset.publish",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:native-training-release:release-directory",
+      "type": "step",
+      "name": "新建发布目录并保存审计",
+      "summary": "创建不可覆盖的release并复制审计后执行物化，保护既有版本；中途失败可留下部分目录，消费者须看完成manifest。",
+      "tags": [
+        "新建发布目录并保存审计",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "data-pipe/pipeline/cleaning/publish_dataset.py",
+      "lineRange": [
+        12,
+        40
+      ]
+    },
+    {
+      "id": "step:native-training-release:native-messages",
+      "type": "step",
+      "name": "投影原生消息及工具schema",
+      "summary": "按调用ID生成messages、tool_calls与loss标记，再检查heldout、答案及成功调用参数；原生结构通过不等于内容充分。",
+      "tags": [
+        "投影原生消息及工具schema",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "data-pipe/pipeline/cleaning/sft_views.py",
+      "lineRange": [
+        20,
+        118
+      ]
+    },
+    {
+      "id": "step:native-training-release:token-mask-gate",
+      "type": "step",
+      "name": "验证真实长度和监督边界",
+      "summary": "使用当前checkpoint tokenizer与qwen3_5 mask核验完整轨迹及固定部署协议，超长只排除训练并留审计，不截断教师动作。",
+      "tags": [
+        "验证真实长度和监督边界",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "data-pipe/pipeline/cleaning/gate_release.py",
+      "lineRange": [
+        45,
+        93
+      ]
+    },
+    {
+      "id": "step:native-training-release:release-binding",
+      "type": "step",
+      "name": "绑定数据与启动验收",
+      "summary": "对release、训练文件和门禁hash建立一致性约束，首次审计heldout与终答，后续提交必须匹配同一版本。",
+      "tags": [
+        "绑定数据与启动验收",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/experiments/aligned_sft/validate_release.py",
+      "lineRange": [
+        17,
+        51
+      ]
+    },
+    {
+      "id": "flow:bounded-offline-sft",
+      "type": "flow",
+      "name": "离线训练并交付模型产物",
+      "summary": "以完整epoch和真实保存验收训练固定release，模型产物成为独立评测输入。",
+      "tags": [
+        "离线训练并交付模型产物",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "aligned_sft/submit.sh → run_worker.sh",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:bounded-offline-sft:submit-job",
+      "type": "step",
+      "name": "提交真实前台GPU任务",
+      "summary": "校验release后显式提交priority9和资源配置，作业生命周期跟随训练driver；共享路径与配额池需要由具体入口支持。",
+      "tags": [
+        "提交真实前台GPU任务",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/experiments/aligned_sft/submit.sh"
+    },
+    {
+      "id": "step:bounded-offline-sft:offline-boundary",
+      "type": "step",
+      "name": "隔离训练与真实工具",
+      "summary": "要求offline标志并拒绝MolClaw连接授权泄入训练，复用原生SFT参数与完整batch约束；训练内部通信不等于科学工具执行。",
+      "tags": [
+        "隔离训练与真实工具",
+        "实现边界"
+      ],
+      "complexity": "simple",
+      "filePath": "slime-wd/slime/drug_agent/offline_guard.py",
+      "lineRange": [
+        37,
+        44
+      ]
+    },
+    {
+      "id": "step:bounded-offline-sft:probe-reload",
+      "type": "step",
+      "name": "验证保存与可重载性",
+      "summary": "对长度probe保存的HF权重完整反序列化并执行有限CPU参考forward，确认分片转换链有效；不能据此声明最终模型已做同等重载。",
+      "tags": [
+        "验证保存与可重载性",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/experiments/aligned_sft/verify_checkpoint_reload.py"
+    },
+    {
+      "id": "step:bounded-offline-sft:train-export",
+      "type": "step",
+      "name": "完成一遍训练并导出HF",
+      "summary": "检查所有预期更新的有限指标、最终checkpoint和HF索引/分片/tokenizer后写完成标记；训练健康不能代替后续科学评测。",
+      "tags": [
+        "完成一遍训练并导出HF",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "slime-wd/experiments/aligned_sft/run_worker.sh"
+    },
+    {
+      "id": "flow:protocol-aligned-evaluation",
+      "type": "flow",
+      "name": "启动并执行真实工具评测",
+      "summary": "把模型、题目和实际harness请求绑定，确保成绩对应明确的工具与技能环境。",
+      "tags": [
+        "启动并执行真实工具评测",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "pretrained_matrix/cpu_queue.py → run_dsh_molbench.py",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:protocol-aligned-evaluation:freeze-inputs",
+      "type": "step",
+      "name": "固定题集与评测版本",
+      "summary": "记录题目、工具、技能、模型身份及协议输入的hash，续跑拒绝不一致版本；诊断子集必须保留其独立范围。",
+      "tags": [
+        "固定题集与评测版本",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "lineRange": [
+        1004,
+        1095
+      ]
+    },
+    {
+      "id": "step:protocol-aligned-evaluation:start-framework",
+      "type": "step",
+      "name": "建立CPU工具与GPU模型分工",
+      "summary": "CPU运行DSH、沙箱与MCP，GPU提供有租约的模型服务；当前通用入口仍以HTTP200写空ready，run部署的新启动钩子尚未收进来。",
+      "tags": [
+        "建立CPU工具与GPU模型分工",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/run_cpu_eval.py"
+    },
+    {
+      "id": "step:protocol-aligned-evaluation:request-probe",
+      "type": "step",
+      "name": "验收模型实际看到的协议",
+      "summary": "创建真实session读取request/header，比较工具schema、system、skill目录及输出预算后才进题目；网页可访问不替代该检查。",
+      "tags": [
+        "验收模型实际看到的协议",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "lineRange": [
+        411,
+        473
+      ]
+    },
+    {
+      "id": "step:protocol-aligned-evaluation:real-rollout",
+      "type": "step",
+      "name": "逐题执行并保存真实证据",
+      "summary": "驱动session、处理必要批准和整题期限，保存工具结果、最终回答及失败类型；只从最终assistant答案计分，不从产物文件猜补答案。",
+      "tags": [
+        "逐题执行并保存真实证据",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "lineRange": [
+        614,
+        755
+      ]
+    },
+    {
+      "id": "flow:recovery-scoring-and-release",
+      "type": "flow",
+      "name": "有限恢复、计分与资源收尾",
+      "summary": "保持后端计算身份及失败分母，得到可复算成绩并明确作业退出状态。",
+      "tags": [
+        "有限恢复、计分与资源收尾",
+        "流程"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "MCP polling adapter / runner recovery / worker cleanup",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:recovery-scoring-and-release:durable-polling",
+      "type": "step",
+      "name": "同一计算续查到最终结果",
+      "summary": "工具调用保持同一job ID和原参数，在总预算内消费内部pending并只返回原最终结果；已做身份及信封校验，不自动重跑科学工具。",
+      "tags": [
+        "同一计算续查到最终结果",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/molclaw-mcp-relay/polling-adapter/polling_client_core.mjs",
+      "lineRange": [
+        5,
+        34
+      ]
+    },
+    {
+      "id": "step:recovery-scoring-and-release:bounded-attempts",
+      "type": "step",
+      "name": "按故障证据有限补跑",
+      "summary": "只对明确未解决网络故障补跑，首个干净attempt即停止并保存原失败；模型超限与整题预算耗尽不因成绩低获得新机会。",
+      "tags": [
+        "按故障证据有限补跑",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "lineRange": [
+        766,
+        773
+      ]
+    },
+    {
+      "id": "step:recovery-scoring-and-release:score-and-publishability",
+      "type": "step",
+      "name": "复算指标并单列可发布性",
+      "summary": "按冻结样本从最终答案投影各任务指标，失败留在分母，publishable另行判断；MS3等显式口径不能与旧协议数字混比。",
+      "tags": [
+        "复算指标并单列可发布性",
+        "实现边界"
+      ],
+      "complexity": "complex",
+      "filePath": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "lineRange": [
+        812,
+        938
+      ]
+    },
+    {
+      "id": "step:recovery-scoring-and-release:bounded-cleanup",
+      "type": "step",
+      "name": "退出并核对所属资源",
+      "summary": "退出清理对所属进程树采用限时TERM/KILL并记录结果，防止拒绝TERM长期占卡；旧polling及bootstrap路径仍需分开看待。",
+      "tags": [
+        "退出并核对所属资源",
+        "实现边界"
+      ],
+      "complexity": "moderate",
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/run_worker.sh",
+      "lineRange": [
+        41,
+        68
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "domain:scientific-task-design",
+      "target": "flow:tool-catalog-and-relations",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:tool-catalog-and-relations",
+      "target": "step:tool-catalog-and-relations:schema-facts",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:tool-catalog-and-relations",
+      "target": "step:tool-catalog-and-relations:semantic-annotation",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:tool-catalog-and-relations",
+      "target": "step:tool-catalog-and-relations:directional-judgment",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:tool-catalog-and-relations",
+      "target": "step:tool-catalog-and-relations:canonical-graph",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:scientific-task-design",
+      "target": "flow:grounded-question-generation",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:grounded-question-generation",
+      "target": "step:grounded-question-generation:hidden-chain",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:grounded-question-generation",
+      "target": "step:grounded-question-generation:grounding-seed",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:grounded-question-generation",
+      "target": "step:grounded-question-generation:bounded-generation",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:grounded-question-generation",
+      "target": "step:grounded-question-generation:public-task",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:teacher-evidence-capture",
+      "target": "flow:isolated-teacher-execution",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:isolated-teacher-execution",
+      "target": "step:isolated-teacher-execution:heldout-check",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:isolated-teacher-execution",
+      "target": "step:isolated-teacher-execution:workspace",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:isolated-teacher-execution",
+      "target": "step:isolated-teacher-execution:admission",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:isolated-teacher-execution",
+      "target": "step:isolated-teacher-execution:execute",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:teacher-evidence-capture",
+      "target": "flow:raw-evidence-binding",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:raw-evidence-binding",
+      "target": "step:raw-evidence-binding:native-capture",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:raw-evidence-binding",
+      "target": "step:raw-evidence-binding:select-attempt",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:raw-evidence-binding",
+      "target": "step:raw-evidence-binding:artifact-promotion",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:raw-evidence-binding",
+      "target": "step:raw-evidence-binding:binding-audit",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:evidence-preserving-curation",
+      "target": "flow:semantic-evidence-reconstruction",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:semantic-evidence-reconstruction",
+      "target": "step:semantic-evidence-reconstruction:decision-boundaries",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:semantic-evidence-reconstruction",
+      "target": "step:semantic-evidence-reconstruction:call-result-binding",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:semantic-evidence-reconstruction",
+      "target": "step:semantic-evidence-reconstruction:observation-compaction",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:semantic-evidence-reconstruction",
+      "target": "step:semantic-evidence-reconstruction:semantic-output",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:evidence-preserving-curation",
+      "target": "flow:bounded-teaching-curation",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:bounded-teaching-curation",
+      "target": "step:bounded-teaching-curation:skill-projection",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:bounded-teaching-curation",
+      "target": "step:bounded-teaching-curation:answer-recovery",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:bounded-teaching-curation",
+      "target": "step:bounded-teaching-curation:reasoning-clean",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:bounded-teaching-curation",
+      "target": "step:bounded-teaching-curation:long-reasoning",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:native-sft-delivery",
+      "target": "flow:native-training-release",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:native-training-release",
+      "target": "step:native-training-release:release-directory",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:native-training-release",
+      "target": "step:native-training-release:native-messages",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:native-training-release",
+      "target": "step:native-training-release:token-mask-gate",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:native-training-release",
+      "target": "step:native-training-release:release-binding",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:native-sft-delivery",
+      "target": "flow:bounded-offline-sft",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:bounded-offline-sft",
+      "target": "step:bounded-offline-sft:submit-job",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:bounded-offline-sft",
+      "target": "step:bounded-offline-sft:offline-boundary",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:bounded-offline-sft",
+      "target": "step:bounded-offline-sft:probe-reload",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:bounded-offline-sft",
+      "target": "step:bounded-offline-sft:train-export",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:real-tool-evaluation",
+      "target": "flow:protocol-aligned-evaluation",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:protocol-aligned-evaluation",
+      "target": "step:protocol-aligned-evaluation:freeze-inputs",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:protocol-aligned-evaluation",
+      "target": "step:protocol-aligned-evaluation:start-framework",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:protocol-aligned-evaluation",
+      "target": "step:protocol-aligned-evaluation:request-probe",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:protocol-aligned-evaluation",
+      "target": "step:protocol-aligned-evaluation:real-rollout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:real-tool-evaluation",
+      "target": "flow:recovery-scoring-and-release",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:recovery-scoring-and-release",
+      "target": "step:recovery-scoring-and-release:durable-polling",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.1
+    },
+    {
+      "source": "flow:recovery-scoring-and-release",
+      "target": "step:recovery-scoring-and-release:bounded-attempts",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:recovery-scoring-and-release",
+      "target": "step:recovery-scoring-and-release:score-and-publishability",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.3
+    },
+    {
+      "source": "flow:recovery-scoring-and-release",
+      "target": "step:recovery-scoring-and-release:bounded-cleanup",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:scientific-task-design",
+      "target": "domain:teacher-evidence-capture",
+      "type": "cross_domain",
+      "direction": "forward",
+      "weight": 0.6,
+      "description": "公开题面和真实初始输入交给teacher采集，内部工具链保留作来源与调度参考。"
+    },
+    {
+      "source": "domain:teacher-evidence-capture",
+      "target": "domain:evidence-preserving-curation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "weight": 0.6,
+      "description": "原始会话、调用返回、产物及selected-attempt绑定进入证据还原与修订。"
+    },
+    {
+      "source": "domain:evidence-preserving-curation",
+      "target": "domain:native-sft-delivery",
+      "type": "cross_domain",
+      "direction": "forward",
+      "weight": 0.6,
+      "description": "带来源和派生审计的semantic视图进入原生SFT发布，未验收部分继续留pending。"
+    },
+    {
+      "source": "domain:native-sft-delivery",
+      "target": "domain:real-tool-evaluation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "weight": 0.6,
+      "description": "绑定release的HF模型交给独立冻结题集评测；训练完成不替代评测完成。"
+    },
+    {
+      "source": "domain:real-tool-evaluation",
+      "target": "domain:evidence-preserving-curation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "weight": 0.6,
+      "description": "逐题诊断供人工决定后续数据修订，当前代码不自动回写原始或已发布训练数据。"
+    }
+  ],
+  "layers": [],
+  "tour": []
+}

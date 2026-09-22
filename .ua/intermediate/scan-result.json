@@ -1,0 +1,686 @@
+{
+  "files": [
+    {
+      "path": ".codex/skills/README.md",
+      "language": "markdown",
+      "sizeLines": 70,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".codex/skills/h-rjob-submit/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 86,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".codex/skills/manage-drug-pipe-trajectories/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 135,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".gitattributes",
+      "language": "unknown",
+      "sizeLines": 3,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".gitignore",
+      "language": "unknown",
+      "sizeLines": 172,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".gitmodules",
+      "language": "unknown",
+      "sizeLines": 3,
+      "fileCategory": "code"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 74,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 21,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "data-pipe/.gitignore",
+      "language": "unknown",
+      "sizeLines": 56,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/benchmark_release.py",
+      "language": "python",
+      "sizeLines": 156,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/claude_agent/cleanup_invocation.py",
+      "language": "python",
+      "sizeLines": 132,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/claude_agent/run_claude.py",
+      "language": "python",
+      "sizeLines": 1356,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/claude_agent/session_capture.py",
+      "language": "python",
+      "sizeLines": 557,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/answer_recovery.py",
+      "language": "python",
+      "sizeLines": 215,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/gate_release.py",
+      "language": "python",
+      "sizeLines": 97,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/llm_clean.py",
+      "language": "python",
+      "sizeLines": 443,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/materialize_sft.py",
+      "language": "python",
+      "sizeLines": 106,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/publish_dataset.py",
+      "language": "python",
+      "sizeLines": 56,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/python_clean.py",
+      "language": "python",
+      "sizeLines": 226,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/reasoning_shorten.py",
+      "language": "python",
+      "sizeLines": 293,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "language": "python",
+      "sizeLines": 546,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/sft_views.py",
+      "language": "python",
+      "sizeLines": 118,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/skill_native_augmentation.py",
+      "language": "python",
+      "sizeLines": 560,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/tests/test_answer_recovery.py",
+      "language": "python",
+      "sizeLines": 104,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/cleaning/tests/test_fresh_raw_pipeline.py",
+      "language": "python",
+      "sizeLines": 116,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/evaluate/task_evaluator.py",
+      "language": "python",
+      "sizeLines": 379,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/kg/run_kg_pipeline.sh",
+      "language": "shell",
+      "sizeLines": 315,
+      "fileCategory": "script"
+    },
+    {
+      "path": "data-pipe/pipeline/kg/scripts/build_kg_task_dataset.py",
+      "language": "python",
+      "sizeLines": 430,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/kg/tool_admission.py",
+      "language": "python",
+      "sizeLines": 73,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/pipeline/output_contracts.py",
+      "language": "python",
+      "sizeLines": 237,
+      "fileCategory": "code"
+    },
+    {
+      "path": "data-pipe/scripts/run_cleaning.sh",
+      "language": "shell",
+      "sizeLines": 199,
+      "fileCategory": "script"
+    },
+    {
+      "path": "docs/DATA_FORMATS.md",
+      "language": "markdown",
+      "sizeLines": 289,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/DATA_PIPE_REGULAR_CLEANING.md",
+      "language": "markdown",
+      "sizeLines": 72,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/EXPERIMENT_ALIGNMENT.md",
+      "language": "markdown",
+      "sizeLines": 101,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/GIT_SYNC.md",
+      "language": "markdown",
+      "sizeLines": 32,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/KNOWN_ISSUES.md",
+      "language": "markdown",
+      "sizeLines": 21,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/MAINLINE.md",
+      "language": "markdown",
+      "sizeLines": 131,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/RUN_COMMANDS.md",
+      "language": "markdown",
+      "sizeLines": 393,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/STATUS.md",
+      "language": "markdown",
+      "sizeLines": 24,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/decisions/2026-09-22-v9-evaluation-lifecycle.md",
+      "language": "markdown",
+      "sizeLines": 31,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/decisions/2026-09-23-git-sync-and-intent-review.md",
+      "language": "markdown",
+      "sizeLines": 31,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/decisions/README.md",
+      "language": "markdown",
+      "sizeLines": 60,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "patches/deepseek-harness/README.md",
+      "language": "markdown",
+      "sizeLines": 15,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "runtime/molclaw_mcp.sh",
+      "language": "shell",
+      "sizeLines": 28,
+      "fileCategory": "script"
+    },
+    {
+      "path": "runtime/molclaw_mcp_config.py",
+      "language": "python",
+      "sizeLines": 54,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/DSML_BRIDGE.md",
+      "language": "markdown",
+      "sizeLines": 42,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "scripts/dsml_bridge.py",
+      "language": "python",
+      "sizeLines": 261,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/test_dsml_bridge_boundaries.py",
+      "language": "python",
+      "sizeLines": 14,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/README.md",
+      "language": "markdown",
+      "sizeLines": 155,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/audit_protocol.py",
+      "language": "python",
+      "sizeLines": 156,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/pretrained_matrix/cpu_queue.py",
+      "language": "python",
+      "sizeLines": 123,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/pretrained_matrix/model_lease.py",
+      "language": "python",
+      "sizeLines": 12,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/pretrained_matrix/run_cpu_eval.py",
+      "language": "python",
+      "sizeLines": 82,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/pretrained_matrix/run_worker.sh",
+      "language": "shell",
+      "sizeLines": 377,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/pretrained_matrix/run_worker_polling.sh",
+      "language": "shell",
+      "sizeLines": 359,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/pretrained_matrix/stop_process_tree.py",
+      "language": "python",
+      "sizeLines": 49,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/recovery_policy.py",
+      "language": "python",
+      "sizeLines": 101,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "language": "python",
+      "sizeLines": 1367,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/dsh-molbench/test_infra_recovery.py",
+      "language": "python",
+      "sizeLines": 129,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/experiments/aligned_sft/follow_training.sh",
+      "language": "shell",
+      "sizeLines": 22,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/experiments/aligned_sft/run_worker.sh",
+      "language": "shell",
+      "sizeLines": 73,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/experiments/aligned_sft/submit.sh",
+      "language": "shell",
+      "sizeLines": 30,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/experiments/aligned_sft/validate_release.py",
+      "language": "python",
+      "sizeLines": 59,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/experiments/aligned_sft/verify_checkpoint_reload.py",
+      "language": "python",
+      "sizeLines": 28,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/experiments/aligned_sft/verify_metrics.py",
+      "language": "python",
+      "sizeLines": 17,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/molclaw-mcp-relay/README.md",
+      "language": "markdown",
+      "sizeLines": 41,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "slime-wd/molclaw-mcp-relay/polling-adapter/README.md",
+      "language": "markdown",
+      "sizeLines": 55,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "slime-wd/molclaw-mcp-relay/polling-adapter/adapter_server.mjs",
+      "language": "javascript",
+      "sizeLines": 28,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/molclaw-mcp-relay/polling-adapter/polling_client_core.mjs",
+      "language": "javascript",
+      "sizeLines": 34,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/molclaw-mcp-relay/polling-adapter/transport_recovery.mjs",
+      "language": "javascript",
+      "sizeLines": 48,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/slime/.gitignore",
+      "language": "unknown",
+      "sizeLines": 196,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/slime/README.md",
+      "language": "markdown",
+      "sizeLines": 32,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "slime-wd/slime/docs/README.md",
+      "language": "markdown",
+      "sizeLines": 30,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "slime-wd/slime/drug_agent/data/validate_sft_messages.py",
+      "language": "python",
+      "sizeLines": 125,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/slime/drug_agent/offline_guard.py",
+      "language": "python",
+      "sizeLines": 61,
+      "fileCategory": "code"
+    },
+    {
+      "path": "slime-wd/slime/drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh",
+      "language": "shell",
+      "sizeLines": 408,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/slime/drug_agent/scripts/run_qwen3_5_4b_drug_sft_full.sh",
+      "language": "shell",
+      "sizeLines": 115,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/slime/drug_agent/scripts/run_qwen3_5_9b_drug_sft_full.sh",
+      "language": "shell",
+      "sizeLines": 25,
+      "fileCategory": "script"
+    },
+    {
+      "path": "slime-wd/slime/drug_agent/tests/test_validate_sft_messages.py",
+      "language": "python",
+      "sizeLines": 90,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/.gitignore",
+      "language": "unknown",
+      "sizeLines": 46,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/candidate_generation.py",
+      "language": "python",
+      "sizeLines": 119,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/canonical_outputs.py",
+      "language": "python",
+      "sizeLines": 182,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/pairwise_runner.py",
+      "language": "python",
+      "sizeLines": 683,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/pipeline.py",
+      "language": "python",
+      "sizeLines": 63,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/question_sampling/canonical_io.py",
+      "language": "python",
+      "sizeLines": 129,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py",
+      "language": "python",
+      "sizeLines": 841,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/src/molclaw_kg/tool_card_builder.py",
+      "language": "python",
+      "sizeLines": 1043,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tool-kg/tests/test_tool_card_authority.py",
+      "language": "python",
+      "sizeLines": 195,
+      "fileCategory": "code"
+    }
+  ],
+  "totalFiles": 88,
+  "filteredByIgnore": 1158,
+  "estimatedComplexity": "moderate",
+  "name": "Drug-Pipe",
+  "description": "围绕 MolClaw 的科研工具任务构造、Claude 真实执行采集、不可变原始轨迹与语义清洗、Qwen3.5 structured SFT 和真实 MCP 评测的研究工程。本次按授权仅理解主线入口、契约、关键检查和说明文档，跳过通用 vendored Slime、模型内部实现与生成资产。",
+  "languages": [
+    "javascript",
+    "markdown",
+    "python",
+    "shell",
+    "unknown"
+  ],
+  "frameworks": [
+    "Slime"
+  ],
+  "importMap": {
+    ".codex/skills/README.md": [],
+    ".codex/skills/h-rjob-submit/SKILL.md": [],
+    ".codex/skills/manage-drug-pipe-trajectories/SKILL.md": [],
+    ".gitattributes": [],
+    ".gitignore": [],
+    ".gitmodules": [],
+    "AGENTS.md": [],
+    "README.md": [],
+    "data-pipe/.gitignore": [],
+    "data-pipe/pipeline/benchmark_release.py": [
+      "data-pipe/pipeline/output_contracts.py"
+    ],
+    "data-pipe/pipeline/claude_agent/cleanup_invocation.py": [],
+    "data-pipe/pipeline/claude_agent/run_claude.py": [],
+    "data-pipe/pipeline/claude_agent/session_capture.py": [],
+    "data-pipe/pipeline/cleaning/answer_recovery.py": [
+      "data-pipe/pipeline/output_contracts.py"
+    ],
+    "data-pipe/pipeline/cleaning/gate_release.py": [
+      "data-pipe/pipeline/benchmark_release.py"
+    ],
+    "data-pipe/pipeline/cleaning/llm_clean.py": [
+      "data-pipe/pipeline/claude_agent/session_capture.py"
+    ],
+    "data-pipe/pipeline/cleaning/materialize_sft.py": [
+      "data-pipe/pipeline/cleaning/sft_views.py"
+    ],
+    "data-pipe/pipeline/cleaning/publish_dataset.py": [
+      "data-pipe/pipeline/benchmark_release.py",
+      "data-pipe/pipeline/cleaning/gate_release.py",
+      "data-pipe/pipeline/cleaning/materialize_sft.py"
+    ],
+    "data-pipe/pipeline/cleaning/python_clean.py": [
+      "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "data-pipe/pipeline/output_contracts.py"
+    ],
+    "data-pipe/pipeline/cleaning/reasoning_shorten.py": [
+      "data-pipe/pipeline/claude_agent/session_capture.py"
+    ],
+    "data-pipe/pipeline/cleaning/semantic_builder.py": [],
+    "data-pipe/pipeline/cleaning/sft_views.py": [
+      "data-pipe/pipeline/benchmark_release.py",
+      "data-pipe/pipeline/output_contracts.py"
+    ],
+    "data-pipe/pipeline/cleaning/skill_native_augmentation.py": [],
+    "data-pipe/pipeline/cleaning/tests/test_answer_recovery.py": [
+      "data-pipe/pipeline/cleaning/answer_recovery.py",
+      "data-pipe/pipeline/cleaning/llm_clean.py",
+      "data-pipe/pipeline/output_contracts.py"
+    ],
+    "data-pipe/pipeline/cleaning/tests/test_fresh_raw_pipeline.py": [
+      "data-pipe/pipeline/cleaning/materialize_sft.py",
+      "data-pipe/pipeline/cleaning/python_clean.py",
+      "data-pipe/pipeline/cleaning/skill_native_augmentation.py",
+      "data-pipe/pipeline/output_contracts.py"
+    ],
+    "data-pipe/pipeline/evaluate/task_evaluator.py": [],
+    "data-pipe/pipeline/kg/run_kg_pipeline.sh": [],
+    "data-pipe/pipeline/kg/scripts/build_kg_task_dataset.py": [],
+    "data-pipe/pipeline/kg/tool_admission.py": [],
+    "data-pipe/pipeline/output_contracts.py": [],
+    "data-pipe/scripts/run_cleaning.sh": [],
+    "docs/DATA_FORMATS.md": [],
+    "docs/DATA_PIPE_REGULAR_CLEANING.md": [],
+    "docs/EXPERIMENT_ALIGNMENT.md": [],
+    "docs/GIT_SYNC.md": [],
+    "docs/KNOWN_ISSUES.md": [],
+    "docs/MAINLINE.md": [],
+    "docs/RUN_COMMANDS.md": [],
+    "docs/STATUS.md": [],
+    "docs/decisions/2026-09-22-v9-evaluation-lifecycle.md": [],
+    "docs/decisions/2026-09-23-git-sync-and-intent-review.md": [],
+    "docs/decisions/README.md": [],
+    "patches/deepseek-harness/README.md": [],
+    "runtime/molclaw_mcp.sh": [],
+    "runtime/molclaw_mcp_config.py": [],
+    "scripts/DSML_BRIDGE.md": [],
+    "scripts/dsml_bridge.py": [],
+    "scripts/test_dsml_bridge_boundaries.py": [
+      "scripts/dsml_bridge.py"
+    ],
+    "slime-wd/dsh-molbench/README.md": [],
+    "slime-wd/dsh-molbench/audit_protocol.py": [],
+    "slime-wd/dsh-molbench/pretrained_matrix/cpu_queue.py": [],
+    "slime-wd/dsh-molbench/pretrained_matrix/model_lease.py": [],
+    "slime-wd/dsh-molbench/pretrained_matrix/run_cpu_eval.py": [],
+    "slime-wd/dsh-molbench/pretrained_matrix/run_worker.sh": [],
+    "slime-wd/dsh-molbench/pretrained_matrix/run_worker_polling.sh": [],
+    "slime-wd/dsh-molbench/pretrained_matrix/stop_process_tree.py": [],
+    "slime-wd/dsh-molbench/recovery_policy.py": [],
+    "slime-wd/dsh-molbench/run_dsh_molbench.py": [
+      "slime-wd/dsh-molbench/recovery_policy.py"
+    ],
+    "slime-wd/dsh-molbench/test_infra_recovery.py": [
+      "slime-wd/dsh-molbench/run_dsh_molbench.py"
+    ],
+    "slime-wd/experiments/aligned_sft/follow_training.sh": [],
+    "slime-wd/experiments/aligned_sft/run_worker.sh": [],
+    "slime-wd/experiments/aligned_sft/submit.sh": [],
+    "slime-wd/experiments/aligned_sft/validate_release.py": [],
+    "slime-wd/experiments/aligned_sft/verify_checkpoint_reload.py": [],
+    "slime-wd/experiments/aligned_sft/verify_metrics.py": [],
+    "slime-wd/molclaw-mcp-relay/README.md": [],
+    "slime-wd/molclaw-mcp-relay/polling-adapter/README.md": [],
+    "slime-wd/molclaw-mcp-relay/polling-adapter/adapter_server.mjs": [
+      "slime-wd/molclaw-mcp-relay/polling-adapter/polling_client_core.mjs",
+      "slime-wd/molclaw-mcp-relay/polling-adapter/transport_recovery.mjs"
+    ],
+    "slime-wd/molclaw-mcp-relay/polling-adapter/polling_client_core.mjs": [],
+    "slime-wd/molclaw-mcp-relay/polling-adapter/transport_recovery.mjs": [],
+    "slime-wd/slime/.gitignore": [],
+    "slime-wd/slime/README.md": [],
+    "slime-wd/slime/docs/README.md": [],
+    "slime-wd/slime/drug_agent/data/validate_sft_messages.py": [],
+    "slime-wd/slime/drug_agent/offline_guard.py": [],
+    "slime-wd/slime/drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh": [],
+    "slime-wd/slime/drug_agent/scripts/run_qwen3_5_4b_drug_sft_full.sh": [],
+    "slime-wd/slime/drug_agent/scripts/run_qwen3_5_9b_drug_sft_full.sh": [],
+    "slime-wd/slime/drug_agent/tests/test_validate_sft_messages.py": [
+      "slime-wd/slime/drug_agent/data/validate_sft_messages.py"
+    ],
+    "tool-kg/.gitignore": [],
+    "tool-kg/src/molclaw_kg/candidate_generation.py": [],
+    "tool-kg/src/molclaw_kg/canonical_outputs.py": [],
+    "tool-kg/src/molclaw_kg/pairwise_runner.py": [],
+    "tool-kg/src/molclaw_kg/pipeline.py": [
+      "tool-kg/src/molclaw_kg/candidate_generation.py",
+      "tool-kg/src/molclaw_kg/canonical_outputs.py",
+      "tool-kg/src/molclaw_kg/pairwise_runner.py",
+      "tool-kg/src/molclaw_kg/tool_card_builder.py"
+    ],
+    "tool-kg/src/molclaw_kg/question_sampling/canonical_io.py": [],
+    "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py": [
+      "tool-kg/src/molclaw_kg/question_sampling/canonical_io.py"
+    ],
+    "tool-kg/src/molclaw_kg/tool_card_builder.py": [],
+    "tool-kg/tests/test_tool_card_authority.py": []
+  }
+}

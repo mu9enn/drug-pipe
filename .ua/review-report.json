@@ -1,0 +1,84 @@
+{
+  "scope_files": 88,
+  "core_files": 79,
+  "codegraph": {
+    "nodes": 237,
+    "edges": 539,
+    "layers": 8,
+    "tour_steps": 10
+  },
+  "domain": {
+    "domains": 5,
+    "flows": 10,
+    "steps": 40
+  },
+  "schema_and_references": [
+    {
+      "file": "knowledge-graph.json",
+      "nodes": 237,
+      "edges": 539,
+      "schema": "passed",
+      "sourceAnchors": "passed",
+      "validation": {
+        "success": true,
+        "issues": []
+      }
+    },
+    {
+      "file": "intermediate/domain-analysis.json",
+      "nodes": 55,
+      "edges": 55,
+      "schema": "passed",
+      "sourceAnchors": "passed",
+      "validation": {
+        "success": true,
+        "issues": []
+      }
+    }
+  ],
+  "inline_review": {
+    "issues": [],
+    "warnings": [
+      "Node 'file:.gitattributes' has no edges (orphan)",
+      "Node 'file:data-pipe/.gitignore' has no edges (orphan)",
+      "Node 'config:slime-wd/slime/.gitignore' has no edges (orphan)",
+      "Node 'document:slime-wd/slime/README.md' has no edges (orphan)",
+      "Node 'document:slime-wd/slime/docs/README.md' has no edges (orphan)",
+      "Node 'config:tool-kg/.gitignore' has no edges (orphan)"
+    ],
+    "stats": {
+      "totalNodes": 237,
+      "totalEdges": 539,
+      "totalLayers": 8,
+      "tourSteps": 10,
+      "nodeTypes": {
+        "file": 63,
+        "function": 139,
+        "class": 10,
+        "document": 23,
+        "config": 2
+      },
+      "edgeTypes": {
+        "contains": 149,
+        "exports": 142,
+        "imports": 31,
+        "calls": 125,
+        "depends_on": 21,
+        "tested_by": 11,
+        "documents": 53,
+        "triggers": 6,
+        "related": 1
+      }
+    }
+  },
+  "resolved_execution_notes": [
+    "System Python 3.9 could not run merge; bundled Python 3.12 succeeded.",
+    "npx unavailable; official dashboard Vite fallback is running.",
+    "Two shell calls to metric/reload validators were added after source review."
+  ],
+  "limits": [
+    "Six Git metadata/vendor documentation nodes remain unconnected; no missing source or dangling references.",
+    "tested_by denotes a static association, not a passing test.",
+    "Generic vendor internals and private per-run deployments are outside scope."
+  ]
+}

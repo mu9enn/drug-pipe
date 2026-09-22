@@ -1,0 +1,7388 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "5059e50b4ba34e403bba29f3e07a79c355753d57",
+  "generatedAt": "2026-09-22T16:37:20.694Z",
+  "files": {
+    ".codex/skills/README.md": {
+      "filePath": ".codex/skills/README.md",
+      "contentHash": "5b4791925c11052883b38e1293444eff28147e66fdd84586b56318386454bba5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 71,
+      "hasStructuralAnalysis": false
+    },
+    ".codex/skills/h-rjob-submit/SKILL.md": {
+      "filePath": ".codex/skills/h-rjob-submit/SKILL.md",
+      "contentHash": "c28b43ce5bb1c821211f48d46de3c23a7b26fa95ea12ec3370a522bae62eeed2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 87,
+      "hasStructuralAnalysis": false
+    },
+    ".codex/skills/manage-drug-pipe-trajectories/SKILL.md": {
+      "filePath": ".codex/skills/manage-drug-pipe-trajectories/SKILL.md",
+      "contentHash": "83446906a01e2449a40a4dfdf72f791fa3a48b1fe9bee293f5893682f53f5bc3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 136,
+      "hasStructuralAnalysis": false
+    },
+    ".gitattributes": {
+      "filePath": ".gitattributes",
+      "contentHash": "076cbf822a2fe8d3937d005a3fef3ee82738789100cd6eb8d7292adef6d30a70",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 4,
+      "hasStructuralAnalysis": false
+    },
+    ".gitignore": {
+      "filePath": ".gitignore",
+      "contentHash": "10d0a03386d38fb5f599668da7efe76057ca41b7becfa8b8fd285227c900d6b9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 173,
+      "hasStructuralAnalysis": false
+    },
+    ".gitmodules": {
+      "filePath": ".gitmodules",
+      "contentHash": "615ef2a2e5c3431cbedc02becdc9258c03ac5d04ca97220658de4d62b1c00ccf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 4,
+      "hasStructuralAnalysis": false
+    },
+    "AGENTS.md": {
+      "filePath": "AGENTS.md",
+      "contentHash": "936b658ecc63ae05afbf49c0262960a8eabb41881728dc31504c4aee018176cb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 75,
+      "hasStructuralAnalysis": false
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "8c70bd2e8bc9269ca6d9a1198c792820cf81c71637f7e5a53e3d1e7983ce5c9d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 22,
+      "hasStructuralAnalysis": false
+    },
+    "data-pipe/.gitignore": {
+      "filePath": "data-pipe/.gitignore",
+      "contentHash": "68048df36f80c52965f72a0147662bfaaaaf710d938ef54d5ff7c6bd8ea024c7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 57,
+      "hasStructuralAnalysis": false
+    },
+    "data-pipe/pipeline/benchmark_release.py": {
+      "filePath": "data-pipe/pipeline/benchmark_release.py",
+      "contentHash": "a31c8fe710012e066506a805f5736715e900e08157395f49bab082d017f48b0a",
+      "functions": [
+        {
+          "name": "digest",
+          "params": [
+            "data"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "publish",
+          "params": [
+            "root"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "molecule_key",
+          "params": [
+            "smiles"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "task_group",
+          "params": [
+            "task",
+            "task_type"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "heldout_groups",
+          "params": [
+            "root"
+          ],
+          "returnType": "dict[str, list[str]]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "scientific_question_key",
+          "params": [
+            "task"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "heldout_question_keys",
+          "params": [
+            "root"
+          ],
+          "returnType": "dict[str, list[str]]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "heldout_matches",
+          "params": [
+            "task",
+            "task_type",
+            "source_task_ids"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "require_training_task",
+          "params": [
+            "task",
+            "task_type",
+            "source_task_ids"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "functools",
+          "specifiers": [
+            "lru_cache"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "CONTRACT_VERSION",
+            "CONTRACTS",
+            "normalize_task_prompt",
+            "task_constraints"
+          ]
+        }
+      ],
+      "exports": [
+        "digest",
+        "publish",
+        "molecule_key",
+        "task_group",
+        "heldout_groups",
+        "scientific_question_key",
+        "heldout_question_keys",
+        "heldout_matches",
+        "require_training_task"
+      ],
+      "totalLines": 157,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/claude_agent/cleanup_invocation.py": {
+      "filePath": "data-pipe/pipeline/claude_agent/cleanup_invocation.py",
+      "contentHash": "d18a483b35ab866272f3e3f4a62fbe275782f7185624f614e2e5b34c5f692012",
+      "functions": [
+        {
+          "name": "_invocation_processes",
+          "params": [
+            "invocation_id",
+            "exclude_pids"
+          ],
+          "returnType": "list[int]",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "_signal_invocation_processes",
+          "params": [
+            "pids",
+            "sig"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "_wait_for_invocation_processes",
+          "params": [
+            "invocation_id",
+            "timeout_sec",
+            "exclude_pids"
+          ],
+          "returnType": "list[int]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_cleanup_detached_descendants",
+          "params": [
+            "invocation_id",
+            "grace_sec",
+            "exclude_pids"
+          ],
+          "returnType": "dict[str, object]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        }
+      ],
+      "exports": [
+        "_invocation_processes",
+        "_signal_invocation_processes",
+        "_wait_for_invocation_processes",
+        "_cleanup_detached_descendants",
+        "main"
+      ],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/claude_agent/run_claude.py": {
+      "filePath": "data-pipe/pipeline/claude_agent/run_claude.py",
+      "contentHash": "a28e98762c4ba620334a3985db80429c2ac75507b3131431680d1c2419a89c03",
+      "functions": [
+        {
+          "name": "_environment_capacity",
+          "params": [
+            "name",
+            "default"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_validate_kg_worker_capacity",
+          "params": [
+            "max_workers"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_load_expected_mcp_servers",
+          "params": [
+            "mcp_config_file"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_load_mcp_tool_timeout_ms",
+          "params": [
+            "mcp_config_file",
+            "server_name"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_check_session_mcp_ready",
+          "params": [
+            "session_path",
+            "expected_mcp_servers"
+          ],
+          "returnType": "tuple[bool, str, dict[str, Any]]",
+          "exported": true,
+          "lineCount": 111
+        },
+        {
+          "name": "_safe_name",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_rollout_dir",
+          "params": [
+            "sample_root",
+            "num_rollouts",
+            "rollout_index"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_copy_tree",
+          "params": [
+            "src",
+            "dst"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_switch_provider",
+          "params": [
+            "provider"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_extract_result_text_from_stream_jsonl",
+          "params": [
+            "session_path"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_parse_json_list",
+          "params": [
+            "raw"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_parse_lines_or_json",
+          "params": [
+            "raw"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "_parse_pf_gt",
+          "params": [
+            "raw"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_load_samples",
+          "params": [
+            "dataset_csv",
+            "task"
+          ],
+          "returnType": "list[Sample]",
+          "exported": true,
+          "lineCount": 98
+        },
+        {
+          "name": "_build_user_prompt",
+          "params": [
+            "question_text",
+            "task"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_run_one",
+          "params": [
+            "claude_bin",
+            "prompt",
+            "system_prompt",
+            "workdir",
+            "archive_root",
+            "attempt_index",
+            "mcp_config_file",
+            "strict_mcp_config",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model",
+            "dsh_provider"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 60
+        },
+        {
+          "name": "_prepare_claude_workdir",
+          "params": [
+            "target",
+            "source_scene_dir",
+            "harness"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "_promote_attempt_workdir",
+          "params": [
+            "source",
+            "canonical",
+            "attempt_index",
+            "capture_binding"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "_run_single_rollout",
+          "params": [
+            "task",
+            "sample",
+            "sample_root",
+            "rollout_index",
+            "num_rollouts",
+            "prompt",
+            "system_prompt",
+            "source_scene_dir",
+            "provider",
+            "claude_bin",
+            "mcp_config_file",
+            "strict_mcp_config",
+            "source_dataset_sha256",
+            "system_prompt_sha256",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model"
+          ],
+          "returnType": "RolloutResult",
+          "exported": true,
+          "lineCount": 228
+        },
+        {
+          "name": "_safe_read_json",
+          "params": [
+            "path"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_check_run_completeness",
+          "params": [
+            "run_dir",
+            "num_rollouts",
+            "task"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 96
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 389
+        }
+      ],
+      "classes": [
+        {
+          "name": "Sample",
+          "methods": [],
+          "properties": [
+            "row_number",
+            "dataset_index",
+            "question_text",
+            "raw_question_json",
+            "candidates",
+            "answer",
+            "n_active"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "RolloutResult",
+          "methods": [],
+          "properties": [
+            "rollout_index",
+            "sample_dir",
+            "return_code",
+            "timed_out",
+            "timeout_sec",
+            "duration_sec",
+            "answer_block",
+            "answer",
+            "parse_error",
+            "parse_source",
+            "parse_attempts",
+            "raw_answer_len"
+          ],
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "FIRST_COMPLETED",
+            "ThreadPoolExecutor",
+            "wait"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "tqdm.auto",
+          "specifiers": [
+            "tqdm"
+          ]
+        }
+      ],
+      "exports": [
+        "Sample",
+        "RolloutResult",
+        "_environment_capacity",
+        "_validate_kg_worker_capacity",
+        "_load_expected_mcp_servers",
+        "_load_mcp_tool_timeout_ms",
+        "_check_session_mcp_ready",
+        "_safe_name",
+        "_rollout_dir",
+        "_copy_tree",
+        "_switch_provider",
+        "_extract_result_text_from_stream_jsonl",
+        "_parse_json_list",
+        "_parse_lines_or_json",
+        "_parse_pf_gt",
+        "_load_samples",
+        "_build_user_prompt",
+        "_run_one",
+        "_prepare_claude_workdir",
+        "_promote_attempt_workdir",
+        "_run_single_rollout",
+        "_safe_read_json",
+        "_check_run_completeness",
+        "main"
+      ],
+      "totalLines": 1357,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/claude_agent/session_capture.py": {
+      "filePath": "data-pipe/pipeline/claude_agent/session_capture.py",
+      "contentHash": "1c347c74a512d288558a41264c9623c48794b676a01cb6aa9feb6c8fc1a3e5be",
+      "functions": [
+        {
+          "name": "claude_code_environment",
+          "params": [],
+          "returnType": "dict[str, str]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_sha256",
+          "params": [
+            "path"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "inspect_session",
+          "params": [
+            "path"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "session_format",
+          "params": [
+            "path"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "extract_assistant_text",
+          "params": [
+            "path",
+            "final_only"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 55
+        },
+        {
+          "name": "session_has_dsml",
+          "params": [
+            "path"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "write_session_pretty",
+          "params": [
+            "session_path"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "session_has_retryable_http_500",
+          "params": [
+            "path"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "http_500_retry_delay",
+          "params": [
+            "retry_count"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "next_attempt_index",
+          "params": [
+            "workdir"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "next_attempt",
+          "params": [
+            "workdir"
+          ],
+          "returnType": "tuple[int, Path]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "run_stream_json",
+          "params": [
+            "command",
+            "cwd",
+            "archive_root",
+            "attempt_index",
+            "input_text",
+            "timeout_sec"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 66
+        },
+        {
+          "name": "_load_mcp_config",
+          "params": [
+            "path"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "_dsh_patch",
+          "params": [
+            "system_prompt",
+            "model",
+            "mcp_servers",
+            "scientific_collection"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "_find_dsh_session",
+          "params": [
+            "dsh_home"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_deepseek_environment",
+          "params": [
+            "provider_id"
+          ],
+          "returnType": "dict[str, str]",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "_validated_node_version",
+          "params": [
+            "node"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "run_deepseek_harness",
+          "params": [
+            "prompt",
+            "system_prompt",
+            "cwd",
+            "archive_root",
+            "dsh_bin",
+            "node_bin",
+            "model",
+            "mcp_config_file",
+            "provider_id",
+            "attempt_index",
+            "timeout_sec",
+            "scientific_collection"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 117
+        },
+        {
+          "name": "select_attempt",
+          "params": [
+            "attempt",
+            "canonical_path"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        }
+      ],
+      "exports": [
+        "claude_code_environment",
+        "_sha256",
+        "inspect_session",
+        "session_format",
+        "extract_assistant_text",
+        "session_has_dsml",
+        "write_session_pretty",
+        "session_has_retryable_http_500",
+        "http_500_retry_delay",
+        "next_attempt_index",
+        "next_attempt",
+        "run_stream_json",
+        "_load_mcp_config",
+        "_dsh_patch",
+        "_find_dsh_session",
+        "_deepseek_environment",
+        "_validated_node_version",
+        "run_deepseek_harness",
+        "select_attempt"
+      ],
+      "totalLines": 558,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/answer_recovery.py": {
+      "filePath": "data-pipe/pipeline/cleaning/answer_recovery.py",
+      "contentHash": "0ae051b795390c9877d936dfe7439abbafc108c5a0393fe570bb91f8c0087955",
+      "functions": [
+        {
+          "name": "final_event",
+          "params": [
+            "row"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "answer_key_findings",
+          "params": [
+            "row"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "strip_review_text",
+          "params": [
+            "row",
+            "review"
+          ],
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "ranking_reasoning",
+          "params": [
+            "numeric"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_strings",
+          "params": [
+            "value"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "evidence_surfaces",
+          "params": [
+            "row"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "recover_answer",
+          "params": [
+            "row"
+          ],
+          "exported": true,
+          "lineCount": 88
+        },
+        {
+          "name": "apply_answer_patch",
+          "params": [
+            "row",
+            "patch"
+          ],
+          "exported": true,
+          "lineCount": 20
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "ANSWER_KEYS",
+            "normalize_final_answer",
+            "task_constraints"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.recover_historical_answers",
+          "specifiers": [
+            "identity",
+            "rank_predictions"
+          ]
+        }
+      ],
+      "exports": [
+        "final_event",
+        "answer_key_findings",
+        "strip_review_text",
+        "ranking_reasoning",
+        "_strings",
+        "evidence_surfaces",
+        "recover_answer",
+        "apply_answer_patch"
+      ],
+      "totalLines": 216,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/gate_release.py": {
+      "filePath": "data-pipe/pipeline/cleaning/gate_release.py",
+      "contentHash": "aa6461951e846c3868cbda193f217820f9531d1d761b652b825c8214c9c63cb0",
+      "functions": [
+        {
+          "name": "update_release_manifest",
+          "params": [
+            "root",
+            "report"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "verify_mask_roles",
+          "params": [
+            "tokenizer",
+            "masker"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "gate",
+          "params": [
+            "root",
+            "model",
+            "max_tokens"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 49
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "pipeline.benchmark_release",
+          "specifiers": [
+            "digest"
+          ]
+        }
+      ],
+      "exports": [
+        "update_release_manifest",
+        "verify_mask_roles",
+        "gate"
+      ],
+      "totalLines": 98,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/llm_clean.py": {
+      "filePath": "data-pipe/pipeline/cleaning/llm_clean.py",
+      "contentHash": "60b89e1dbce0e13a782c16a225fdbc49b2f49b7d18742368d0adbc7e793d1014",
+      "functions": [
+        {
+          "name": "_serialize",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_safe_name",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_record_sha256",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_decisions",
+          "params": [
+            "source"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_editable_reasoning",
+          "params": [
+            "source"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_reasoning_findings",
+          "params": [
+            "candidate",
+            "first_id"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "apply_reasoning_patch",
+          "params": [
+            "source",
+            "patch",
+            "require_high_level_plan"
+          ],
+          "returnType": "tuple[dict[str, Any], list[str], list[dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 72
+        },
+        {
+          "name": "build_claude_patch_provider",
+          "params": [
+            "claude_bin",
+            "debug_root",
+            "timeout_sec",
+            "max_attempts",
+            "require_high_level_plan",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model",
+            "dsh_provider"
+          ],
+          "returnType": "PatchProvider",
+          "exported": true,
+          "lineCount": 121
+        },
+        {
+          "name": "clean_semantic",
+          "params": [
+            "source",
+            "patch_provider",
+            "require_high_level_plan"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "llm_clean",
+          "params": [
+            "input_path",
+            "output_root",
+            "claude_bin",
+            "timeout_sec",
+            "limit",
+            "max_workers",
+            "max_attempts",
+            "require_high_level_plan",
+            "patch_provider",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model",
+            "dsh_provider"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 77
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 31
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "as_completed"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Callable"
+          ]
+        },
+        {
+          "source": "pipeline.claude_agent.session_capture",
+          "specifiers": [
+            "http_500_retry_delay",
+            "run_deepseek_harness",
+            "run_stream_json",
+            "select_attempt",
+            "session_has_retryable_http_500"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.invariants",
+          "specifiers": [
+            "compare_immutable_facts",
+            "validate_semantic_record"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.io",
+          "specifiers": [
+            "base_manifest",
+            "read_jsonl",
+            "write_json",
+            "write_jsonl",
+            "write_pretty_json"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.models",
+          "specifiers": [
+            "LLM_CLEAN_SCENE_DIR",
+            "LLM_CLEAN_SYSTEM_PROMPT",
+            "LLM_CLEAN_USER_PROMPT",
+            "PATCH_SCHEMA_VERSION",
+            "patch_schema_findings",
+            "semantic_schema_findings"
+          ]
+        }
+      ],
+      "exports": [
+        "_serialize",
+        "_safe_name",
+        "_record_sha256",
+        "_decisions",
+        "_editable_reasoning",
+        "_reasoning_findings",
+        "apply_reasoning_patch",
+        "build_claude_patch_provider",
+        "clean_semantic",
+        "llm_clean",
+        "main"
+      ],
+      "totalLines": 444,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/materialize_sft.py": {
+      "filePath": "data-pipe/pipeline/cleaning/materialize_sft.py",
+      "contentHash": "2d8ca9c13b16cae1dd51396f410bfe2793873e8f500652ea38cb68bbe25895a8",
+      "functions": [
+        {
+          "name": "materialize_sft",
+          "params": [
+            "input_path",
+            "output_root",
+            "deployment_tool_set",
+            "system_prompt",
+            "user_prompt_prefix",
+            "tool_visibility"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 47
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 30
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.deployment_tools",
+          "specifiers": [
+            "TOOL_VISIBILITY_CHOICES",
+            "load_deployment_tool_set"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.io",
+          "specifiers": [
+            "base_manifest",
+            "read_jsonl",
+            "write_json",
+            "write_jsonl",
+            "write_pretty_json"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.sft_views",
+          "specifiers": [
+            "semantic_to_qwen35_sft"
+          ]
+        }
+      ],
+      "exports": [
+        "materialize_sft",
+        "main"
+      ],
+      "totalLines": 107,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/publish_dataset.py": {
+      "filePath": "data-pipe/pipeline/cleaning/publish_dataset.py",
+      "contentHash": "f18560ed6f9f3246b6620aec6684f35a542c68bf98e528def6ad61d8262ec9fb",
+      "functions": [
+        {
+          "name": "publish",
+          "params": [
+            "input_path",
+            "output",
+            "model",
+            "audits",
+            "deployment_tool_set",
+            "system_prompt_file",
+            "user_prompt_prefix_file",
+            "reviews_path"
+          ],
+          "exported": true,
+          "lineCount": 29
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "pipeline.benchmark_release",
+          "specifiers": [
+            "digest"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.materialize_sft",
+          "specifiers": [
+            "materialize_sft"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.gate_release",
+          "specifiers": [
+            "gate"
+          ]
+        }
+      ],
+      "exports": [
+        "publish"
+      ],
+      "totalLines": 57,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/python_clean.py": {
+      "filePath": "data-pipe/pipeline/cleaning/python_clean.py",
+      "contentHash": "f343fd72b84bc1b965b599dda661d63daf4d70d0fba45e7df88ce2a156c4e37c",
+      "functions": [
+        {
+          "name": "_sha256",
+          "params": [
+            "path"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_capture_binding_audit",
+          "params": [
+            "sample",
+            "run_meta"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "clean_sample",
+          "params": [
+            "sample",
+            "default_task",
+            "max_observation_chars"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 92
+        },
+        {
+          "name": "python_clean",
+          "params": [
+            "results_root",
+            "output_root",
+            "max_observation_chars"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.invariants",
+          "specifiers": [
+            "validate_semantic_record"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.io",
+          "specifiers": [
+            "base_manifest",
+            "write_json",
+            "write_jsonl",
+            "write_pretty_json"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.semantic_builder",
+          "specifiers": [
+            "SemanticConstructionError",
+            "build_semantic_trajectory"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.trace_parser",
+          "specifiers": [
+            "RolloutSample",
+            "TASK_CHOICES",
+            "discover_rollout_samples",
+            "discover_run_dirs",
+            "infer_task",
+            "load_session_events",
+            "question_text",
+            "safe_load_json",
+            "source_labels",
+            "terminal_execution_findings"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "CONTRACT_VERSION",
+            "normalize_final_answer",
+            "normalize_task_prompt",
+            "task_constraints"
+          ]
+        }
+      ],
+      "exports": [
+        "_sha256",
+        "_capture_binding_audit",
+        "clean_sample",
+        "python_clean",
+        "main"
+      ],
+      "totalLines": 227,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/reasoning_shorten.py": {
+      "filePath": "data-pipe/pipeline/cleaning/reasoning_shorten.py",
+      "contentHash": "ea214dfcec06351c842f08930f4faba639ab47b91ee906d513039d659db283bd",
+      "functions": [
+        {
+          "name": "_serialize",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_safe_name",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_decisions",
+          "params": [
+            "source"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "oversized_targets",
+          "params": [
+            "source",
+            "token_counter",
+            "limit"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "apply_shorten_patch",
+          "params": [
+            "source",
+            "patch",
+            "target_ids"
+          ],
+          "returnType": "tuple[dict[str, Any], list[str]]",
+          "exported": true,
+          "lineCount": 42
+        },
+        {
+          "name": "build_patch_provider",
+          "params": [
+            "claude_bin",
+            "debug_root",
+            "timeout_sec",
+            "max_attempts",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model",
+            "dsh_provider"
+          ],
+          "returnType": "PatchProvider",
+          "exported": true,
+          "lineCount": 90
+        },
+        {
+          "name": "shorten_semantic",
+          "params": [
+            "source",
+            "provider",
+            "token_counter",
+            "token_limit",
+            "target_tokens"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "reasoning_shorten",
+          "params": [
+            "input_path",
+            "output_root",
+            "tokenizer_path",
+            "token_counter",
+            "patch_provider",
+            "token_limit",
+            "target_tokens",
+            "max_workers",
+            "limit",
+            "claude_bin",
+            "timeout_sec",
+            "max_attempts",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model",
+            "dsh_provider"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 47
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 16
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "as_completed"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Callable"
+          ]
+        },
+        {
+          "source": "pipeline.claude_agent.session_capture",
+          "specifiers": [
+            "http_500_retry_delay",
+            "run_deepseek_harness",
+            "run_stream_json",
+            "select_attempt",
+            "session_has_retryable_http_500"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.invariants",
+          "specifiers": [
+            "compare_immutable_facts",
+            "validate_semantic_record"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.io",
+          "specifiers": [
+            "base_manifest",
+            "read_jsonl",
+            "write_json",
+            "write_jsonl",
+            "write_pretty_json"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.models",
+          "specifiers": [
+            "REASONING_SHORTEN_SCENE_DIR",
+            "REASONING_SHORTEN_SYSTEM_PROMPT",
+            "REASONING_SHORTEN_USER_PROMPT",
+            "SHORTEN_PATCH_SCHEMA_VERSION",
+            "semantic_schema_findings",
+            "shorten_patch_schema_findings"
+          ]
+        }
+      ],
+      "exports": [
+        "_serialize",
+        "_safe_name",
+        "_decisions",
+        "oversized_targets",
+        "apply_shorten_patch",
+        "build_patch_provider",
+        "shorten_semantic",
+        "reasoning_shorten",
+        "main"
+      ],
+      "totalLines": 294,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/semantic_builder.py": {
+      "filePath": "data-pipe/pipeline/cleaning/semantic_builder.py",
+      "contentHash": "808bcbbf0cc51eb22b6f9aa7172031ec818a6c8805966aeafdf642725bed4351",
+      "functions": [
+        {
+          "name": "_content_items",
+          "params": [
+            "event"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_walk_strings",
+          "params": [
+            "value"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_canonical_tool_name",
+          "params": [
+            "raw_name"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_drop_reason",
+          "params": [
+            "raw_name",
+            "arguments"
+          ],
+          "returnType": "tuple[str | None, str | None]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "_parse_content",
+          "params": [
+            "value"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "_looks_like_base64",
+          "params": [
+            "text"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_redact_blobs",
+          "params": [
+            "value"
+          ],
+          "returnType": "tuple[Any, int]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "compact_observation",
+          "params": [
+            "value",
+            "max_chars",
+            "preserve_skill_text",
+            "retained_evidence"
+          ],
+          "returnType": "tuple[Any, dict[str, Any] | None]",
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "_status",
+          "params": [
+            "payload",
+            "event_is_error"
+          ],
+          "returnType": "tuple[str, bool]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_unwrap_final",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_group_assistant_responses",
+          "params": [
+            "events"
+          ],
+          "returnType": "list[AssistantResponse]",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "_index_results",
+          "params": [
+            "events"
+          ],
+          "returnType": "dict[str, dict[str, Any]]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_has_real_pwd_call",
+          "params": [
+            "responses"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_mixed_l1_targets",
+          "params": [
+            "raw_name",
+            "arguments"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_extract_l1_result_text",
+          "params": [
+            "workspace",
+            "target",
+            "result_content"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_scalar_leaves",
+          "params": [
+            "value"
+          ],
+          "returnType": "list[Any]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_downstream_evidence",
+          "params": [
+            "value",
+            "downstream"
+          ],
+          "returnType": "list[Any]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "build_semantic_trajectory",
+          "params": [
+            "events",
+            "record_id",
+            "user_task",
+            "workspace",
+            "task_type",
+            "source_session_sha256",
+            "max_observation_chars"
+          ],
+          "returnType": "tuple[dict[str, Any], dict[str, Any]]",
+          "exported": true,
+          "lineCount": 213
+        }
+      ],
+      "classes": [
+        {
+          "name": "SemanticConstructionError",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "AssistantResponse",
+          "methods": [],
+          "properties": [
+            "message_id",
+            "first_line",
+            "content",
+            "seen_tool_ids",
+            "seen_prose"
+          ],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "imports": [
+        {
+          "source": "base64",
+          "specifiers": [
+            "base64"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter",
+            "OrderedDict"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.models",
+          "specifiers": [
+            "SEMANTIC_SCHEMA_VERSION",
+            "semantic_schema_findings"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.path_sanitizer",
+          "specifiers": [
+            "TrajectoryPathNormalizer"
+          ]
+        }
+      ],
+      "exports": [
+        "SemanticConstructionError",
+        "AssistantResponse",
+        "_content_items",
+        "_walk_strings",
+        "_canonical_tool_name",
+        "_drop_reason",
+        "_parse_content",
+        "_looks_like_base64",
+        "_redact_blobs",
+        "compact_observation",
+        "_status",
+        "_unwrap_final",
+        "_group_assistant_responses",
+        "_index_results",
+        "_has_real_pwd_call",
+        "_mixed_l1_targets",
+        "_extract_l1_result_text",
+        "_scalar_leaves",
+        "_downstream_evidence",
+        "build_semantic_trajectory"
+      ],
+      "totalLines": 547,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/sft_views.py": {
+      "filePath": "data-pipe/pipeline/cleaning/sft_views.py",
+      "contentHash": "420e02d7724404c6266c6f1f3c08186d5a3b78f5f8085ac7a8f2f9fd4ad2e69f",
+      "functions": [
+        {
+          "name": "_content",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "semantic_to_qwen35_sft",
+          "params": [
+            "record",
+            "deployment_tools",
+            "system_prompt",
+            "user_prompt_prefix",
+            "tool_visibility"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 99
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "normalize_final_answer",
+            "task_constraints"
+          ]
+        },
+        {
+          "source": "pipeline.benchmark_release",
+          "specifiers": [
+            "require_training_task"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.deployment_tools",
+          "specifiers": [
+            "DeploymentToolSet"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.invariants",
+          "specifiers": [
+            "validate_semantic_record"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.models",
+          "specifiers": [
+            "QWEN35_SFT_SCHEMA_VERSION",
+            "qwen35_sft_schema_findings"
+          ]
+        }
+      ],
+      "exports": [
+        "_content",
+        "semantic_to_qwen35_sft"
+      ],
+      "totalLines": 119,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/skill_native_augmentation.py": {
+      "filePath": "data-pipe/pipeline/cleaning/skill_native_augmentation.py",
+      "contentHash": "78abde8f4d3e126fc537ac7a1e9195f6f02433951336fb215c7a8de2c88180d9",
+      "functions": [
+        {
+          "name": "_tool_aliases",
+          "params": [],
+          "returnType": "dict[str, str]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "normalize_skill_references",
+          "params": [
+            "value",
+            "canonicalized",
+            "neutralized"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 48
+        },
+        {
+          "name": "normalize_l1_paths",
+          "params": [
+            "value"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "canonical_name",
+          "params": [
+            "name"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "skill_from_read",
+          "params": [
+            "call"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_skill_description",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_catalog_description",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "skill_catalog",
+          "params": [
+            "skills_root"
+          ],
+          "returnType": "tuple[dict[str, str], ...]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "render_catalog",
+          "params": [
+            "catalog"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "render_skill_result",
+          "params": [
+            "skill",
+            "skills_root"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_is_catalog_discovery",
+          "params": [
+            "call"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "augment_record",
+          "params": [
+            "record",
+            "skills_root"
+          ],
+          "returnType": "tuple[dict[str, Any], dict[str, int]]",
+          "exported": true,
+          "lineCount": 197
+        },
+        {
+          "name": "augment_file",
+          "params": [
+            "input_path",
+            "output_root",
+            "skills_root"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "html",
+          "specifiers": [
+            "html"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "functools",
+          "specifiers": [
+            "lru_cache"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.invariants",
+          "specifiers": [
+            "validate_semantic_record"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.io",
+          "specifiers": [
+            "base_manifest",
+            "read_jsonl",
+            "write_json",
+            "write_jsonl",
+            "write_pretty_json"
+          ]
+        }
+      ],
+      "exports": [
+        "_tool_aliases",
+        "normalize_skill_references",
+        "normalize_l1_paths",
+        "canonical_name",
+        "skill_from_read",
+        "_skill_description",
+        "_catalog_description",
+        "skill_catalog",
+        "render_catalog",
+        "render_skill_result",
+        "_is_catalog_discovery",
+        "augment_record",
+        "augment_file",
+        "main"
+      ],
+      "totalLines": 561,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/tests/test_answer_recovery.py": {
+      "filePath": "data-pipe/pipeline/cleaning/tests/test_answer_recovery.py",
+      "contentHash": "29477c254df5ae7c99d8e93718ca02d02d694fa20d685d47705dea7a39637090",
+      "functions": [
+        {
+          "name": "row",
+          "params": [
+            "task",
+            "question",
+            "final"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_recover_explicit_choice_not_candidate_outside_question",
+          "params": [],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_vs_tail_requires_some_scientific_order_and_does_not_invent_scores",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_empty_filter_is_usable",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_explicit_label_access_but_not_scientific_ground_truth_discussion",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_audit_appendix_removed_without_changing_label",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_llm_failure_retains_valid_trajectory",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_scientific_answer_is_not_rebuilt_from_a_skill_example",
+          "params": [
+            "task"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_existing_complete_scientific_answer_is_extracted_losslessly",
+          "params": [
+            "task"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_competing_scientific_answers_remain_unresolved",
+          "params": [
+            "task"
+          ],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.answer_recovery",
+          "specifiers": [
+            "recover_answer",
+            "strip_review_text",
+            "answer_key_findings"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.answer_recovery",
+          "specifiers": [
+            "apply_answer_patch"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.llm_clean",
+          "specifiers": [
+            "clean_semantic"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "normalize_task_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "row",
+        "test_recover_explicit_choice_not_candidate_outside_question",
+        "test_vs_tail_requires_some_scientific_order_and_does_not_invent_scores",
+        "test_empty_filter_is_usable",
+        "test_explicit_label_access_but_not_scientific_ground_truth_discussion",
+        "test_audit_appendix_removed_without_changing_label",
+        "test_llm_failure_retains_valid_trajectory",
+        "test_scientific_answer_is_not_rebuilt_from_a_skill_example",
+        "test_existing_complete_scientific_answer_is_extracted_losslessly",
+        "test_competing_scientific_answers_remain_unresolved"
+      ],
+      "totalLines": 105,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/cleaning/tests/test_fresh_raw_pipeline.py": {
+      "filePath": "data-pipe/pipeline/cleaning/tests/test_fresh_raw_pipeline.py",
+      "contentHash": "c6963b9851e4f6287b0bd034787a5c13ee4ce3db1a6a1674d9d3eaf8fee616d6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "FreshRawPipelineTest",
+          "methods": [
+            "test_collected_contract_is_preserved_through_native_skill_sft"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 96
+        }
+      ],
+      "imports": [
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "tempfile",
+          "specifiers": [
+            "tempfile"
+          ]
+        },
+        {
+          "source": "unittest",
+          "specifiers": [
+            "unittest"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "normalize_task_prompt"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.materialize_sft",
+          "specifiers": [
+            "materialize_sft"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.python_clean",
+          "specifiers": [
+            "python_clean"
+          ]
+        },
+        {
+          "source": "pipeline.cleaning.skill_native_augmentation",
+          "specifiers": [
+            "augment_file"
+          ]
+        }
+      ],
+      "exports": [
+        "FreshRawPipelineTest"
+      ],
+      "totalLines": 117,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/evaluate/task_evaluator.py": {
+      "filePath": "data-pipe/pipeline/evaluate/task_evaluator.py",
+      "contentHash": "b76a3807fbf693914c5c00e80c4ef843224789862bd672b5147b11d6dd3bc25d",
+      "functions": [
+        {
+          "name": "as_string_list",
+          "params": [
+            "value"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "load_chemistry_module",
+          "params": [],
+          "returnType": "tuple[Any | None, str | None]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_require_chemistry",
+          "params": [
+            "chemistry"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_canonicalize",
+          "params": [
+            "values",
+            "chemistry"
+          ],
+          "returnType": "tuple[list[str], list[dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_set_metrics",
+          "params": [
+            "prediction",
+            "ground_truth"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "_base_result",
+          "params": [
+            "task",
+            "reasons",
+            "metrics",
+            "prediction",
+            "ground_truth",
+            "candidates",
+            "audit"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "evaluate_vs",
+          "params": [
+            "prediction",
+            "ground_truth",
+            "candidates",
+            "chemistry",
+            "parse_error"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 58
+        },
+        {
+          "name": "evaluate_ac",
+          "params": [
+            "prediction",
+            "ground_truth",
+            "chemistry",
+            "parse_error"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "evaluate_pf",
+          "params": [
+            "prediction",
+            "ground_truth",
+            "chemistry",
+            "parse_error"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "_has_answer",
+          "params": [
+            "value"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_has_result_content",
+          "params": [
+            "value"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "evaluate_exploratory",
+          "params": [
+            "task",
+            "prediction",
+            "parse_error",
+            "task_contract"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "evaluate_task_answer",
+          "params": [
+            "task",
+            "prediction",
+            "ground_truth",
+            "candidates",
+            "chemistry",
+            "parse_error",
+            "task_contract"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 42
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "as_string_list",
+        "load_chemistry_module",
+        "_require_chemistry",
+        "_canonicalize",
+        "_set_metrics",
+        "_base_result",
+        "evaluate_vs",
+        "evaluate_ac",
+        "evaluate_pf",
+        "_has_answer",
+        "_has_result_content",
+        "evaluate_exploratory",
+        "evaluate_task_answer"
+      ],
+      "totalLines": 380,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/kg/run_kg_pipeline.sh": {
+      "filePath": "data-pipe/pipeline/kg/run_kg_pipeline.sh",
+      "contentHash": "10fcaf67e2b01ccb5fe0b6ef28d4ed2384eba05d6c10c70b2f625a792375ba20",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 316,
+      "hasStructuralAnalysis": false
+    },
+    "data-pipe/pipeline/kg/scripts/build_kg_task_dataset.py": {
+      "filePath": "data-pipe/pipeline/kg/scripts/build_kg_task_dataset.py",
+      "contentHash": "5faa761342e49028ebbb75a05bd86f13fe85b507e5be3b89ce5fb8ecfe6abaeb",
+      "functions": [
+        {
+          "name": "_load_jsonl",
+          "params": [
+            "path"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_write_jsonl",
+          "params": [
+            "path",
+            "rows"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_as_int",
+          "params": [
+            "v",
+            "default"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_extract_question",
+          "params": [
+            "rec"
+          ],
+          "returnType": "tuple[str, str]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_normalize_tool_name",
+          "params": [
+            "name"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_toolchain_from_trajectory",
+          "params": [
+            "expected"
+          ],
+          "returnType": "tuple[list[str], list[dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "_validate_expected_trajectory_v2",
+          "params": [
+            "expected"
+          ],
+          "returnType": "tuple[bool, str | None]",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_expected_trajectory_from_simple_sample",
+          "params": [
+            "rec"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 52
+        },
+        {
+          "name": "_normalize_sample",
+          "params": [
+            "rec"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_build_task_spec",
+          "params": [
+            "rec",
+            "kg_project_root",
+            "kg_run_id",
+            "sample_file",
+            "sample_index",
+            "sample_id",
+            "question",
+            "schema_version",
+            "include_raw_sample"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 73
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 161
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "_load_jsonl",
+        "_write_jsonl",
+        "_as_int",
+        "_extract_question",
+        "_normalize_tool_name",
+        "_toolchain_from_trajectory",
+        "_validate_expected_trajectory_v2",
+        "_expected_trajectory_from_simple_sample",
+        "_normalize_sample",
+        "_build_task_spec",
+        "main"
+      ],
+      "totalLines": 431,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/kg/tool_admission.py": {
+      "filePath": "data-pipe/pipeline/kg/tool_admission.py",
+      "contentHash": "15b17dae647e0d7bce9158ef3f6245ad481d3a70a4c1f79ba99c5264ea40c3c2",
+      "functions": [
+        {
+          "name": "load_tool_limits",
+          "params": [
+            "path"
+          ],
+          "returnType": "dict[str, int]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "expected_tools_from_task_spec",
+          "params": [
+            "task_spec"
+          ],
+          "returnType": "tuple[str, ...]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "task_spec_from_raw_question_json",
+          "params": [
+            "raw_question_json"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "serial_tool_claims",
+          "params": [
+            "expected_tools",
+            "limits"
+          ],
+          "returnType": "frozenset[str]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "first_admissible_index",
+          "params": [
+            "pending_claims",
+            "active_claims"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "load_tool_limits",
+        "expected_tools_from_task_spec",
+        "task_spec_from_raw_question_json",
+        "serial_tool_claims",
+        "first_admissible_index"
+      ],
+      "totalLines": 74,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/pipeline/output_contracts.py": {
+      "filePath": "data-pipe/pipeline/output_contracts.py",
+      "contentHash": "967f631a4c78a95e1a2305039f66a478f2882a986c03b82a7620b31954e65425",
+      "functions": [
+        {
+          "name": "task_constraints",
+          "params": [
+            "task",
+            "task_type"
+          ],
+          "returnType": "TaskConstraints",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "strict_json_loads",
+          "params": [
+            "text"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "normalize_task_prompt",
+          "params": [
+            "task",
+            "task_type"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 76
+        },
+        {
+          "name": "normalize_final_answer",
+          "params": [
+            "final_answer",
+            "task_type",
+            "constraints"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "parsed_answer_values",
+          "params": [
+            "final_answer",
+            "task_type"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "classes": [
+        {
+          "name": "TaskConstraints",
+          "methods": [],
+          "properties": [
+            "task_type",
+            "candidates",
+            "exact_count",
+            "complete_ranking"
+          ],
+          "exported": true,
+          "lineCount": 5
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "TaskConstraints",
+        "task_constraints",
+        "strict_json_loads",
+        "normalize_task_prompt",
+        "normalize_final_answer",
+        "parsed_answer_values"
+      ],
+      "totalLines": 238,
+      "hasStructuralAnalysis": true
+    },
+    "data-pipe/scripts/run_cleaning.sh": {
+      "filePath": "data-pipe/scripts/run_cleaning.sh",
+      "contentHash": "f31d23cf5ee32ae79633462256c75a3ec9a0f0c7b2258d37bdf43e97d44c1c57",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 200,
+      "hasStructuralAnalysis": false
+    },
+    "docs/DATA_FORMATS.md": {
+      "filePath": "docs/DATA_FORMATS.md",
+      "contentHash": "377573086d2427062b35991c242653a79ed8180703184731096c0c1db8df5f09",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 290,
+      "hasStructuralAnalysis": false
+    },
+    "docs/DATA_PIPE_REGULAR_CLEANING.md": {
+      "filePath": "docs/DATA_PIPE_REGULAR_CLEANING.md",
+      "contentHash": "ce0dbb960cc24db6fbcc51e116157b009c7006916eac9b657ec571dfaca6cfee",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 73,
+      "hasStructuralAnalysis": false
+    },
+    "docs/EXPERIMENT_ALIGNMENT.md": {
+      "filePath": "docs/EXPERIMENT_ALIGNMENT.md",
+      "contentHash": "246661f08bb99f037aae14e77caf6d2ca8601d247204a4b8ef4425243925dc14",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 102,
+      "hasStructuralAnalysis": false
+    },
+    "docs/GIT_SYNC.md": {
+      "filePath": "docs/GIT_SYNC.md",
+      "contentHash": "1da5d70f3b141c875967dc635cafe6fc6bdaf9605b52599127f2f972f230536e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 33,
+      "hasStructuralAnalysis": false
+    },
+    "docs/KNOWN_ISSUES.md": {
+      "filePath": "docs/KNOWN_ISSUES.md",
+      "contentHash": "11e29545183922ab8949c6915d09e4b6f294bc7c5a99aefd8049d97df5b14e68",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 22,
+      "hasStructuralAnalysis": false
+    },
+    "docs/MAINLINE.md": {
+      "filePath": "docs/MAINLINE.md",
+      "contentHash": "7de99f87c16dfe61669e31aaa993eb3bb3b4c05f76b2cd40372ccd6c25192915",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 132,
+      "hasStructuralAnalysis": false
+    },
+    "docs/RUN_COMMANDS.md": {
+      "filePath": "docs/RUN_COMMANDS.md",
+      "contentHash": "0ae37d65e4f8b4b932073a7f812ee990544fb0cb41a333f55e1462153c048e50",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 394,
+      "hasStructuralAnalysis": false
+    },
+    "docs/STATUS.md": {
+      "filePath": "docs/STATUS.md",
+      "contentHash": "9f7dd2d5788c8c88d5518afbd56ad8f0f3cce042146310c8bc22e4d0a3d94c66",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 25,
+      "hasStructuralAnalysis": false
+    },
+    "docs/decisions/2026-09-22-v9-evaluation-lifecycle.md": {
+      "filePath": "docs/decisions/2026-09-22-v9-evaluation-lifecycle.md",
+      "contentHash": "1ab09ec0fdb13cceb7a11fa3fdc5f8fe7bef3c0c9bb49a01c31fb592374be2a4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 32,
+      "hasStructuralAnalysis": false
+    },
+    "docs/decisions/2026-09-23-git-sync-and-intent-review.md": {
+      "filePath": "docs/decisions/2026-09-23-git-sync-and-intent-review.md",
+      "contentHash": "56a97437d6df02b7ba6baab21178bd401b75a355b9033fcae03c8a31e8885550",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 32,
+      "hasStructuralAnalysis": false
+    },
+    "docs/decisions/README.md": {
+      "filePath": "docs/decisions/README.md",
+      "contentHash": "999b6b0f57c0a4ef6cdc9f861bd15b702d426e95cf2ed572e2ef20536130b06b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 61,
+      "hasStructuralAnalysis": false
+    },
+    "patches/deepseek-harness/README.md": {
+      "filePath": "patches/deepseek-harness/README.md",
+      "contentHash": "6de4464d8d0137f5ebdfaf101f4d18ac4dbcad9a4255bff787dda42cc46f1e0b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 16,
+      "hasStructuralAnalysis": false
+    },
+    "runtime/molclaw_mcp.sh": {
+      "filePath": "runtime/molclaw_mcp.sh",
+      "contentHash": "affd70de7d2cd4b9b5215eeffaa19dacd4c6111bdf92d17f8c102386a89d749f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 29,
+      "hasStructuralAnalysis": false
+    },
+    "runtime/molclaw_mcp_config.py": {
+      "filePath": "runtime/molclaw_mcp_config.py",
+      "contentHash": "8ba371dda758c1cd8919a35b0d9e759eacf0986ca2461f272f0cbe15bf62a742",
+      "functions": [
+        {
+          "name": "build_config",
+          "params": [
+            "project_root",
+            "name",
+            "timeout"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "temporary_config",
+          "params": [
+            "project_root"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "adapt_existing_config",
+          "params": [
+            "config",
+            "project_root"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 27
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        }
+      ],
+      "exports": [
+        "build_config",
+        "temporary_config",
+        "adapt_existing_config"
+      ],
+      "totalLines": 55,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/DSML_BRIDGE.md": {
+      "filePath": "scripts/DSML_BRIDGE.md",
+      "contentHash": "50a386b45e236f2e31ada76fde9400064b0575f2aa71bb40a2a6666471a4648c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 43,
+      "hasStructuralAnalysis": false
+    },
+    "scripts/dsml_bridge.py": {
+      "filePath": "scripts/dsml_bridge.py",
+      "contentHash": "fb62210692995887d14d055031096abe4c2107dd634ee74db676427c9c3403d0",
+      "functions": [
+        {
+          "name": "rescue",
+          "params": [
+            "text",
+            "tools"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "plain",
+          "params": [
+            "content"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "convert_request",
+          "params": [
+            "body",
+            "model"
+          ],
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "convert_response",
+          "params": [
+            "data",
+            "tools",
+            "client_model"
+          ],
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "events",
+          "params": [
+            "message"
+          ],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "safe_error",
+          "params": [
+            "exc"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "provider_config",
+          "params": [
+            "provider"
+          ],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "classes": [
+        {
+          "name": "Handler",
+          "methods": [
+            "log_message",
+            "send_json",
+            "do_GET",
+            "sse",
+            "do_POST"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 60
+        }
+      ],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "concurrent.futures"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "http.server",
+          "specifiers": [
+            "BaseHTTPRequestHandler",
+            "ThreadingHTTPServer"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "httpx",
+          "specifiers": [
+            "httpx"
+          ]
+        },
+        {
+          "source": "jsonschema",
+          "specifiers": [
+            "validate"
+          ]
+        },
+        {
+          "source": "jsonschema.exceptions",
+          "specifiers": [
+            "ValidationError"
+          ]
+        }
+      ],
+      "exports": [
+        "rescue",
+        "plain",
+        "convert_request",
+        "convert_response",
+        "events",
+        "safe_error",
+        "provider_config",
+        "Handler"
+      ],
+      "totalLines": 262,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/test_dsml_bridge_boundaries.py": {
+      "filePath": "scripts/test_dsml_bridge_boundaries.py",
+      "contentHash": "5f2b783d7c56d7a67f102622a5737c3922225e9ab4fbb8780236b13507fd27bf",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Boundaries",
+          "methods": [
+            "test_truncated_native_call_is_not_executable",
+            "test_text_length_remains_max_tokens",
+            "test_complete_native_unchanged"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "imports": [
+        {
+          "source": "unittest",
+          "specifiers": [
+            "unittest"
+          ]
+        },
+        {
+          "source": "dsml_bridge",
+          "specifiers": [
+            "convert_response"
+          ]
+        }
+      ],
+      "exports": [
+        "Boundaries"
+      ],
+      "totalLines": 15,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/README.md": {
+      "filePath": "slime-wd/dsh-molbench/README.md",
+      "contentHash": "c247d8bbc60e1687549837f7ea71738b8060f8508534f7c3f53a9cd5f53b790a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 156,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/dsh-molbench/audit_protocol.py": {
+      "filePath": "slime-wd/dsh-molbench/audit_protocol.py",
+      "contentHash": "f426940c547e1e38b06ddf9aee94022134b0af41270ea366598365a363ac8def",
+      "functions": [
+        {
+          "name": "digest_json",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "atomic_json",
+          "params": [
+            "path",
+            "payload"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "audit",
+          "params": [
+            "run_dir",
+            "system_prompt_file",
+            "expected_mcp_tools",
+            "expected_skill_count"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 109
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "digest_json",
+        "atomic_json",
+        "audit",
+        "main"
+      ],
+      "totalLines": 157,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/pretrained_matrix/cpu_queue.py": {
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/cpu_queue.py",
+      "contentHash": "db5748b21d59f2e7b300d2e19be537df9eaa56caf30acd0f03ea7d9723f7ca8d",
+      "functions": [
+        {
+          "name": "terminate",
+          "params": [
+            "signum",
+            "frame"
+          ],
+          "exported": true,
+          "lineCount": 1
+        },
+        {
+          "name": "save",
+          "params": [
+            "path",
+            "obj"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "state",
+          "params": [
+            "slot",
+            "event",
+            "**kw"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "worker_path",
+          "params": [
+            "s"
+          ],
+          "exported": true,
+          "lineCount": 1
+        },
+        {
+          "name": "command",
+          "params": [
+            "item",
+            "role",
+            "attempt"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "validate",
+          "params": [
+            "item",
+            "role"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "get",
+          "params": [
+            "job"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "pair",
+          "params": [
+            "item",
+            "slot",
+            "attempt"
+          ],
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 31
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "fcntl",
+          "specifiers": [
+            "fcntl"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "pathlib"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shlex",
+          "specifiers": [
+            "shlex"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        }
+      ],
+      "exports": [
+        "terminate",
+        "save",
+        "state",
+        "worker_path",
+        "command",
+        "validate",
+        "get",
+        "pair",
+        "main"
+      ],
+      "totalLines": 124,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/pretrained_matrix/model_lease.py": {
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/model_lease.py",
+      "contentHash": "ee46b0c5f2dd0e9b4bb871c716ccea568f74c96e8512def1720001ac25ff986d",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/pretrained_matrix/run_cpu_eval.py": {
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/run_cpu_eval.py",
+      "contentHash": "79e2442d68b6a04b8d021095bab8f68f1ce5538f8a064d21f69e4df8fef6e62a",
+      "functions": [
+        {
+          "name": "terminate",
+          "params": [
+            "signum",
+            "frame"
+          ],
+          "exported": true,
+          "lineCount": 1
+        },
+        {
+          "name": "log",
+          "params": [
+            "event",
+            "**kw"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "check_lease",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "wait",
+          "params": [
+            "test",
+            "label",
+            "seconds"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "http",
+          "params": [
+            "url"
+          ],
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "pathlib"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "urllib.request",
+          "specifiers": [
+            "urllib.request"
+          ]
+        }
+      ],
+      "exports": [
+        "terminate",
+        "log",
+        "check_lease",
+        "wait",
+        "http"
+      ],
+      "totalLines": 83,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/pretrained_matrix/run_worker.sh": {
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/run_worker.sh",
+      "contentHash": "f144ead360089d0bdea33d058bbd54e789e7f21fa440b86955f672b7ddadcb9a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 378,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/dsh-molbench/pretrained_matrix/run_worker_polling.sh": {
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/run_worker_polling.sh",
+      "contentHash": "42a2c48f37d2ec4319708ba87588a8bba522e59b5a4a1104eb6a870e3be16f8a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 360,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/dsh-molbench/pretrained_matrix/stop_process_tree.py": {
+      "filePath": "slime-wd/dsh-molbench/pretrained_matrix/stop_process_tree.py",
+      "contentHash": "b25ee28540bfccb20d3ac34a924b6573151a38f9dc6168c4e74dee0bdf72457d",
+      "functions": [
+        {
+          "name": "snapshot",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "stop_tree",
+          "params": [
+            "pid",
+            "grace"
+          ],
+          "exported": true,
+          "lineCount": 27
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        }
+      ],
+      "exports": [
+        "snapshot",
+        "stop_tree"
+      ],
+      "totalLines": 50,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/recovery_policy.py": {
+      "filePath": "slime-wd/dsh-molbench/recovery_policy.py",
+      "contentHash": "0b9b9e1768c9c0358896eed519bd7d8805a08e2c11c777e2ff1700f72c752f84",
+      "functions": [
+        {
+          "name": "error_class",
+          "params": [
+            "text",
+            "code"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "observation",
+          "params": [
+            "data"
+          ],
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "unresolved_infrastructure",
+          "params": [
+            "events",
+            "record"
+          ],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        }
+      ],
+      "exports": [
+        "error_class",
+        "observation",
+        "unresolved_infrastructure"
+      ],
+      "totalLines": 102,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/run_dsh_molbench.py": {
+      "filePath": "slime-wd/dsh-molbench/run_dsh_molbench.py",
+      "contentHash": "37595f33a77742a48df17cfab6cc72456f049571a58bb72a6234531ecce80105",
+      "functions": [
+        {
+          "name": "utc_now",
+          "params": [],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "write_json",
+          "params": [
+            "path",
+            "payload",
+            "mode"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "write_text",
+          "params": [
+            "path",
+            "text",
+            "mode"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "sha256_file",
+          "params": [
+            "path"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "tree_digest",
+          "params": [
+            "root"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "normalized_prompt",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "prompt_hash",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "csv_rows",
+          "params": [
+            "path"
+          ],
+          "returnType": "list[dict[str, str]]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "extract_ms1_candidates",
+          "params": [
+            "prompt"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "extract_ms2_pair",
+          "params": [
+            "prompt"
+          ],
+          "returnType": "tuple[str, str]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "load_samples",
+          "params": [
+            "molbench_root",
+            "suites",
+            "limit_per_suite"
+          ],
+          "returnType": "list[Sample]",
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "create_workspace_snapshot",
+          "params": [
+            "run_dir",
+            "skill_source"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "prepare_workspace",
+          "params": [
+            "run_dir",
+            "sample",
+            "workspace_payload"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "protocol_snapshot",
+          "params": [
+            "events"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "workspace_catalog",
+          "params": [
+            "workdir"
+          ],
+          "returnType": "list[dict[str, str]]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "protocol_snapshot_matches",
+          "params": [
+            "snapshot",
+            "expected_system",
+            "expected_mcp_tools",
+            "expected_skill_count",
+            "expected_catalog"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "wait_for_protocol_ready",
+          "params": [
+            "api",
+            "workdir",
+            "model_provider",
+            "model_id",
+            "agent_preset",
+            "expected_system",
+            "expected_mcp_tools",
+            "expected_skill_count",
+            "timeout_sec"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "aligned_task_text",
+          "params": [
+            "sample"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "task_prompt",
+          "params": [
+            "sample",
+            "prompt_prefix"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "event_text",
+          "params": [
+            "event"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "completed_turn",
+          "params": [
+            "events"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "pending_approvals",
+          "params": [
+            "events"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "pending_user_question",
+          "params": [
+            "events"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "summarize_events",
+          "params": [
+            "events"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "diagnostic_transcript",
+          "params": [
+            "events"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "project_prediction",
+          "params": [
+            "sample",
+            "final_text"
+          ],
+          "returnType": "tuple[Any, bool, str | None]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "json_format_valid",
+          "params": [
+            "sample",
+            "text"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "publishable_records",
+          "params": [
+            "records"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "run_sample",
+          "params": [
+            "api",
+            "run_dir",
+            "sample",
+            "workdir",
+            "timeout_sec",
+            "model_provider",
+            "model_id",
+            "agent_preset",
+            "prompt_prefix",
+            "attempt",
+            "expected_system",
+            "expected_mcp_tools",
+            "expected_skill_count",
+            "recover_infra"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 142
+        },
+        {
+          "name": "retry_eligible",
+          "params": [
+            "record"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "recover_task",
+          "params": [
+            "run_once",
+            "reset",
+            "sleep"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "failure_class",
+          "params": [
+            "record"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "archive_failed_attempt",
+          "params": [
+            "run_dir",
+            "sample",
+            "record"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "load_record",
+          "params": [
+            "run_dir",
+            "sample"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "materialize_scores",
+          "params": [
+            "run_dir",
+            "molbench_root",
+            "samples"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 127
+        },
+        {
+          "name": "materialize_rollout_summary",
+          "params": [
+            "run_dir",
+            "samples"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "git_revision",
+          "params": [
+            "repo"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "build_manifest",
+          "params": [
+            "run_dir",
+            "molbench_root",
+            "dsh_repo",
+            "skill_source",
+            "suites",
+            "limit_per_suite",
+            "samples",
+            "dsh_url",
+            "model_provider",
+            "model_id",
+            "agent_preset",
+            "system_prompt_file",
+            "tokenizer_config",
+            "runtime_audit_file"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 92
+        },
+        {
+          "name": "parse_args",
+          "params": [],
+          "returnType": "argparse.Namespace",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 226
+        }
+      ],
+      "classes": [
+        {
+          "name": "Sample",
+          "methods": [],
+          "properties": [
+            "task_id",
+            "suite",
+            "source_row",
+            "prompt",
+            "answer",
+            "target",
+            "molecule_a",
+            "molecule_b",
+            "source_id",
+            "subtask",
+            "source_molecule",
+            "metadata"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "DshApi",
+          "methods": [
+            "__init__",
+            "rpc",
+            "history",
+            "approve_pending"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 74
+        }
+      ],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "concurrent.futures"
+          ]
+        },
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "importlib.util",
+          "specifiers": [
+            "importlib.util"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "urllib.error",
+          "specifiers": [
+            "urllib.error"
+          ]
+        },
+        {
+          "source": "urllib.request",
+          "specifiers": [
+            "urllib.request"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "websocket",
+          "specifiers": [
+            "websocket"
+          ]
+        },
+        {
+          "source": "install_eval_preset",
+          "specifiers": [
+            "SKILL_PRESET_ID",
+            "install_eval_preset"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "CONTRACT_VERSION",
+            "normalize_final_answer",
+            "normalize_task_prompt",
+            "task_constraints"
+          ]
+        },
+        {
+          "source": "pipeline.benchmark_release",
+          "specifiers": [
+            "UPSTREAM_COMMIT"
+          ]
+        },
+        {
+          "source": "recovery_policy",
+          "specifiers": [
+            "BUDGET",
+            "error_class",
+            "unresolved_infrastructure"
+          ]
+        }
+      ],
+      "exports": [
+        "Sample",
+        "utc_now",
+        "write_json",
+        "write_text",
+        "sha256_file",
+        "tree_digest",
+        "normalized_prompt",
+        "prompt_hash",
+        "csv_rows",
+        "extract_ms1_candidates",
+        "extract_ms2_pair",
+        "load_samples",
+        "create_workspace_snapshot",
+        "prepare_workspace",
+        "DshApi",
+        "protocol_snapshot",
+        "workspace_catalog",
+        "protocol_snapshot_matches",
+        "wait_for_protocol_ready",
+        "aligned_task_text",
+        "task_prompt",
+        "event_text",
+        "completed_turn",
+        "pending_approvals",
+        "pending_user_question",
+        "summarize_events",
+        "diagnostic_transcript",
+        "project_prediction",
+        "json_format_valid",
+        "publishable_records",
+        "run_sample",
+        "retry_eligible",
+        "recover_task",
+        "failure_class",
+        "archive_failed_attempt",
+        "load_record",
+        "materialize_scores",
+        "materialize_rollout_summary",
+        "git_revision",
+        "build_manifest",
+        "parse_args",
+        "main"
+      ],
+      "totalLines": 1368,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/dsh-molbench/test_infra_recovery.py": {
+      "filePath": "slime-wd/dsh-molbench/test_infra_recovery.py",
+      "contentHash": "f7cfb7329ff9fe81b1193588c31971b6138a313ac0a662306c4b44f0f2ca0a2a",
+      "functions": [
+        {
+          "name": "call",
+          "params": [
+            "cid",
+            "args",
+            "result",
+            "is_error"
+          ],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [
+        {
+          "name": "InfrastructureRecoveryTest",
+          "methods": [
+            "test_same_call_recovery_and_changed_arguments",
+            "test_business_error_with_false_outer_flag",
+            "test_only_actual_errors_not_reasoning",
+            "test_bounded_retries_keep_last_not_best"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "WorkerRecoveryTest",
+          "methods": [
+            "test_worker_budget_survives_resume_and_requires_release",
+            "test_format_scoring_keeps_manifest_subset",
+            "test_unresolved_completed_answer_still_scores"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 59
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "unittest",
+          "specifiers": [
+            "unittest"
+          ]
+        },
+        {
+          "source": "importlib.util",
+          "specifiers": [
+            "importlib.util"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "tempfile",
+          "specifiers": [
+            "tempfile"
+          ]
+        },
+        {
+          "source": "unittest.mock",
+          "specifiers": [
+            "patch"
+          ]
+        },
+        {
+          "source": "types",
+          "specifiers": [
+            "SimpleNamespace"
+          ]
+        },
+        {
+          "source": "run_dsh_molbench",
+          "specifiers": [
+            "runner"
+          ]
+        }
+      ],
+      "exports": [
+        "call",
+        "InfrastructureRecoveryTest",
+        "WorkerRecoveryTest"
+      ],
+      "totalLines": 130,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/experiments/aligned_sft/follow_training.sh": {
+      "filePath": "slime-wd/experiments/aligned_sft/follow_training.sh",
+      "contentHash": "0aeeb881b3f733fa027b8e2f14878773408bed4aa311ce4afbcac72d32543c43",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 23,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/experiments/aligned_sft/run_worker.sh": {
+      "filePath": "slime-wd/experiments/aligned_sft/run_worker.sh",
+      "contentHash": "a7b1771d9e45639d34318b7631bb9b5ced937f055c865e897318bf66393eddbd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 74,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/experiments/aligned_sft/submit.sh": {
+      "filePath": "slime-wd/experiments/aligned_sft/submit.sh",
+      "contentHash": "7e3e1e2393a55b4e2528c365f11e0419d7186c115aa643d9b6e167d2f5ea2a29",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 31,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/experiments/aligned_sft/validate_release.py": {
+      "filePath": "slime-wd/experiments/aligned_sft/validate_release.py",
+      "contentHash": "be554d9cbf1457366b414e72fadd17bdfbbab24824371bb989e4011979b5040f",
+      "functions": [
+        {
+          "name": "sha",
+          "params": [
+            "path"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "validate",
+          "params": [
+            "root",
+            "audit"
+          ],
+          "exported": true,
+          "lineCount": 35
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        }
+      ],
+      "exports": [
+        "sha",
+        "validate"
+      ],
+      "totalLines": 60,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/experiments/aligned_sft/verify_checkpoint_reload.py": {
+      "filePath": "slime-wd/experiments/aligned_sft/verify_checkpoint_reload.py",
+      "contentHash": "037b02e3eb758d8aa71f1ad780cfde95d4759b4512afa4d0d21a3a1415eb4341",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "torch",
+          "specifiers": [
+            "torch"
+          ]
+        },
+        {
+          "source": "transformers",
+          "specifiers": [
+            "AutoModelForImageTextToText"
+          ]
+        },
+        {
+          "source": "transformers.models.qwen3_5",
+          "specifiers": [
+            "qwen"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/experiments/aligned_sft/verify_metrics.py": {
+      "filePath": "slime-wd/experiments/aligned_sft/verify_metrics.py",
+      "contentHash": "8daba4d91ce008830b9d692a0c302505d49e72793365d5a432317233e549214a",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "tensorboard.backend.event_processing.event_accumulator",
+          "specifiers": [
+            "EventAccumulator"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 18,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/molclaw-mcp-relay/README.md": {
+      "filePath": "slime-wd/molclaw-mcp-relay/README.md",
+      "contentHash": "14ed36e86422ff3dc980624bf4c3cde719a88b5d86226e8a22a224234ec6ae41",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/molclaw-mcp-relay/polling-adapter/README.md": {
+      "filePath": "slime-wd/molclaw-mcp-relay/polling-adapter/README.md",
+      "contentHash": "0da350eed039fd1dceacac7fa54e132e56cdd24e0e24ffebd088d74756d752bb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 56,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/molclaw-mcp-relay/polling-adapter/adapter_server.mjs": {
+      "filePath": "slime-wd/molclaw-mcp-relay/polling-adapter/adapter_server.mjs",
+      "contentHash": "e334161df6b1d4428a915fe06557ccc1fe2b2345c59c062ab295266affa6bac3",
+      "functions": [
+        {
+          "name": "createAdapter",
+          "params": [],
+          "exported": true,
+          "lineCount": 23
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:crypto",
+          "specifiers": [
+            "randomUUID"
+          ]
+        },
+        {
+          "source": "./transport_recovery.mjs",
+          "specifiers": [
+            "retrySameRequest"
+          ]
+        },
+        {
+          "source": "./polling_client_core.mjs",
+          "specifiers": [
+            "awaitToolResult"
+          ]
+        }
+      ],
+      "exports": [
+        "createAdapter"
+      ],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/molclaw-mcp-relay/polling-adapter/polling_client_core.mjs": {
+      "filePath": "slime-wd/molclaw-mcp-relay/polling-adapter/polling_client_core.mjs",
+      "contentHash": "e58bc0d47572627d31ae713da7c609294058487200245393935d0d883c909445",
+      "functions": [
+        {
+          "name": "awaitToolResult",
+          "params": [],
+          "exported": true,
+          "lineCount": 30
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:crypto",
+          "specifiers": [
+            "randomUUID"
+          ]
+        }
+      ],
+      "exports": [
+        "awaitToolResult"
+      ],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/molclaw-mcp-relay/polling-adapter/transport_recovery.mjs": {
+      "filePath": "slime-wd/molclaw-mcp-relay/polling-adapter/transport_recovery.mjs",
+      "contentHash": "d329a2b645fc5d19aaed73d77a35aacba9e10b5bfce540086d8a1fa7439d39d3",
+      "functions": [
+        {
+          "name": "transientFetch",
+          "params": [
+            "error"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "forwardedTransportEof",
+          "params": [
+            "error"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "transientTransport",
+          "params": [
+            "error"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "retrySameRequest",
+          "params": [
+            "request"
+          ],
+          "exported": true,
+          "lineCount": 27
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:timers/promises",
+          "specifiers": [
+            "delay"
+          ]
+        }
+      ],
+      "exports": [
+        "transientFetch",
+        "forwardedTransportEof",
+        "transientTransport",
+        "retrySameRequest"
+      ],
+      "totalLines": 49,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/slime/.gitignore": {
+      "filePath": "slime-wd/slime/.gitignore",
+      "contentHash": "8b925faed2334d815af691ff59f4ccc99640f927dc1050453e64f93778b76fca",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 197,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/slime/README.md": {
+      "filePath": "slime-wd/slime/README.md",
+      "contentHash": "8c70756606249f3d3285b54c28f4668c2ee9d7ec2395bb69fd21ccba687e0c5e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 33,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/slime/docs/README.md": {
+      "filePath": "slime-wd/slime/docs/README.md",
+      "contentHash": "8ee6a57e92e59b58d29be1b985a902abd957bfff0489008b97dcdad0d254d3fd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 31,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/slime/drug_agent/data/validate_sft_messages.py": {
+      "filePath": "slime-wd/slime/drug_agent/data/validate_sft_messages.py",
+      "contentHash": "ebbbf1fa0f93b3921e9249feaea0ad7dc76a29d894cb403c33f7b2642b55a862",
+      "functions": [
+        {
+          "name": "validate_record",
+          "params": [
+            "record"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 70
+        },
+        {
+          "name": "validate_file",
+          "params": [
+            "path",
+            "model"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "validate_record",
+        "validate_file",
+        "main"
+      ],
+      "totalLines": 126,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/slime/drug_agent/offline_guard.py": {
+      "filePath": "slime-wd/slime/drug_agent/offline_guard.py",
+      "contentHash": "cab41eb8017bfec99b0a134ad664f978e58d88b386854d355e139afc33f0909d",
+      "functions": [
+        {
+          "name": "_enabled",
+          "params": [
+            "name",
+            "default"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "assert_tool_environment_allowed",
+          "params": [
+            "operation"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "assert_offline_training_environment",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        }
+      ],
+      "exports": [
+        "_enabled",
+        "assert_tool_environment_allowed",
+        "assert_offline_training_environment",
+        "main"
+      ],
+      "totalLines": 62,
+      "hasStructuralAnalysis": true
+    },
+    "slime-wd/slime/drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh": {
+      "filePath": "slime-wd/slime/drug_agent/scripts/run_qwen3_5_0_8b_drug_sft_smoke.sh",
+      "contentHash": "2fccd28107ad2b0914f3ef687a4ff2bfdda86399f61e5b51da5eaaecd3e23e52",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 409,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/slime/drug_agent/scripts/run_qwen3_5_4b_drug_sft_full.sh": {
+      "filePath": "slime-wd/slime/drug_agent/scripts/run_qwen3_5_4b_drug_sft_full.sh",
+      "contentHash": "cd28fec5f9149d9df637c780a6f04f295a814b900190ac101dc1c65b42129cca",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 116,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/slime/drug_agent/scripts/run_qwen3_5_9b_drug_sft_full.sh": {
+      "filePath": "slime-wd/slime/drug_agent/scripts/run_qwen3_5_9b_drug_sft_full.sh",
+      "contentHash": "c8d986defe94aedf1596d88be4c17feec8d895c4e1612243ac150628992fa6d6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": false
+    },
+    "slime-wd/slime/drug_agent/tests/test_validate_sft_messages.py": {
+      "filePath": "slime-wd/slime/drug_agent/tests/test_validate_sft_messages.py",
+      "contentHash": "b49dbdad5988db62255897c23684886f9c56697079a9fef503758b6ee516e157",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ValidateSftMessagesTest",
+          "methods": [
+            "test_parallel_tool_results_may_arrive_out_of_submission_order",
+            "test_unmatched_tool_result_is_still_rejected",
+            "test_prefix_conditioned_sft_may_end_at_supervised_tool_action"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 81
+        }
+      ],
+      "imports": [
+        {
+          "source": "unittest",
+          "specifiers": [
+            "unittest"
+          ]
+        },
+        {
+          "source": "drug_agent.data.validate_sft_messages",
+          "specifiers": [
+            "audit_react_actions"
+          ]
+        }
+      ],
+      "exports": [
+        "ValidateSftMessagesTest"
+      ],
+      "totalLines": 91,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/.gitignore": {
+      "filePath": "tool-kg/.gitignore",
+      "contentHash": "3655000b1404abe20311859dd1999e8998d6629fd423cc0abcc1f562299c3e85",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 47,
+      "hasStructuralAnalysis": false
+    },
+    "tool-kg/src/molclaw_kg/candidate_generation.py": {
+      "filePath": "tool-kg/src/molclaw_kg/candidate_generation.py",
+      "contentHash": "f57d7cf6001b9ab7339be47c1fd4c3055ecade866329ea352b1f79758d359116",
+      "functions": [
+        {
+          "name": "_cached_pair_ids",
+          "params": [
+            "config"
+          ],
+          "returnType": "set[str]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "generate_candidates",
+          "params": [
+            "config"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 94
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "itertools",
+          "specifiers": [
+            "itertools"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "defaultdict"
+          ]
+        },
+        {
+          "source": ".io_utils",
+          "specifiers": [
+            "read_jsonl",
+            "write_json",
+            "write_jsonl"
+          ]
+        },
+        {
+          "source": ".models",
+          "specifiers": [
+            "CandidatePair"
+          ]
+        },
+        {
+          "source": ".settings",
+          "specifiers": [
+            "ProjectConfig"
+          ]
+        },
+        {
+          "source": ".stage_taxonomy",
+          "specifiers": [
+            "load_stage_taxonomy",
+            "resolve_stage_taxonomy_path"
+          ]
+        }
+      ],
+      "exports": [
+        "_cached_pair_ids",
+        "generate_candidates"
+      ],
+      "totalLines": 120,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/src/molclaw_kg/canonical_outputs.py": {
+      "filePath": "tool-kg/src/molclaw_kg/canonical_outputs.py",
+      "contentHash": "dd6f48b5a282eedd01d4f59cc2dd5ccdd819a82759179fd9ae167b3c8a4a6a06",
+      "functions": [
+        {
+          "name": "canonical_edge_to_decision",
+          "params": [
+            "row"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "project_graph",
+          "params": [
+            "decisions",
+            "run_id"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "_git_commit",
+          "params": [
+            "root"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_config_hashes",
+          "params": [
+            "config"
+          ],
+          "returnType": "dict[str, str]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_collect_issues",
+          "params": [
+            "run_dir"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "publish_canonical_outputs",
+          "params": [
+            "config"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 65
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": ".io_utils",
+          "specifiers": [
+            "read_jsonl",
+            "sha256_file",
+            "write_json",
+            "write_jsonl"
+          ]
+        },
+        {
+          "source": ".settings",
+          "specifiers": [
+            "ProjectConfig"
+          ]
+        },
+        {
+          "source": ".stage_taxonomy",
+          "specifiers": [
+            "resolve_stage_taxonomy_path"
+          ]
+        }
+      ],
+      "exports": [
+        "canonical_edge_to_decision",
+        "project_graph",
+        "_git_commit",
+        "_config_hashes",
+        "_collect_issues",
+        "publish_canonical_outputs"
+      ],
+      "totalLines": 183,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/src/molclaw_kg/pairwise_runner.py": {
+      "filePath": "tool-kg/src/molclaw_kg/pairwise_runner.py",
+      "contentHash": "60ea41159233726717ce1897f0a458104a756815a494787a24d32d2ad6d4f140",
+      "functions": [
+        {
+          "name": "_select_adjudicator",
+          "params": [
+            "config",
+            "mode"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_failure_response",
+          "params": [
+            "pair_id",
+            "reason"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_safe_name",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_load_pair_prompt_template",
+          "params": [
+            "config"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_build_pair_prompt",
+          "params": [
+            "template",
+            "ontology"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_candidate_source_globs",
+          "params": [
+            "tool_id",
+            "aliases",
+            "canonical_skill_root"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_build_pair_spec",
+          "params": [
+            "row",
+            "cards",
+            "canonical_skill_root"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 42
+        },
+        {
+          "name": "_build_source_manifest",
+          "params": [
+            "pair_spec",
+            "canonical_skill_root"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "_prepare_pair_workdir",
+          "params": [
+            "config",
+            "workdir",
+            "pair_spec",
+            "source_manifest",
+            "prompt",
+            "source_card",
+            "target_card",
+            "taxonomy_raw",
+            "ontology",
+            "adjudication_schema"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "_pair_unit_dir",
+          "params": [
+            "config",
+            "source_tool",
+            "target_tool"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_pair_attempt_rel_name",
+          "params": [
+            "config",
+            "source_tool",
+            "target_tool",
+            "attempt_dir"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_flatten_adjudication_record",
+          "params": [
+            "rec"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_flatten_cache_entry_to_record",
+          "params": [
+            "pair",
+            "cache_key",
+            "cache_entry",
+            "from_cache"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "_run_pairwise_attempt",
+          "params": [
+            "config",
+            "pair",
+            "cards",
+            "prompt_template",
+            "taxonomy_version",
+            "cache_path",
+            "cache_lock",
+            "rerun_round",
+            "taxonomy_raw",
+            "ontology",
+            "adjudication_schema"
+          ],
+          "returnType": "tuple[dict[str, Any], dict[str, Any]]",
+          "exported": true,
+          "lineCount": 184
+        },
+        {
+          "name": "_load_pair_ids_filter",
+          "params": [
+            "path"
+          ],
+          "returnType": "set[str]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_merge_adjudications_with_existing",
+          "params": [
+            "out_path",
+            "updated_rows"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_extract_pair_adjudication_alerts",
+          "params": [
+            "rows"
+          ],
+          "returnType": "tuple[list[dict[str, Any]], list[str]]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "run_pairwise_adjudication",
+          "params": [
+            "config",
+            "mode",
+            "pair_ids_file",
+            "merge_into_existing",
+            "bypass_cache_for_targets",
+            "max_workers",
+            "resume",
+            "rerun_round"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 196
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter",
+            "defaultdict"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "as_completed"
+          ]
+        },
+        {
+          "source": "jsonschema",
+          "specifiers": [
+            "jsonschema"
+          ]
+        },
+        {
+          "source": ".adjudicators.agent_cc",
+          "specifiers": [
+            "AgentCCAdjudicator"
+          ]
+        },
+        {
+          "source": ".edge_ontology",
+          "specifiers": [
+            "EdgeOntology",
+            "build_adjudication_schema",
+            "load_edge_ontology",
+            "validate_adjudication_output"
+          ]
+        },
+        {
+          "source": ".io_utils",
+          "specifiers": [
+            "append_jsonl",
+            "atomic_write_jsonl",
+            "read_jsonl",
+            "stable_hash_obj",
+            "write_json",
+            "write_jsonl"
+          ]
+        },
+        {
+          "source": ".settings",
+          "specifiers": [
+            "ProjectConfig"
+          ]
+        },
+        {
+          "source": ".runtime_state",
+          "specifiers": [
+            "latest_jsonl_by_key",
+            "next_attempt_dir"
+          ]
+        },
+        {
+          "source": ".stage_taxonomy",
+          "specifiers": [
+            "load_stage_taxonomy",
+            "resolve_stage_taxonomy_path"
+          ]
+        },
+        {
+          "source": ".workdir_skills",
+          "specifiers": [
+            "install_scene",
+            "load_scene_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "_select_adjudicator",
+        "_failure_response",
+        "_safe_name",
+        "_load_pair_prompt_template",
+        "_build_pair_prompt",
+        "_candidate_source_globs",
+        "_build_pair_spec",
+        "_build_source_manifest",
+        "_prepare_pair_workdir",
+        "_pair_unit_dir",
+        "_pair_attempt_rel_name",
+        "_flatten_adjudication_record",
+        "_flatten_cache_entry_to_record",
+        "_run_pairwise_attempt",
+        "_load_pair_ids_filter",
+        "_merge_adjudications_with_existing",
+        "_extract_pair_adjudication_alerts",
+        "run_pairwise_adjudication"
+      ],
+      "totalLines": 684,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/src/molclaw_kg/pipeline.py": {
+      "filePath": "tool-kg/src/molclaw_kg/pipeline.py",
+      "contentHash": "3c5dcc2cb52edcfe4ba1947b6cddea178b74b2897b68c0b1f24a053376959ebc",
+      "functions": [
+        {
+          "name": "run_all",
+          "params": [
+            "project_root",
+            "run_id",
+            "api_key",
+            "server_url",
+            "skills_root",
+            "adjudication_mode",
+            "max_workers",
+            "resume",
+            "harness",
+            "dsh_bin",
+            "dsh_node_bin",
+            "dsh_model"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": ".candidate_generation",
+          "specifiers": [
+            "generate_candidates"
+          ]
+        },
+        {
+          "source": ".canonical_edges",
+          "specifiers": [
+            "build_canonical_edges"
+          ]
+        },
+        {
+          "source": ".canonical_outputs",
+          "specifiers": [
+            "publish_canonical_outputs"
+          ]
+        },
+        {
+          "source": ".io_utils",
+          "specifiers": [
+            "write_json"
+          ]
+        },
+        {
+          "source": ".mcp_snapshot",
+          "specifiers": [
+            "run_snapshot"
+          ]
+        },
+        {
+          "source": ".pairwise_runner",
+          "specifiers": [
+            "run_pairwise_adjudication"
+          ]
+        },
+        {
+          "source": ".settings",
+          "specifiers": [
+            "build_config"
+          ]
+        },
+        {
+          "source": ".tool_card_builder",
+          "specifiers": [
+            "build_tool_cards"
+          ]
+        }
+      ],
+      "exports": [
+        "run_all"
+      ],
+      "totalLines": 64,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/src/molclaw_kg/question_sampling/canonical_io.py": {
+      "filePath": "tool-kg/src/molclaw_kg/question_sampling/canonical_io.py",
+      "contentHash": "0c94541c59321150764404cee23ec6ee732439bd5cb9bdef6420eda3846b5a5a",
+      "functions": [
+        {
+          "name": "load_canonical_sampling_inputs",
+          "params": [
+            "run_dir"
+          ],
+          "returnType": "tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "_simple_expected_trajectory",
+          "params": [
+            "row"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "canonical_task",
+          "params": [
+            "row",
+            "run_id"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "update_manifest_tasks",
+          "params": [
+            "run_dir",
+            "task_count",
+            "sampling_profile_meta"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "..io_utils",
+          "specifiers": [
+            "read_json",
+            "read_jsonl",
+            "write_json"
+          ]
+        }
+      ],
+      "exports": [
+        "load_canonical_sampling_inputs",
+        "_simple_expected_trajectory",
+        "canonical_task",
+        "update_manifest_tasks"
+      ],
+      "totalLines": 130,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py": {
+      "filePath": "tool-kg/src/molclaw_kg/question_sampling/simple_sampler.py",
+      "contentHash": "5c11f546833f573c048acd645bde7ffa3e12252491ddf6208dcccdcb396c8219",
+      "functions": [
+        {
+          "name": "_now_utc",
+          "params": [],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "derive_normal_exponent_parameters",
+          "params": [
+            "spec"
+          ],
+          "returnType": "dict[str, float]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "sample_fanout_runtime_minutes",
+          "params": [
+            "rng",
+            "spec"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "render_fanout_runtime_prompt",
+          "params": [
+            "prompt",
+            "target_minutes"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "validate_simple_output",
+          "params": [
+            "obj"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "_valid_edge_pool",
+          "params": [
+            "graph",
+            "cards"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "sample_hidden_toolchain",
+          "params": [
+            "edges",
+            "cards",
+            "min_hops",
+            "max_hops",
+            "rng",
+            "retries"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "_edge_context",
+          "params": [
+            "edge"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_slot_context",
+          "params": [
+            "slot"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_tool_context",
+          "params": [
+            "card"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_decision_index",
+          "params": [
+            "rows"
+          ],
+          "returnType": "dict[str, dict[str, Any]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_edge_evidence",
+          "params": [
+            "edge",
+            "decisions"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_seed_target_id",
+          "params": [
+            "seed"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_seed_compound_id",
+          "params": [
+            "seed"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "select_grounding_seed",
+          "params": [
+            "records",
+            "seen_targets",
+            "seen_compounds",
+            "max_repeat_target",
+            "max_repeat_compound",
+            "rng"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "_grounding_facts",
+          "params": [
+            "kb",
+            "topk",
+            "cards",
+            "seed"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 52
+        },
+        {
+          "name": "_prepare_workdir",
+          "params": [
+            "config",
+            "workdir",
+            "context",
+            "prompt"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_science_kb_mcp",
+          "params": [
+            "config",
+            "trace_path"
+          ],
+          "returnType": "tuple[str, dict[str, Any]]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_call_agent",
+          "params": [
+            "runtime",
+            "config",
+            "workdir",
+            "prompt",
+            "allow_kb_queries"
+          ],
+          "returnType": "tuple[dict[str, Any] | None, str]",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "_tool_leaks",
+          "params": [
+            "text",
+            "nodes",
+            "cards"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_sequence_hint",
+          "params": [
+            "text"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_string_values",
+          "params": [
+            "value"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_sample_text",
+          "params": [
+            "sample",
+            "include_rationale"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "contains_user_followup_request",
+          "params": [
+            "sample"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "contains_placeholder_or_fake_input",
+          "params": [
+            "sample"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_semantic_failure",
+          "params": [
+            "parsed"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_generate_with_json_repairs",
+          "params": [
+            "runtime",
+            "config",
+            "workdir",
+            "json_repair_root",
+            "context",
+            "prompt",
+            "json_repair_prompt",
+            "json_repair_rounds",
+            "allow_kb_queries"
+          ],
+          "returnType": "tuple[dict[str, Any] | None, Path, int, list[str]]",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "_grounding_seed_context",
+          "params": [
+            "seed"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_execute_simple_attempt",
+          "params": [
+            "config",
+            "attempt_index",
+            "blueprint",
+            "context",
+            "cards",
+            "workdirs",
+            "prompt",
+            "repair_prompt",
+            "semantic_repair_prompt",
+            "json_repair_rounds",
+            "semantic_repair_rounds"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 142
+        },
+        {
+          "name": "sample_simple_questions",
+          "params": [
+            "config",
+            "target_successes",
+            "max_attempts",
+            "min_hops",
+            "max_hops",
+            "json_repair_rounds",
+            "semantic_repair_rounds",
+            "science_kb_topk",
+            "grounding_selection",
+            "max_repeat_target",
+            "max_repeat_compound",
+            "fanout_runtime_target",
+            "seed",
+            "sampling_profile_meta",
+            "max_workers"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 198
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter",
+            "defaultdict"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "jsonschema",
+          "specifiers": [
+            "jsonschema"
+          ]
+        },
+        {
+          "source": "..adjudicators.claude_code_runtime",
+          "specifiers": [
+            "ClaudeCodeRuntime",
+            "extract_json_object",
+            "safe_name"
+          ]
+        },
+        {
+          "source": "..io_utils",
+          "specifiers": [
+            "write_json",
+            "write_jsonl"
+          ]
+        },
+        {
+          "source": "..science_kb",
+          "specifiers": [
+            "ScienceKB"
+          ]
+        },
+        {
+          "source": "..settings",
+          "specifiers": [
+            "ProjectConfig"
+          ]
+        },
+        {
+          "source": ".schemas",
+          "specifiers": [
+            "SIMPLE_QUESTION_OUTPUT_SCHEMA"
+          ]
+        },
+        {
+          "source": ".canonical_io",
+          "specifiers": [
+            "canonical_task",
+            "load_canonical_sampling_inputs",
+            "update_manifest_tasks"
+          ]
+        },
+        {
+          "source": "..workdir_skills",
+          "specifiers": [
+            "install_scene",
+            "load_scene_prompt"
+          ]
+        },
+        {
+          "source": "pipeline.output_contracts",
+          "specifiers": [
+            "CONTRACTS",
+            "normalize_task_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "_now_utc",
+        "derive_normal_exponent_parameters",
+        "sample_fanout_runtime_minutes",
+        "render_fanout_runtime_prompt",
+        "validate_simple_output",
+        "_valid_edge_pool",
+        "sample_hidden_toolchain",
+        "_edge_context",
+        "_slot_context",
+        "_tool_context",
+        "_decision_index",
+        "_edge_evidence",
+        "_seed_target_id",
+        "_seed_compound_id",
+        "select_grounding_seed",
+        "_grounding_facts",
+        "_prepare_workdir",
+        "_science_kb_mcp",
+        "_call_agent",
+        "_tool_leaks",
+        "_sequence_hint",
+        "_string_values",
+        "_sample_text",
+        "contains_user_followup_request",
+        "contains_placeholder_or_fake_input",
+        "_semantic_failure",
+        "_generate_with_json_repairs",
+        "_grounding_seed_context",
+        "_execute_simple_attempt",
+        "sample_simple_questions"
+      ],
+      "totalLines": 842,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/src/molclaw_kg/tool_card_builder.py": {
+      "filePath": "tool-kg/src/molclaw_kg/tool_card_builder.py",
+      "contentHash": "1a10712755ef5c34878e337206c9191c81490e47a6b457391d48b959fef7af81",
+      "functions": [
+        {
+          "name": "_slot_from_schema",
+          "params": [
+            "name",
+            "spec",
+            "required",
+            "source",
+            "direction"
+          ],
+          "returnType": "Slot",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "_flatten_schema_slots",
+          "params": [
+            "name",
+            "spec",
+            "required",
+            "source",
+            "direction"
+          ],
+          "returnType": "list[Slot]",
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "_deterministic_outputs",
+          "params": [
+            "row"
+          ],
+          "returnType": "list[Slot]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_build_connectable_inputs",
+          "params": [
+            "inputs",
+            "preconditions"
+          ],
+          "returnType": "list[Slot]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_build_connectable_outputs",
+          "params": [
+            "outputs",
+            "side_effects"
+          ],
+          "returnType": "list[Slot]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_default_input_requirement_sets",
+          "params": [
+            "inputs",
+            "input_schema"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 128
+        },
+        {
+          "name": "_base_tool_card",
+          "params": [
+            "row",
+            "primary_stage",
+            "scheduling_stages"
+          ],
+          "returnType": "ToolCard",
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "_load_prompt_template",
+          "params": [
+            "config"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_build_tool_card_prompt",
+          "params": [
+            "tool_id"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_prepare_toolcard_workdir",
+          "params": [
+            "config",
+            "workdir",
+            "base_card",
+            "row",
+            "prompt"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 51
+        },
+        {
+          "name": "_run_toolcard_attempt",
+          "params": [
+            "config",
+            "base",
+            "row",
+            "fixed_primary",
+            "scheduling_stages",
+            "template",
+            "progress_path",
+            "progress_lock",
+            "rerun_round"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 182
+        },
+        {
+          "name": "_normalize_scheduling_stages",
+          "params": [
+            "stages",
+            "allowed",
+            "primary"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_to_str_list",
+          "params": [
+            "value"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_build_parse_repair_prompt",
+          "params": [],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_fallback_from_alert",
+          "params": [
+            "base"
+          ],
+          "returnType": "ToolCard",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_toolcard_progress_path",
+          "params": [
+            "config"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_toolcard_unit_dir",
+          "params": [
+            "config",
+            "tool_id"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_load_toolcard_state_maps",
+          "params": [
+            "config",
+            "progress_path",
+            "use_existing"
+          ],
+          "returnType": "tuple[dict[str, ToolCard], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 86
+        },
+        {
+          "name": "_load_tool_ids_filter",
+          "params": [
+            "path"
+          ],
+          "returnType": "set[str]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_merge_tool_cards_with_existing",
+          "params": [
+            "out_path",
+            "updated_cards"
+          ],
+          "returnType": "list[ToolCard]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_merge_debug_rows_with_existing",
+          "params": [
+            "out_path",
+            "updated_rows"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_merge_annotation_patch",
+          "params": [
+            "base",
+            "patch",
+            "fixed_primary",
+            "scheduling_stages"
+          ],
+          "returnType": "ToolCard",
+          "exported": true,
+          "lineCount": 125
+        },
+        {
+          "name": "build_tool_cards",
+          "params": [
+            "config",
+            "snapshot_path",
+            "tool_ids_file",
+            "merge_into_existing",
+            "max_workers",
+            "resume",
+            "rerun_round"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 180
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "as_completed"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "ValidationError"
+          ]
+        },
+        {
+          "source": ".adjudicators.claude_code_runtime",
+          "specifiers": [
+            "ClaudeCodeRuntime",
+            "extract_json_object",
+            "safe_name"
+          ]
+        },
+        {
+          "source": ".io_utils",
+          "specifiers": [
+            "append_jsonl",
+            "atomic_write_jsonl",
+            "read_jsonl",
+            "sha256_text",
+            "stable_hash_obj",
+            "write_json",
+            "write_jsonl"
+          ]
+        },
+        {
+          "source": ".models",
+          "specifiers": [
+            "Slot",
+            "ToolAnnotationPatch",
+            "ToolCard"
+          ]
+        },
+        {
+          "source": ".settings",
+          "specifiers": [
+            "ProjectConfig"
+          ]
+        },
+        {
+          "source": ".runtime_state",
+          "specifiers": [
+            "next_attempt_dir"
+          ]
+        },
+        {
+          "source": ".stage_taxonomy",
+          "specifiers": [
+            "load_stage_taxonomy",
+            "resolve_stage_taxonomy_path"
+          ]
+        },
+        {
+          "source": ".workdir_skills",
+          "specifiers": [
+            "install_scene",
+            "load_scene_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "_slot_from_schema",
+        "_flatten_schema_slots",
+        "_deterministic_outputs",
+        "_build_connectable_inputs",
+        "_build_connectable_outputs",
+        "_default_input_requirement_sets",
+        "_base_tool_card",
+        "_load_prompt_template",
+        "_build_tool_card_prompt",
+        "_prepare_toolcard_workdir",
+        "_run_toolcard_attempt",
+        "_normalize_scheduling_stages",
+        "_to_str_list",
+        "_build_parse_repair_prompt",
+        "_fallback_from_alert",
+        "_toolcard_progress_path",
+        "_toolcard_unit_dir",
+        "_load_toolcard_state_maps",
+        "_load_tool_ids_filter",
+        "_merge_tool_cards_with_existing",
+        "_merge_debug_rows_with_existing",
+        "_merge_annotation_patch",
+        "build_tool_cards"
+      ],
+      "totalLines": 1044,
+      "hasStructuralAnalysis": true
+    },
+    "tool-kg/tests/test_tool_card_authority.py": {
+      "filePath": "tool-kg/tests/test_tool_card_authority.py",
+      "contentHash": "1596b4a255b2631bc441121c6e5934dcfd1e6d91946619242f8eb85ded9bfb17",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ToolCardAuthorityTest",
+          "methods": [
+            "setUp",
+            "test_unknown_schema_slot_is_preserved_and_connectable",
+            "test_agent_patch_cannot_modify_schema_facts_or_taxonomy_stage",
+            "test_annotation_cannot_create_fake_schema_slot",
+            "test_json_schema_variants_preserve_base_requirements",
+            "test_json_schema_if_then_is_kept_as_deterministic_requirement",
+            "test_json_schema_if_then_else_keeps_both_branches",
+            "test_skill_requirement_set_cannot_reference_an_invented_slot"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 177
+        }
+      ],
+      "imports": [
+        {
+          "source": "unittest",
+          "specifiers": [
+            "unittest"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "ValidationError"
+          ]
+        },
+        {
+          "source": "molclaw_kg.models",
+          "specifiers": [
+            "ToolAnnotationPatch"
+          ]
+        },
+        {
+          "source": "molclaw_kg.tool_card_builder",
+          "specifiers": [
+            "_base_tool_card",
+            "_default_input_requirement_sets",
+            "_merge_annotation_patch"
+          ]
+        }
+      ],
+      "exports": [
+        "ToolCardAuthorityTest"
+      ],
+      "totalLines": 196,
+      "hasStructuralAnalysis": true
+    }
+  }
+}
